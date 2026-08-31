@@ -1,4 +1,4 @@
-# CLAUDE.md — max2
+# AGENTS.md — max2
 
 Host-repo voor de Ubuntu-machine `max2`. Het lopende werk is de tweede host van de Forgejo-Runner-tweemachinepool; de repo is breder bedoeld als plek voor alles wat op deze machine draait.
 
