@@ -1,0 +1,6 @@
+# aider-benchmark with the Gradle distribution and JUnit/AssertJ cached, so Java exercises
+# can be tested on a network without internet access.
+FROM aider-benchmark:5dc9490
+COPY java /warm/java
+RUN for d in /warm/java/exercises/practice/*/; do (cd "$d" && ./gradlew --no-daemon -q test >/dev/null 2>&1 || true); done \
+ && ls /root/.gradle/wrapper/dists && rm -rf /warm

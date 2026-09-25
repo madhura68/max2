@@ -1,0 +1,5 @@
+{
+  "authors": ["max2:claude"],
+  "files": {"solution": ["backup_excludes.py"], "test": ["backup_excludes_test.py"], "example": [".meta/example.py"]},
+  "blurb": "Decide whether a path is excluded by an ordered gitignore-like pattern list."
+}

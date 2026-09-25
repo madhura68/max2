@@ -1,0 +1,5 @@
+{
+  "authors": ["max2:claude"],
+  "files": {"solution": ["envelope-log.js"], "test": ["envelope-log.spec.js"], "example": [".meta/proof.ci.js"]},
+  "blurb": "Reduce a queue status-envelope log: statuses, illegal transitions, gaps, requeues."
+}

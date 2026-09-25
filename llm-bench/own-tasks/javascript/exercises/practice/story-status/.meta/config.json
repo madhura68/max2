@@ -1,0 +1,5 @@
+{
+  "authors": ["max2:claude"],
+  "files": {"solution": ["story-status.js"], "test": ["story-status.spec.js"], "example": [".meta/proof.ci.js"]},
+  "blurb": "Derive a story status from its tasks and apply an immutable, conflict-checked task update."
+}

@@ -40,3 +40,39 @@ Prompts staan in `prompts/`: `short.txt` (klein codeerverzoek, ~120 tokens) en
 Uitvoer: `results/speed-<UTC-timestamp>/raw.jsonl` (elke run) en `summary.csv`.
 
 Resultaten per datum: `results/fit-<datum>.md` en `results/speed-<datum>.md`.
+
+## Codeerkwaliteit
+
+Alle code die een model schrijft wordt uitgevoerd in Docker, nooit op de host.
+
+**EvalPlus** (HumanEval+ 164, MBPP+ 378 opgaven), `evalplus/`:
+
+```bash
+evalplus/run.sh /var/tmp/llm-bench/evalplus-<datum> qwen3.5:9b qwen3.8-gsq-rco:27b-iq3_s
+```
+
+Genereren via Ollama's `/api/chat` (`think:false`, temperature 0, seed 42, num_ctx 8192) in een
+container met `--network host` — alleen HTTP, er wordt niets uitgevoerd. `evalplus.sanitize` +
+`evalplus.evaluate` voeren de code uit in een container met `--network none`. Datasets zitten in
+het image (`llm-bench-evalplus:0.3.1`). Geen assistant-prefill (Ollama chat), anders dan EvalPlus'
+eigen OpenAI-backend; `sanitize` haalt de code uit het markdown-blok.
+
+**Aider polyglot** en de **eigen taken**, `aider/`:
+
+```bash
+aider/network.sh up          # intern Docker-netwerk: alleen Ollama bereikbaar
+aider/run.sh polyglot-subset30 qwen3.6:35b-a3b-coding
+aider/run.sh own-tasks qwen3.6:35b-a3b-coding
+aider/network.sh down        # socat, iptables-regels en netwerk weer weg
+```
+
+Benodigd: een checkout van Aider-AI/aider op commit `5dc9490` in `/var/tmp/llm-bench/aider`,
+het image daaruit (`docker build -f benchmark/Dockerfile -t aider-benchmark:5dc9490 .`) en
+`aider/Dockerfile.warm` erbovenop (Gradle en JUnit in de cache, zodat Java-tests zonder internet
+draaien). De polyglot-subset (`aider/subset30.txt`) is vast: 5 opgaven per taal, `random.Random(42)`
+over de gesorteerde lijst van Aider-AI/polyglot-benchmark `7e0611e`. Thinking uit, num_ctx 32768,
+edit-format `diff`, 2 pogingen.
+
+`own-tasks/` bevat zes eigen opgaven in het polyglot-formaat, afgeleid van ons eigen werk
+(queue-reclaim, docker-ports, backup-excludes in Python; sprint-code, story-status, envelope-log in
+JavaScript). Elke opgave heeft een referentie-oplossing in `.meta/` waartegen de tests groen zijn.
