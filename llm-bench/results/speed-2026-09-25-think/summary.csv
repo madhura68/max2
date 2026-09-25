@@ -1,0 +1,5 @@
+model,ctx,think,prompt,gpu_pct,vram_mib,size_mib,context,load_s,prompt_tokens,prompt_tps,gen_tps,ttft_s,peak_vram_mib,min_mem_available_mib,ollama,error
+hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S,32768,True,short,100.0,12553,12553,32768,28.84,143,858.0,54.0,0.312,14223,25258,0.34.4,
+hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S,32768,True,long,100.0,12553,12553,32768,28.84,4986,1753.3,52.1,3.085,14223,25258,0.34.4,
+qwen3.6:35b-a3b-coding,32768,True,short,59.9,12892,21537,32768,62.98,103,205.35,109.45,0.6085,15061,26672,0.34.4,
+qwen3.6:35b-a3b-coding,32768,True,long,59.9,12892,21537,32768,62.98,4944,726.0,104.4,7.0315,15061,26672,0.34.4,

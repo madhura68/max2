@@ -11,6 +11,10 @@ Plan en besluiten: Scrum4Me max2 → PBI-1, ProductDoc `PLANS/qwen3x-ollama-codi
 - Voor representatieve cijfers geen andere GPU-last. TEI (`tei-gpu`) houdt ~2,5 GB VRAM vast;
   tijdelijk stoppen met `docker compose -f /srv/apps/tei/docker-compose.yml stop`, daarna `start`.
 
+## Modellen
+
+De `hf.co/`-pull van een GGUF levert geen chat-template. Maak voor zulke modellen eerst een afgeleid model uit `modelfiles/` (bijv. `ollama create qwen3.8-gsq-rco:27b-iq3_s -f modelfiles/qwen3.8-gsq-rco-iq3_s.Modelfile`) en controleer met `ollama show --modelfile` dat `RENDERER`/`PARSER` gelijk zijn aan de officiële tag.
+
 ## Snelheid en geheugen
 
 ```bash
@@ -34,3 +38,5 @@ Prompts staan in `prompts/`: `short.txt` (klein codeerverzoek, ~120 tokens) en
 `long_code.py.txt` + `long_question.txt` (~4,6k tokens; het begin van CPython's `argparse.py`, PSF-licentie).
 
 Uitvoer: `results/speed-<UTC-timestamp>/raw.jsonl` (elke run) en `summary.csv`.
+
+Resultaten per datum: `results/fit-<datum>.md` en `results/speed-<datum>.md`.
