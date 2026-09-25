@@ -17,6 +17,8 @@ for model in "$@"; do
     echo "== $model $ds gen $(date +%T)"
     run --network host "$img" python /opt/gen.py --model "$model" --dataset "$ds" --out "/work/$dir"
     echo "== $model $ds eval $(date +%T)"
+    # evaluate prompts interactively when a results file exists (e.g. after a resumed run)
+    rm -f "$out/$dir/$ds.raw-sanitized_eval_results.json"
     run --network none "$img" sh -c "evalplus.sanitize --samples $dir/$ds.raw.jsonl >/dev/null 2>&1 \
       && evalplus.evaluate --dataset $ds --samples $dir/$ds.raw-sanitized.jsonl --i-just-wanna-run \
          > $dir/$ds.eval.log 2>&1" || echo "!! $model $ds evaluation failed, see $dir/$ds.eval.log"
