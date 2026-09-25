@@ -1,0 +1,1 @@
+Above is the beginning of a Python module. Explain in at most five bullet points what the classes defined in it are responsible for, then write a small subclass of the help formatter that prints option names in upper case. Reply concisely.
