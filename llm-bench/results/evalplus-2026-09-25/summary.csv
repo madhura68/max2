@@ -1,0 +1,8 @@
+model,humaneval_base,humaneval_plus,humaneval_n,humaneval_errors,humaneval_median_tokens,mbpp_base,mbpp_plus,mbpp_n,mbpp_errors,mbpp_median_tokens,mbpp_named_base,mbpp_named_plus
+qwen2.5-coder_14b,90.2,86.6,164,0,251,86.0,73.3,378,0,110,86.0,73.3
+qwen3-coder_30b,93.3,89.6,164,0,377,87.8,75.4,378,0,227,88.6,75.9
+qwen3.5_9b,86.6,80.5,164,0,275,71.2,57.7,378,0,258,82.3,66.7
+qwen3.6_35b-a3b-coding,91.5,87.2,164,0,234,90.7,75.9,378,0,129,90.7,75.9
+qwen3.8-gsq-rco_27b-iq3_s,93.9,91.5,164,0,226,90.2,78.0,378,0,122,90.7,78.6
+qwen3.8-gsq-rco_27b-iq3_xxs,93.3,89.6,164,0,205,88.9,76.2,378,0,150,89.4,76.7
+qwen3.8_27b,95.1,91.5,164,0,218,90.2,77.2,378,0,137,90.5,77.5
