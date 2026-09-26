@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-26-00-24-21--polyglot-subset30--qwen3.6_35b-a3b-coding/go/exercises/practice/ledger",
+    "testcase": "ledger",
+    "model": "ollama_chat/qwen3.6:35b-a3b-coding",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 47.65685772895813,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 11164,
+    "completion_tokens": 3568,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "bcb0f2f68418e536707cee8f9ff361d1585f7fb3"
+        ],
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "e0915e2177d928432c90b5e23b99a2005005d3b0"
+        ]
+    ]
+}

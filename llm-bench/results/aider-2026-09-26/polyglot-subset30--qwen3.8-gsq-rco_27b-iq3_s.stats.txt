@@ -1,0 +1,31 @@
+─ /benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3… ─
+- dirname: 2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s
+  test_cases: 30
+  model: ollama_chat/qwen3.8-gsq-rco:27b-iq3_s
+  edit_format: diff
+  commit_hash: 5dc9490
+  pass_rate_1: 13.3
+  pass_rate_2: 46.7
+  pass_num_1: 4
+  pass_num_2: 14
+  percent_cases_well_formed: 86.7
+  error_outputs: 5
+  num_malformed_responses: 5
+  num_with_malformed_responses: 4
+  user_asks: 19
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 511974
+  completion_tokens: 90586
+  test_timeouts: 0
+  total_tests: 30
+  command: aider --model ollama_chat/qwen3.8-gsq-rco:27b-iq3_s
+  date: 2026-09-25
+  versions: 0.86.3.dev
+  seconds_per_case: 78.1
+  total_cost: 0.0000
+
+costs: $0.0000/test-case, $0.00 total, $0.00 projected
+────────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,5 @@
+{
+  "authors": ["max2:claude"],
+  "files": {"solution": ["docker_ports.py"], "test": ["docker_ports_test.py"], "example": [".meta/example.py"]},
+  "blurb": "Parse docker ps output into published host ports per container."
+}

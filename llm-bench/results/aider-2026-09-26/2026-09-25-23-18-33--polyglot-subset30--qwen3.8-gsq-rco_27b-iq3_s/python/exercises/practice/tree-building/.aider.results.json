@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/python/exercises/practice/tree-building",
+    "testcase": "tree-building",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 85.29792547225952,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 9221,
+    "completion_tokens": 1612,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "9e1e4ab85c9c359203cdc0408a2a72776e7bfe77"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "1430e8fd9e20c04eaecd5544a2d4086e9cf8cc2b"
+        ]
+    ]
+}

@@ -1,0 +1,47 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/cpp/exercises/practice/all-your-base",
+    "testcase": "all-your-base",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 102.01869988441467,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 1,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 25259,
+    "completion_tokens": 4498,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "8b2fe44c15baff405f6977c949084e8182741eff"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "4bbf2158d6409eee0a3aed569c03865b69484479"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "b662c142a252ee1a52eed1e9e45ef36ab5e4b684"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "3a005e5b835384e1001552818ac4d6309f4e88d8"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "117b09ca0f49c1cedf318a3ce54f172c2d62b7dc"
+        ]
+    ]
+}

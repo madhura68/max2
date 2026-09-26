@@ -1,0 +1,5 @@
+{
+  "authors": ["max2:claude"],
+  "files": {"solution": ["queue_reclaim.py"], "test": ["queue_reclaim_test.py"], "example": [".meta/example.py"]},
+  "blurb": "Find stuck queue claims that a sweep may reclaim (MCP lease vs CLI timeout)."
+}

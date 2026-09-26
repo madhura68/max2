@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-58-57--polyglot-subset30--qwen3-coder_30b/java/exercises/practice/pythagorean-triplet",
+    "testcase": "pythagorean-triplet",
+    "model": "ollama_chat/qwen3-coder:30b",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 34.67672562599182,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 7959,
+    "completion_tokens": 2257,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "155eb2400789da14f5218513ed726ca83ecc2252"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "5b53f1ed6fe513db8f9a6fa9afe4217f817728d0"
+        ]
+    ]
+}

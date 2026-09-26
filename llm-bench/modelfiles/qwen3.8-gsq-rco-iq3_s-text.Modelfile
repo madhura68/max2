@@ -1,0 +1,15 @@
+# ISTA-DASLab GSQ-RCO GGUF pulled via hf.co arrives with a bare {{ .Prompt }} template
+# (no chat formatting, thinking not parsed). Reuse the official qwen3.8 renderer/parser
+# and sampling defaults so it behaves like qwen3.8:27b.
+# Text-only: only the IQ3_S weights blob of hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
+# (sha256 64b53b64…d810), without the ~0.9 GB mmproj vision projector, so it fits next to TEI.
+FROM /usr/share/ollama/.ollama/models/blobs/sha256-64b53b64c7aa39f20a7e54bd80582fe595b1d745624ee8a72e92508c0326d810
+TEMPLATE {{ .Prompt }}
+RENDERER qwen3.8
+PARSER qwen3.5
+PARAMETER top_k 20
+PARAMETER top_p 0.95
+PARAMETER min_p 0
+PARAMETER presence_penalty 0
+PARAMETER repeat_penalty 1
+PARAMETER temperature 1

@@ -1,0 +1,31 @@
+──── /benchmarks/2026-09-26-01-10-29--own-tasks--qwen3.8-gsq-rco_27b-iq3_s ─────
+- dirname: 2026-09-26-01-10-29--own-tasks--qwen3.8-gsq-rco_27b-iq3_s
+  test_cases: 6
+  model: ollama_chat/qwen3.8-gsq-rco:27b-iq3_s
+  edit_format: diff
+  commit_hash: 5dc9490
+  pass_rate_1: 83.3
+  pass_rate_2: 83.3
+  pass_num_1: 5
+  pass_num_2: 5
+  percent_cases_well_formed: 83.3
+  error_outputs: 1
+  num_malformed_responses: 1
+  num_with_malformed_responses: 1
+  user_asks: 0
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 54222
+  completion_tokens: 16120
+  test_timeouts: 0
+  total_tests: 6
+  command: aider --model ollama_chat/qwen3.8-gsq-rco:27b-iq3_s
+  date: 2026-09-26
+  versions: 0.86.3.dev
+  seconds_per_case: 67.6
+  total_cost: 0.0000
+
+costs: $0.0000/test-case, $0.00 total, $0.00 projected
+────────────────────────────────────────────────────────────────────────────────

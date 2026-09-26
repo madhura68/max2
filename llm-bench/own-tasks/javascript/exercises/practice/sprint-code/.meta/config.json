@@ -1,0 +1,5 @@
+{
+  "authors": ["max2:claude"],
+  "files": {"solution": ["sprint-code.js"], "test": ["sprint-code.spec.js"], "example": [".meta/proof.ci.js"]},
+  "blurb": "Next per-date sprint code S-YYYY-MM-DD-N, ignoring junk."
+}

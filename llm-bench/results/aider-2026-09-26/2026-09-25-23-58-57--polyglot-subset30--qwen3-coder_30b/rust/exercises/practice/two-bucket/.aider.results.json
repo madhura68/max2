@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-58-57--polyglot-subset30--qwen3-coder_30b/rust/exercises/practice/two-bucket",
+    "testcase": "two-bucket",
+    "model": "ollama_chat/qwen3-coder:30b",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 53.37343907356262,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 9016,
+    "completion_tokens": 3582,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "9ac558e2656b6e4deb2277212de417d5beb704a9"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "d6a3abbf92680542ee0cc6ae1c253a7372e2c780"
+        ]
+    ]
+}

@@ -1,0 +1,29 @@
+───────────── /benchmarks/2026-09-25-18-41-31--smoke1--qwen3.5_9b ──────────────
+- dirname: 2026-09-25-18-41-31--smoke1--qwen3.5_9b
+  test_cases: 1
+  model: ollama_chat/qwen3.5:9b
+  edit_format: diff
+  commit_hash: 5dc9490
+  pass_rate_1: 100.0
+  pass_num_1: 1
+  percent_cases_well_formed: 100.0
+  error_outputs: 0
+  num_malformed_responses: 0
+  num_with_malformed_responses: 0
+  user_asks: 0
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 2447
+  completion_tokens: 520
+  test_timeouts: 0
+  total_tests: 1
+  command: aider --model ollama_chat/qwen3.5:9b
+  date: 2026-09-25
+  versions: 0.86.3.dev
+  seconds_per_case: 6.4
+  total_cost: 0.0000
+
+costs: $0.0000/test-case, $0.00 total, $0.00 projected
+────────────────────────────────────────────────────────────────────────────────

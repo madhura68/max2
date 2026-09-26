@@ -1,0 +1,30 @@
+{
+    "testdir": "/benchmarks/2026-09-26-01-10-29--own-tasks--qwen3.8-gsq-rco_27b-iq3_s/python/exercises/practice/docker-ports",
+    "testcase": "docker-ports",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        true
+    ],
+    "cost": 0.0,
+    "duration": 42.603721380233765,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 2460,
+    "completion_tokens": 531,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "c783fc61b223d510b3e3707e4b9a2894c65512bb"
+        ]
+    ]
+}
