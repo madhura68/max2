@@ -10,6 +10,9 @@ services:
     build: .
     container_name: dsh
     restart: unless-stopped
+    environment:
+      # Placeholder, not a secret: Ollama has no auth; pi-ai just requires a value.
+      OLLAMA_API_KEY: ollama
     volumes:
       - dsh-data:/data
       - dsh-workspace:/workspace
