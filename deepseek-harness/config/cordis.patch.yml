@@ -1,0 +1,42 @@
+# dsh profile patch for max2 (PBI-2): $DSH_HOME/profiles/web/cordis.patch.yml in the dsh-data volume.
+# Install/refresh: config/apply.sh. Only local models through Ollama (reached via the host bridge
+# on the dsh-internal gateway); no API keys. Context comes from Ollama's default (32768).
+- id: llm-pi-ai
+  config:
+    providers:
+      ollama:
+        displayName: Ollama (max2)
+        # Ollama ignores the key, but pi-ai refuses a keyless custom route.
+        apiKeyEnv: OLLAMA_API_KEY
+        api: openai-completions
+        baseURL: http://172.30.80.1:11434/v1
+        reasoning: 'off'
+        compat:
+          supportsDeveloperRole: false
+          maxTokensField: max_tokens
+        models:
+          - id: qwen3.6:35b-a3b-coding
+            name: Qwen3.6 35B-A3B coding
+            contextWindow: 32768
+            maxTokens: 8192
+            input: [text]
+            reasoningEfforts:
+              'off': none
+              low: low
+              medium: medium
+              high: high
+          - id: qwen3.8-gsq-rco:27b-iq3_s-text
+            name: Qwen3.8 27B GSQ-RCO (text)
+            contextWindow: 32768
+            maxTokens: 8192
+            input: [text]
+            reasoningEfforts:
+              'off': none
+              low: low
+              medium: medium
+              high: high
+- id: agent-default-model
+  config:
+    provider: ollama
+    model: qwen3.6:35b-a3b-coding
+    reasoningEffort: 'off'

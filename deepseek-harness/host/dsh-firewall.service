@@ -1,0 +1,8 @@
+[Unit]
+Description=Host firewall for the dsh container (PBI-2)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dsh-firewall.sh
