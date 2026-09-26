@@ -76,3 +76,13 @@ edit-format `diff`, 2 pogingen.
 `own-tasks/` bevat zes eigen opgaven in het polyglot-formaat, afgeleid van ons eigen werk
 (queue-reclaim, docker-ports, backup-excludes in Python; sprint-code, story-status, envelope-log in
 JavaScript). Elke opgave heeft een referentie-oplossing in `.meta/` waartegen de tests groen zijn.
+
+## Resultaten 2026-09-25/26
+
+`results/fit-2026-09-25.md`, `results/speed-2026-09-25.md`, `results/evalplus-2026-09-25.md`,
+`results/aider-2026-09-26.md` en `results/speed-2026-09-26-tei-on.md`. Samenvatting en aanbeveling:
+Scrum4Me ProductDoc `RUNBOOKS/lokale-llm-qwen3x-benchmark` (product max2).
+
+`modelfiles/qwen3.8-gsq-rco-iq3_s-text.Modelfile` wijst naar een blob-pad in Ollama's modelmap
+(alleen leesbaar voor de gebruiker `ollama`): kopieer het bestand naar een voor `ollama` leesbare
+plek en maak het model met `sudo -u ollama ollama create qwen3.8-gsq-rco:27b-iq3_s-text -f <pad>`.
