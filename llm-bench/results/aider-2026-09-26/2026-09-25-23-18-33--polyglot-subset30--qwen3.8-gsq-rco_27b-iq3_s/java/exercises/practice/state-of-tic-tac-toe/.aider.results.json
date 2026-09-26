@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/java/exercises/practice/state-of-tic-tac-toe",
+    "testcase": "state-of-tic-tac-toe",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 40.051857709884644,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 16783,
+    "completion_tokens": 1522,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "39a31a64c9c5ddf8a5ef015fb3cdbe02a0fcf4ad"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "da9f3c4c1f0510bb34ddbcce3b5078c59a77fcfa"
+        ]
+    ]
+}

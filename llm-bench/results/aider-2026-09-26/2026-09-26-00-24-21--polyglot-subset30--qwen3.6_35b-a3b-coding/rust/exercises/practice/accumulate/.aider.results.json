@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-26-00-24-21--polyglot-subset30--qwen3.6_35b-a3b-coding/rust/exercises/practice/accumulate",
+    "testcase": "accumulate",
+    "model": "ollama_chat/qwen3.6:35b-a3b-coding",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 20.711129903793335,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 5181,
+    "completion_tokens": 535,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "97811a65e2102a8ab351079f79eddb5f54c8882d"
+        ],
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "d443075e4e86b6463d9acbc8cf2c87695d2cc54f"
+        ]
+    ]
+}

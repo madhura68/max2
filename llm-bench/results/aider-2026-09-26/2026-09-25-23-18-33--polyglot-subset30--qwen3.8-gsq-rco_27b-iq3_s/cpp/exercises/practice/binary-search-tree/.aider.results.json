@@ -1,0 +1,59 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/cpp/exercises/practice/binary-search-tree",
+    "testcase": "binary-search-tree",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 413.9852330684662,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 1,
+    "num_user_asks": 7,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 1,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 106264,
+    "completion_tokens": 13644,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "728595dddf0dbac8f26e4c806393a443a582c4c1"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "a0415f4dd2ee8c1fb769f383d51fe40e26725009"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "0839c00ac6ee960d3269b2edad6cd5c24f6e06ac"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "ed669ee90cd8e95d3715acb0588d14b2b9a94c25"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "f2857c5df67e592c23fa51b0ffcbeda0c6790377"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "33092e246010032375d3c8633b7460763e3e34c9"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "ab06226026c1ef460053c1560089d13a545d3c1e"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "d55797ae337e0219652c0b7af50406d572353495"
+        ]
+    ]
+}

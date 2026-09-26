@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/python/exercises/practice/list-ops",
+    "testcase": "list-ops",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        true
+    ],
+    "cost": 0.0,
+    "duration": 53.03735089302063,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 6009,
+    "completion_tokens": 2577,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "660af848463bbd292852f9c9a91dbbb1f28aa8da"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "391807be63f75981f6dee3b565c114fd04e2f4d1"
+        ]
+    ]
+}

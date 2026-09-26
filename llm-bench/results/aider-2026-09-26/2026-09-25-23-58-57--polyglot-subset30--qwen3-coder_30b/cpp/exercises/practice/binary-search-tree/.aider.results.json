@@ -1,0 +1,55 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-58-57--polyglot-subset30--qwen3-coder_30b/cpp/exercises/practice/binary-search-tree",
+    "testcase": "binary-search-tree",
+    "model": "ollama_chat/qwen3-coder:30b",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 198.41254377365112,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 6,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 76024,
+    "completion_tokens": 7247,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "03a0a2840b64eafb9a05332ef3d824e5ef5749b7"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "5d3365a8a702121978c30ea95eb08e8653f9d250"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "5390cbfe258f5f4e6153688727fa817dd0198a1a"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "bed4c655e0c26421cf1d20d6241fb1485b5aa351"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "c74b9c9b497da43a7e30f406128c3806e5b5f299"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "a3d329ec2f9a0a2f5127eca9bd06648517445d6b"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "286f9b777ba981616b8afc4b048c7d7afd3a75b8"
+        ]
+    ]
+}

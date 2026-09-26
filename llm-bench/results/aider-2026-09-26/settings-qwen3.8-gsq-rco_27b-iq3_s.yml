@@ -1,0 +1,6 @@
+- name: ollama_chat/qwen3.8-gsq-rco:27b-iq3_s
+  edit_format: diff
+  use_temperature: 0
+  extra_params:
+    num_ctx: 32768
+    think: false

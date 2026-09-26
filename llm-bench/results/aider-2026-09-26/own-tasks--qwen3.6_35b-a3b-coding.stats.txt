@@ -1,0 +1,31 @@
+────── /benchmarks/2026-09-26-01-21-12--own-tasks--qwen3.6_35b-a3b-coding ──────
+- dirname: 2026-09-26-01-21-12--own-tasks--qwen3.6_35b-a3b-coding
+  test_cases: 6
+  model: ollama_chat/qwen3.6:35b-a3b-coding
+  edit_format: diff
+  commit_hash: 5dc9490
+  pass_rate_1: 50.0
+  pass_rate_2: 83.3
+  pass_num_1: 3
+  pass_num_2: 5
+  percent_cases_well_formed: 100.0
+  error_outputs: 0
+  num_malformed_responses: 0
+  num_with_malformed_responses: 0
+  user_asks: 0
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 31246
+  completion_tokens: 11986
+  test_timeouts: 0
+  total_tests: 6
+  command: aider --model ollama_chat/qwen3.6:35b-a3b-coding
+  date: 2026-09-26
+  versions: 0.86.3.dev
+  seconds_per_case: 40.8
+  total_cost: 0.0000
+
+costs: $0.0000/test-case, $0.00 total, $0.00 projected
+────────────────────────────────────────────────────────────────────────────────

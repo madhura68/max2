@@ -1,0 +1,43 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-58-57--polyglot-subset30--qwen3-coder_30b/cpp/exercises/practice/sublist",
+    "testcase": "sublist",
+    "model": "ollama_chat/qwen3-coder:30b",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 106.2652108669281,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 2,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 43265,
+    "completion_tokens": 2476,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "96193f266e961fe305ecc1414948b4675c087ec6"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "2670b60ae69fe2ffd43513e9cf70117619d0b7c7"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "e677dcc7963303b2ea60412422e0eaf71b95b5b5"
+        ],
+        [
+            "4e7afef03e23e0bfce4e672fb4a64ed5196dcd1f",
+            "fd2fd7636a3a91d425bc5792f68e96a9fe5efc47"
+        ]
+    ]
+}

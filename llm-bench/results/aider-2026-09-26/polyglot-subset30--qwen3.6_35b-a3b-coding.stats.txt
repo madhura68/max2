@@ -1,0 +1,31 @@
+── /benchmarks/2026-09-26-00-24-21--polyglot-subset30--qwen3.6_35b-a3b-coding ──
+- dirname: 2026-09-26-00-24-21--polyglot-subset30--qwen3.6_35b-a3b-coding
+  test_cases: 30
+  model: ollama_chat/qwen3.6:35b-a3b-coding
+  edit_format: diff
+  commit_hash: 5dc9490
+  pass_rate_1: 26.7
+  pass_rate_2: 60.0
+  pass_num_1: 8
+  pass_num_2: 18
+  percent_cases_well_formed: 90.0
+  error_outputs: 6
+  num_malformed_responses: 6
+  num_with_malformed_responses: 3
+  user_asks: 22
+  lazy_comments: 0
+  syntax_errors: 0
+  indentation_errors: 0
+  exhausted_context_windows: 0
+  prompt_tokens: 603195
+  completion_tokens: 113489
+  test_timeouts: 1
+  total_tests: 30
+  command: aider --model ollama_chat/qwen3.6:35b-a3b-coding
+  date: 2026-09-26
+  versions: 0.86.3.dev
+  seconds_per_case: 84.4
+  total_cost: 0.0000
+
+costs: $0.0000/test-case, $0.00 total, $0.00 projected
+────────────────────────────────────────────────────────────────────────────────

@@ -1,0 +1,47 @@
+{
+    "testdir": "/benchmarks/2026-09-26-00-24-21--polyglot-subset30--qwen3.6_35b-a3b-coding/python/exercises/practice/tree-building",
+    "testcase": "tree-building",
+    "model": "ollama_chat/qwen3.6:35b-a3b-coding",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 167.1307647228241,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 4,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 4,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 59343,
+    "completion_tokens": 5602,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "eaa27c253328c9d32360e2fe4a24fa5e341271e8"
+        ],
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "597d0a29a60a997ffe6e61de471502e4e0aa1e09"
+        ],
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "ba9a69f174a5335b85faa50054c5e1d73bdcee9d"
+        ],
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "e8ba1691ab426ccecc0de8a2720aab285700b85a"
+        ],
+        [
+            "1a4b361748bc160ff32176ce40ed2e461e0a511a",
+            "36280197bb7e869739e287799a87ca0612a63dba"
+        ]
+    ]
+}

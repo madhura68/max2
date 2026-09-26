@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/go/exercises/practice/two-bucket",
+    "testcase": "two-bucket",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 50.25887131690979,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 8821,
+    "completion_tokens": 2342,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "1995370bcff6d56d591d8478d4cd4b95281d4b4a"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "9a7ce85250cf94892181914902830db37da40bbe"
+        ]
+    ]
+}

@@ -1,0 +1,35 @@
+{
+    "testdir": "/benchmarks/2026-09-25-23-18-33--polyglot-subset30--qwen3.8-gsq-rco_27b-iq3_s/javascript/exercises/practice/sum-of-multiples",
+    "testcase": "sum-of-multiples",
+    "model": "ollama_chat/qwen3.8-gsq-rco:27b-iq3_s",
+    "edit_format": "diff",
+    "tests_outcomes": [
+        false,
+        false
+    ],
+    "cost": 0.0,
+    "duration": 23.743233680725098,
+    "test_timeouts": 0,
+    "commit_hash": "5dc9490",
+    "num_error_outputs": 0,
+    "num_user_asks": 0,
+    "num_exhausted_context_windows": 0,
+    "num_malformed_responses": 0,
+    "syntax_errors": 0,
+    "indentation_errors": 0,
+    "lazy_comments": 0,
+    "reasoning_effort": null,
+    "prompt_tokens": 8369,
+    "completion_tokens": 959,
+    "thinking_tokens": null,
+    "chat_hashes": [
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "b359e94bbbf2a38a863f84af184699aac9f98e43"
+        ],
+        [
+            "0f0f467392847c20ceabf486420b1f73905dd86a",
+            "7839a35fbc1276027c2c0c012cc1bb0882f5431c"
+        ]
+    ]
+}
