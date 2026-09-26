@@ -1,0 +1,8 @@
+{
+  "name": "max2-deepseek-harness",
+  "private": true,
+  "description": "Pinned DeepSeek Harness install for the dsh container (PBI-2); package-lock.json fixes every transitive version.",
+  "dependencies": {
+    "@deepseek-ai/dsh": "0.1.5-rc.3"
+  }
+}
