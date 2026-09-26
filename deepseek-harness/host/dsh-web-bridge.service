@@ -1,0 +1,14 @@
+[Unit]
+Description=Caddy -> dsh web bridge (172.18.0.1:3080 -> 172.30.80.10:3081)
+After=docker.service
+Requires=docker.service
+
+[Service]
+ExecStartPre=/bin/sh -c 'until ip -4 addr show 2>/dev/null | grep -q "inet 172.18.0.1/"; do sleep 2; done'
+ExecStart=/usr/bin/socat TCP-LISTEN:3080,bind=172.18.0.1,fork,reuseaddr TCP:172.30.80.10:3081
+Restart=always
+RestartSec=5
+DynamicUser=yes
+
+[Install]
+WantedBy=multi-user.target

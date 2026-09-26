@@ -1,0 +1,37 @@
+# DeepSeek Harness on max2 (PBI-2). Own compose project, never merged into the live scrum4me stack.
+#   docker compose -f /home/janpeter/Development/max2/deepseek-harness/docker-compose.yml up -d
+# The network is internal: no internet, no LAN. The host bridges in host/ connect exactly two
+# things: the container to Ollama (gateway:11434) and Caddy to the container (172.18.0.1:3080).
+name: deepseek-harness
+
+services:
+  dsh:
+    image: dsh:0.1.5-rc.3
+    build: .
+    container_name: dsh
+    restart: unless-stopped
+    volumes:
+      - dsh-data:/data
+      - dsh-workspace:/workspace
+    networks:
+      dsh-internal:
+        ipv4_address: 172.30.80.10
+    mem_limit: 4g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  dsh-internal:
+    name: dsh-internal
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-dsh
+    ipam:
+      config:
+        - subnet: 172.30.80.0/24
+          gateway: 172.30.80.1
+
+volumes:
+  dsh-data:
+  dsh-workspace:
