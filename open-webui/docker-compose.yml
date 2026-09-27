@@ -1,0 +1,57 @@
+# Open WebUI on max2 (PBI-6): browser chat for the local Ollama models at ollama.jp-visser.nl.
+# Own compose project, never merged into the live scrum4me stack.
+#   docker compose -f /home/janpeter/Development/max2/open-webui/docker-compose.yml up -d
+# Same isolation as deepseek-harness: the network is internal (no internet, no LAN). The host
+# bridges in host/ connect exactly two things: the container to Ollama (gateway:11434) and
+# Caddy to the container (172.18.0.1:3082). Model downloads go through Ollama on the host.
+name: open-webui
+
+services:
+  open-webui:
+    image: ghcr.io/open-webui/open-webui:v0.11.4
+    container_name: open-webui
+    restart: unless-stopped
+    # WEBUI_SECRET_KEY lives in .env next to this file (0600, not in git); see README.
+    env_file: .env
+    environment:
+      OLLAMA_BASE_URL: http://172.30.81.1:11434
+      # Caddy authenticates (basic_auth) and sets these headers; Open WebUI trusts them, so
+      # there is one login. Only Caddy can reach the container (host/owui-firewall.sh).
+      WEBUI_AUTH_TRUSTED_EMAIL_HEADER: X-Webui-Email
+      WEBUI_AUTH_TRUSTED_NAME_HEADER: X-Webui-Name
+      # No other way in: Caddy lets Bearer-token API calls through without basic_auth, so no
+      # one may obtain a token except via the trusted header (first user = jp = admin).
+      ENABLE_SIGNUP: "false"
+      ENABLE_LOGIN_FORM: "false"
+      DEFAULT_USER_ROLE: pending
+      WEBUI_URL: https://ollama.jp-visser.nl
+      ENABLE_OPENAI_API: "false"
+      # No internet in this network: skip update checks and Hugging Face downloads.
+      OFFLINE_MODE: "true"
+      ENABLE_VERSION_UPDATE_CHECK: "false"
+      ANONYMIZED_TELEMETRY: "false"
+      SCARF_NO_ANALYTICS: "true"
+      DO_NOT_TRACK: "true"
+    volumes:
+      - owui-data:/app/backend/data
+    networks:
+      owui-internal:
+        ipv4_address: 172.30.81.10
+    mem_limit: 4g
+    pids_limit: 512
+    security_opt:
+      - no-new-privileges:true
+
+networks:
+  owui-internal:
+    name: owui-internal
+    internal: true
+    driver_opts:
+      com.docker.network.bridge.name: br-owui
+    ipam:
+      config:
+        - subnet: 172.30.81.0/24
+          gateway: 172.30.81.1
+
+volumes:
+  owui-data:
