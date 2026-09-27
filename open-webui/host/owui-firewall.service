@@ -1,0 +1,8 @@
+[Unit]
+Description=Host firewall for the open-webui container (PBI-6)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/owui-firewall.sh
