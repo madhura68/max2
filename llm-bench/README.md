@@ -7,9 +7,13 @@ Plan en besluiten: Scrum4Me max2 → PBI-1, ProductDoc `PLANS/qwen3x-ollama-codi
 
 - Ollama draait als systemd-service op `127.0.0.1:11434` (nooit breder binden: geen auth).
   Instellingen in `/etc/systemd/system/ollama.service.d/override.conf`: flash attention aan,
-  KV-cache `q8_0`, één model tegelijk, `NUM_PARALLEL=1`.
+  KV-cache `q8_0`, één model tegelijk, `NUM_PARALLEL=1`, standaardcontext `OLLAMA_CONTEXT_LENGTH=65536`
+  (stand 2026-09-29; de scripts zetten `num_ctx` zelf).
 - Voor representatieve cijfers geen andere GPU-last. TEI (`tei-gpu`) houdt ~2,5 GB VRAM vast;
   tijdelijk stoppen met `docker compose -f /srv/apps/tei/docker-compose.yml stop`, daarna `start`.
+- Geen andere Ollama-clients tijdens een meting. Open WebUI (`open-webui`) en DeepSeek-Harness (`dsh`)
+  gebruiken dezelfde Ollama, die één model tegelijk laadt: één request van hen wisselt het gemeten model.
+  Stop ze met `docker stop open-webui dsh` en start ze daarna weer met `docker start open-webui dsh`.
 
 ## Modellen
 
@@ -22,20 +26,24 @@ De `hf.co/`-pull van een GGUF levert geen chat-template. Maak voor zulke modelle
 ```
 
 Per model × context: één warm-up (laadtijd, GPU/CPU-split uit `/api/ps`), daarna per prompt
-`--reps` runs; de samenvatting geeft de mediaan. Elke run krijgt een unieke eerste regel, zodat
-Ollama's prompt-prefixcache niet meetelt. Thinking staat uit, tenzij `--think`.
+`--reps` runs; de samenvatting geeft de mediaan (bij `--reps 2` is dat het gemiddelde; gebruik er
+minstens 3). Elke run krijgt een unieke regel, zodat Ollama's prompt-prefixcache de prompt niet
+hergebruikt. Die regel staat wel ná de chat-template, dus dat korte stuk komt uit de cache en telt mee
+in `prompt_tps` (naar schatting: lange prompt <1%, korte prompt enkele procenten, bij qwen2.5-coder met
+zijn standaard-systeemprompt ~20%). Thinking staat uit, tenzij `--think`.
 
 | Kolom | Betekenis |
 |---|---|
-| `gpu_pct` | deel van het geladen model dat in VRAM staat (100 = volledig op de GPU) |
+| `gpu_pct` | deel van het geladen model dat in VRAM staat (100 = volledig op de GPU); `/api/ps` telt een vision-projector (~0,9 GB) niet mee |
 | `prompt_tps` | prompt-verwerking, tokens/s (Ollama `prompt_eval_*`) |
 | `gen_tps` | generatie, tokens/s (Ollama `eval_*`) |
-| `ttft_s` | tijd tot het eerste token, gemeten op de stream |
+| `ttft_s` | tijd tot het eerste token, gemeten op de stream (met `--think`: het eerste redeneertoken) |
 | `peak_vram_mib` | piek `nvidia-smi memory.used` tijdens het model × context-blok (hele GPU) |
-| `min_mem_available_mib` | laagste `MemAvailable` tijdens dat blok |
+| `min_mem_available_mib` | laagste `MemAvailable` tijdens dat blok; modelgewichten die via mmap in het RAM staan tellen als beschikbaar |
 
-Prompts staan in `prompts/`: `short.txt` (klein codeerverzoek, ~120 tokens) en
-`long_code.py.txt` + `long_question.txt` (~4,6k tokens; het begin van CPython's `argparse.py`, PSF-licentie).
+Prompts staan in `prompts/`: `short.txt` (klein codeerverzoek, ~100–120 tokens) en
+`long_code.py.txt` + `long_question.txt` (~4,9k tokens, ~4,6k bij qwen2.5-coder en qwen3-coder; het begin
+van CPython's `argparse.py`, PSF-licentie).
 
 Uitvoer: `results/speed-<UTC-timestamp>/raw.jsonl` (elke run) en `summary.csv`.
 
@@ -51,11 +59,13 @@ Alle code die een model schrijft wordt uitgevoerd in Docker, nooit op de host.
 evalplus/run.sh /var/tmp/llm-bench/evalplus-<datum> qwen3.5:9b qwen3.8-gsq-rco:27b-iq3_s
 ```
 
-Genereren via Ollama's `/api/chat` (`think:false`, temperature 0, seed 42, num_ctx 8192) in een
-container met `--network host` — alleen HTTP, er wordt niets uitgevoerd. `evalplus.sanitize` +
-`evalplus.evaluate` voeren de code uit in een container met `--network none`. Datasets zitten in
-het image (`llm-bench-evalplus:0.3.1`). Geen assistant-prefill (Ollama chat), anders dan EvalPlus'
-eigen OpenAI-backend; `sanitize` haalt de code uit het markdown-blok.
+Genereren via Ollama's `/api/chat` (`think:false`, temperature 0, seed 42, num_ctx 8192,
+num_predict 1024) in een container met `--network host` — alleen HTTP, er wordt niets uitgevoerd.
+Van de sampling-instellingen worden alleen temperature en seed overschreven: penalty-defaults van een tag (bijv. `presence_penalty`)
+blijven actief. `evalplus.sanitize` + `evalplus.evaluate` voeren de code uit in een container met
+`--network none`. Datasets zitten in het image (`llm-bench-evalplus:0.3.1`). De instructietekst is die van
+EvalPlus' HF/vLLM-backends, maar zonder hun response-prefill (Ollama chat); de cijfers zijn daarom niet
+één-op-één vergelijkbaar met gepubliceerde EvalPlus-scores. `sanitize` haalt de code uit het markdown-blok.
 
 **Aider polyglot** en de **eigen taken**, `aider/`:
 
@@ -66,12 +76,23 @@ aider/run.sh own-tasks qwen3.6:35b-a3b-coding
 aider/network.sh down        # socat, iptables-regels en netwerk weer weg
 ```
 
-Benodigd: een checkout van Aider-AI/aider op commit `5dc9490` in `/var/tmp/llm-bench/aider`,
-het image daaruit (`docker build -f benchmark/Dockerfile -t aider-benchmark:5dc9490 .`) en
-`aider/Dockerfile.warm` erbovenop (Gradle en JUnit in de cache, zodat Java-tests zonder internet
-draaien). De polyglot-subset (`aider/subset30.txt`) is vast: 5 opgaven per taal, `random.Random(42)`
-over de gesorteerde lijst van Aider-AI/polyglot-benchmark `7e0611e`. Thinking uit, num_ctx 32768,
-edit-format `diff`, 2 pogingen.
+Benodigd:
+
+- een checkout van Aider-AI/aider op commit `5dc9490` in `/var/tmp/llm-bench/aider` en het image daaruit
+  (`docker build -f benchmark/Dockerfile -t aider-benchmark:5dc9490 .`);
+- `aider/Dockerfile.warm` erbovenop, getagd als `aider-benchmark:5dc9490-warm` (de naam die `run.sh`
+  gebruikt). De build-context moet een map `java/` bevatten met `exercises/practice/` uit
+  Aider-AI/polyglot-benchmark; Gradle en JUnit komen dan in de cache, zodat Java-tests zonder internet draaien;
+- de opgaven in `$RUNS` (standaard `/var/tmp/llm-bench/aider-runs`): `$RUNS/polyglot-subset30/<taal>/exercises/practice/<opgave>`
+  voor elke regel uit `aider/subset30.txt`, en een kopie van `own-tasks/` als `$RUNS/own-tasks`.
+
+De polyglot-subset (`aider/subset30.txt`) is vast en komt uit Aider-AI/polyglot-benchmark `7e0611e`:
+één gedeelde `random.Random(42)`, de talen in gesorteerde volgorde, en per taal
+`rng.sample(sorted(opgaven), 5)`. Thinking uit, num_ctx 32768, edit-format `diff`, 2 pogingen.
+
+Draai `aider/network.sh check` vóór elke run: `run.sh` controleert de isolatie zelf niet. De socat-brug
+luistert op het gateway-IP van het interne netwerk en geeft de hele Ollama-API door. Omdat de
+INPUT-policy van max2 ACCEPT is, kunnen ook containers op andere Docker-netwerken daar tijdens een run bij.
 
 `own-tasks/` bevat zes eigen opgaven in het polyglot-formaat, afgeleid van ons eigen werk
 (queue-reclaim, docker-ports, backup-excludes in Python; sprint-code, story-status, envelope-log in
