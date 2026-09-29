@@ -77,6 +77,30 @@ edit-format `diff`, 2 pogingen.
 (queue-reclaim, docker-ports, backup-excludes in Python; sprint-code, story-status, envelope-log in
 JavaScript). Elke opgave heeft een referentie-oplossing in `.meta/` waartegen de tests groen zijn.
 
+## Promptverfijner (`refiner/`)
+
+Meet welk model de rol van *promptverfijner* het best vervult: een Nederlandstalig gesprek waarin het
+model hooguit 4 verduidelijkingsvragen per ronde stelt en daarna een prompt voor Claude Opus 5.5 schrijft,
+zonder de vraag zelf te beantwoorden. Systeemprompt: `prompts/promptverfijner-systeem.txt`
+(bron: Scrum4Me `SPECS/promptverfijner-systeemprompt`); plan: `PLANS/refiner-eval` (PBI-8).
+
+```bash
+./refiner/run.py --models qwen3.8-gsq-rco:27b-iq3_s-text qwen3.6:35b-a3b-coding --seeds 1 \
+  --num-ctx 16384 --temperature 0.7 --out results/refiner-<datum>
+./refiner/score.py results/refiner-<datum>
+python3 -m unittest refiner/test_refiner.py     # nep-Ollama, geen GPU nodig
+```
+
+`refiner/cases.jsonl` bevat 10 cases met gescripte antwoorden (drukbeurt bij R01/R02, revisie bij
+R03/R05). De runner laat Ollama's prefix-cache bewust aan (zo wordt het echt gebruikt), logt per beurt
+tokens, duur, `done_reason`, `/api/ps` en de TEI-status in `raw.jsonl`, en schrijft transcripten met
+een blinde id (`blind-key.json` koppelt ze aan het model). Er wordt geen modelcode uitgevoerd.
+
+`score.py` draait heuristische checks: A1 taal (alleen wélke taal, niet hoe goed), A2 vraagvorm,
+A3 rondes, A4 eindvorm, A5 terughoudendheid (een vlag; pas diskwalificerend na bevestiging door JP),
+A6 trouw aan de gegeven feiten, A7 Opus-regels, A8 revisie. Kwaliteit van het Nederlands, de waarde
+van de vragen en verzonnen feiten beoordeelt JP blind aan de hand van de transcripten.
+
 ## Resultaten 2026-09-25/26
 
 `results/fit-2026-09-25.md`, `results/speed-2026-09-25.md`, `results/evalplus-2026-09-25.md`,
