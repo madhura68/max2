@@ -1,0 +1,19 @@
+model,case,seed,blind_id,A1,A2,A3,A4,A5,A6,A7,A8,status,turns,wall_s,eval_tokens,max_prompt_tokens,other_model_loaded,notes
+qwen3.6:35b-a3b-coding,R01,1,dc973d,pass,pass,pass,fail,pass,pass,pass,n.v.t.,final,2,103.0,334,2791,True,
+qwen3.6:35b-a3b-coding,R01,2,03c8eb,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,7.9,646,2681,False,
+qwen3.6:35b-a3b-coding,R01,3,03ffa5,pass,pass,pass,fail,flag,pass,pass,n.v.t.,final,2,11.0,920,2737,False,"A5 treffer: (?i)een PBI is\b, (?i)een user story is\b"
+qwen3.6:35b-a3b-coding,R07,1,43483d,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,11.6,886,2670,False,
+qwen3.6:35b-a3b-coding,R07,2,e70070,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,8.8,691,2745,False,
+qwen3.6:35b-a3b-coding,R07,3,a587c4,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,3,14.8,1069,3027,False,
+qwen3.6:35b-a3b-coding,R10,1,f5ec8b,fail,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.3,764,2700,False,
+qwen3.6:35b-a3b-coding,R10,2,6b96b5,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.8,798,2731,False,
+qwen3.6:35b-a3b-coding,R10,3,330383,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,9.5,789,2765,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R01,1,dd14ad,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,3,67.0,603,2951,True,A5 treffer: (?i)een user story is\b
+qwen3.8-gsq-rco:27b-iq3_s-text,R01,2,8a0b58,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,8.5,426,2752,False,A5 treffer: (?i)een PBI is\b
+qwen3.8-gsq-rco:27b-iq3_s-text,R01,3,a1beb9,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,10.9,525,2770,False,A5 treffer: (?i)een PBI is\b
+qwen3.8-gsq-rco:27b-iq3_s-text,R07,1,b97149,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,14.2,683,2755,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R07,2,55910a,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,12.5,644,2739,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R07,3,1ece30,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,12.0,618,2692,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R10,1,500ca9,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,13.4,672,2775,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R10,2,7e6b7d,pass,pass,pass,fail,n.v.t.,pass,pass,n.v.t.,final,2,12.4,635,2731,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R10,3,df5d1b,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,9.9,512,2704,False,

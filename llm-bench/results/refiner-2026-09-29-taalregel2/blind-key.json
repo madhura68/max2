@@ -1,0 +1,92 @@
+{
+ "dd14ad": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R01",
+  "seed": 1
+ },
+ "8a0b58": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R01",
+  "seed": 2
+ },
+ "a1beb9": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R01",
+  "seed": 3
+ },
+ "b97149": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R07",
+  "seed": 1
+ },
+ "55910a": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R07",
+  "seed": 2
+ },
+ "1ece30": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R07",
+  "seed": 3
+ },
+ "500ca9": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R10",
+  "seed": 1
+ },
+ "7e6b7d": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R10",
+  "seed": 2
+ },
+ "df5d1b": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R10",
+  "seed": 3
+ },
+ "dc973d": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R01",
+  "seed": 1
+ },
+ "03c8eb": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R01",
+  "seed": 2
+ },
+ "03ffa5": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R01",
+  "seed": 3
+ },
+ "43483d": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R07",
+  "seed": 1
+ },
+ "e70070": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R07",
+  "seed": 2
+ },
+ "a587c4": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R07",
+  "seed": 3
+ },
+ "f5ec8b": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R10",
+  "seed": 1
+ },
+ "6b96b5": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R10",
+  "seed": 2
+ },
+ "330383": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R10",
+  "seed": 3
+ }
+}

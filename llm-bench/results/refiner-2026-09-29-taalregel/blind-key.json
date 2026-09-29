@@ -1,0 +1,62 @@
+{
+ "ca3291": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R03",
+  "seed": 1
+ },
+ "4cb555": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R03",
+  "seed": 2
+ },
+ "b03de3": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R07",
+  "seed": 1
+ },
+ "bdbdbf": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R07",
+  "seed": 2
+ },
+ "33c01b": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R10",
+  "seed": 1
+ },
+ "a0f708": {
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "case": "R10",
+  "seed": 2
+ },
+ "0bf86a": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R03",
+  "seed": 1
+ },
+ "75cc3f": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R03",
+  "seed": 2
+ },
+ "13213b": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R07",
+  "seed": 1
+ },
+ "db11ca": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R07",
+  "seed": 2
+ },
+ "5cd2c7": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R10",
+  "seed": 1
+ },
+ "1944c2": {
+  "model": "qwen3.6:35b-a3b-coding",
+  "case": "R10",
+  "seed": 2
+ }
+}
