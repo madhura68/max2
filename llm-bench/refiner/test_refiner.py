@@ -1708,13 +1708,15 @@ class DocHelpersTest(unittest.TestCase):
 
 # Taak 10c: poging, plan-noemer, zeef en tabel. The rows follow the row contract of Task 11: a row per turn, the closing
 # row (turn "end") and the plan, probe and stop rows, which have no case and so belong to no conversation.
-def conv_rows(model, cid, bid, contents, variant="nodocs", poging=1, end="final", statuses=None, tools=(), **keys):
+def conv_rows(model, cid, bid, contents, variant="nodocs", poging=1, end="final", statuses=None, tools=(),
+              rows_extra=None, **keys):
     """The rows of one attempt of a harness conversation: a row for each text in contents (the docs lookup `tools` in
-    turn 1), then the closing row (end=None leaves it out). keys are conversation fields such as seed."""
+    turn 1), then the closing row (end=None leaves it out). rows_extra: a dict of fields per turn row, such as
+    cost_usd or error_code. keys are conversation fields such as seed."""
     keys = {"model": model, "case": cid, "blind_id": bid, "variant": variant, "poging": poging, **keys}
     statuses = statuses or ["completed"] * len(contents)
-    rows = [harness_row(n, text, status=st, tool_calls=tools if n == 1 else (), **keys)
-            for n, (text, st) in enumerate(zip(contents, statuses), start=1)]
+    rows = [harness_row(n, text, status=st, tool_calls=tools if n == 1 else (), **{**keys, **extra})
+            for n, (text, st, extra) in enumerate(zip(contents, statuses, rows_extra or [{}] * len(contents)), start=1)]
     return rows + ([end_row(end, **keys)] if end else [])
 
 
@@ -1826,6 +1828,45 @@ class LoadRunTest(RunDirTest):
                "variant": "nodocs", "poging": 1, "turn": "end", "status": "invocation_error"}
         c = score.load_run(self.make_run([end]))[("m-a", "R06", 1)]
         self.assertEqual((c["status"], c["wall_s"], c["turns"], c["rows"]), ("invocation_error", None, [], []))
+
+    def test_every_attempt_holds_its_status_its_first_failed_turn_and_its_cost(self):
+        first = conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], poging=1, end="error",
+                          statuses=["completed", "budget_exceeded"],
+                          rows_extra=[{"cost_usd": 0.01}, {"cost_usd": 0.03, "error_code": "BUDGET_EXCEEDED"}])
+        second = conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], poging=2,
+                           rows_extra=[{"cost_usd": 0.002}, {}])
+        second[1].pop("cost_usd")                                    # an amount that is not there counts as 0
+        c = score.load_run(self.make_run(first + second))[("m-a", "R06", 1)]
+        # the closing rows carry a cost as well (end_row: 0.0008); it repeats the turns' cost and is not added to it
+        self.assertEqual(c["attempts"], {
+            1: {"status": "error", "failed": (2, "budget_exceeded", "BUDGET_EXCEEDED"), "cost_usd": 0.04},
+            2: {"status": "final", "failed": None, "cost_usd": 0.002}})
+        self.assertTrue(c["cost_reported"])
+
+    def test_a_failed_turn_without_an_error_code_has_none_in_its_place(self):
+        rows = conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], end="error", statuses=["completed", "failed"])
+        c = score.load_run(self.make_run(rows))[("m-a", "R06", 1)]
+        self.assertEqual(c["attempts"][1]["failed"], (2, "failed", None))
+
+    def test_the_first_failed_turn_is_the_one_that_is_named(self):
+        rows = conv_rows("m-a", "R06", "b00001", ["Vraag?", "", ""], end="error",
+                         statuses=["completed", "failed", "budget_exceeded"],
+                         rows_extra=[{}, {"error_code": "MODEL_ERROR"}, {"error_code": "BUDGET_EXCEEDED"}])
+        c = score.load_run(self.make_run(rows))[("m-a", "R06", 1)]
+        self.assertEqual(c["attempts"][1]["failed"], (2, "failed", "MODEL_ERROR"))
+
+    def test_an_old_run_has_one_attempt_and_no_reported_cost(self):
+        for conv in score.load_run(OLD_RUN).values():                # ollama rows: no status per turn, no cost
+            self.assertEqual(conv["attempts"], {1: {"status": "final", "failed": None, "cost_usd": 0}})
+            self.assertFalse(conv["cost_reported"])
+
+    def test_a_cost_is_reported_when_a_turn_row_names_an_amount_even_zero(self):
+        local = conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], rows_extra=[{"cost_usd": None}] * 2)
+        free = conv_rows("m-a", "R07", "b00002", [FENCE_REPLY], rows_extra=[{"cost_usd": 0}])
+        convs = score.load_run(self.make_run(local + free))
+        # a local model has no amount; the closing row says 0.0008 (end_row) but it is no source of the cost
+        self.assertFalse(convs[("m-a", "R06", 1)]["cost_reported"])
+        self.assertTrue(convs[("m-a", "R07", 1)]["cost_reported"])   # an explicit 0 is a known amount
 
 
 class LoadMetaTest(RunDirTest):
@@ -2100,6 +2141,33 @@ class SummaryCsvTest(RunDirTest):
         self.assertEqual((row["poging"], row["first_attempt_status"], row["status"]), ("2", "error", "final"))
         self.assertEqual((row["turns"], row["model_turns"], row["input_tokens"]), ("2", "4", "2400"))   # two rows, not four
 
+    def test_cost_usd_is_the_spend_of_all_attempts_and_the_rest_is_the_counted_attempt(self):
+        first = conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], poging=1, end="error",
+                          statuses=["completed", "budget_exceeded"],
+                          rows_extra=[{"cost_usd": 0.01}, {"cost_usd": 0.03, "error_code": "BUDGET_EXCEEDED"}])
+        second = conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], poging=2,
+                           rows_extra=[{"cost_usd": 0.002}, {"cost_usd": 0.003}])
+        run_dir = self.make_run(first + second)
+        self.score_main(run_dir)
+        (row,) = self.summary(run_dir)
+        # 0.04 was billed for the attempt that was discarded and 0.005 for the one that counts; the closing rows
+        # (0.0008 each, end_row) repeat the turns' cost and are not added
+        self.assertEqual(row["cost_usd"], "0.045")
+        self.assertEqual({k: row[k] for k in ("poging", "model_turns", "tool_calls", "input_tokens", "output_tokens")},
+                         {"poging": "2", "model_turns": "4", "tool_calls": "0", "input_tokens": "2400",
+                          "output_tokens": "600"})                   # the counted attempt only, as before
+
+    def test_the_cost_cell_is_empty_when_no_turn_row_names_a_cost(self):
+        local = conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], rows_extra=[{"cost_usd": None}] * 2)
+        gone = conv_rows("m-a", "R07", "b00002", [FENCE_REPLY])
+        gone[0].pop("cost_usd")
+        free = conv_rows("m-a", "R08", "b00003", [FENCE_REPLY], rows_extra=[{"cost_usd": 0}])
+        run_dir = self.make_run(local + gone + free)
+        self.score_main(run_dir)
+        # unknown is not free; the closing rows say 0.0008 (end_row) and are no source of the cost
+        self.assertEqual({r["blind_id"]: r["cost_usd"] for r in self.summary(run_dir)},
+                         {"b00001": "", "b00002": "", "b00003": "0.0"})
+
     def test_a_closing_row_without_backend_does_not_make_a_harness_row_an_ollama_row(self):
         # the conversation keys of a closing row are model, case, seed, blind_id, variant and poging: no backend. After an
         # invocation error it is all a conversation has, and the run is a harness run all the same
@@ -2112,7 +2180,7 @@ class SummaryCsvTest(RunDirTest):
                                                  "model_turns", "cost_usd", "eval_tokens", "other_model_loaded")},
                          {"status": "invocation_error", "variant": "nodocs", "poging": "1",
                           "first_attempt_status": "invocation_error", "turns": "0", "model_turns": "0",
-                          "cost_usd": "0.0", "eval_tokens": "", "other_model_loaded": ""})
+                          "cost_usd": "", "eval_tokens": "", "other_model_loaded": ""})   # no turn row: no amount known
         self.assertEqual(parse_tables(output)["nodocs"]["m-a"]["Backend"], "harness")
 
     def test_a_docs_row_after_a_plain_row_does_not_clash(self):
@@ -2221,8 +2289,9 @@ def parse_tables(text):
 class ReportTest(RunDirTest):
     """The printed output: a table per variant, the sieve reasons, the stops and the flagged transcripts."""
 
+    COST = "Kosten $ (alle pogingen)"       # the tokens are those of the attempt that counts, the cost is the spend
     COLUMNS = ["Model", "Backend", "Probe", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "Afgerond", "Eerste poging",
-               "Mediaan s", "Tokens in", "Tokens uit", "Kosten $", "Aanbieders", "Zeef"]
+               "Mediaan s", "Tokens in", "Tokens uit", COST, "Aanbieders", "Zeef"]
     FLAGGED = "Leg uit dat een user story een type PBI is."
 
     def nodocs_run(self):
@@ -2253,9 +2322,9 @@ class ReportTest(RunDirTest):
     def test_the_cells_of_a_model_that_ran(self):
         ok = parse_tables(self.nodocs_run())["nodocs"]["m-ok"]
         self.assertEqual({k: ok[k] for k in ("Backend", "Probe", "Afgerond", "Eerste poging", "Mediaan s", "Tokens in",
-                                             "Tokens uit", "Kosten $", "Aanbieders", "Zeef", "A5", "A8")},
+                                             "Tokens uit", self.COST, "Aanbieders", "Zeef", "A5", "A8")},
                          {"Backend": "harness", "Probe": "reliable", "Afgerond": "3/3", "Eerste poging": "3",
-                          "Mediaan s": "14", "Tokens in": "7200", "Tokens uit": "1800", "Kosten $": "0.0024",
+                          "Mediaan s": "14", "Tokens in": "7200", "Tokens uit": "1800", self.COST: "0.0024",
                           "Aanbieders": "Novita", "Zeef": "door", "A5": "-", "A8": "-"})
 
     def test_a_flag_gives_gezakt_and_shows_in_the_a5_count(self):
@@ -2266,7 +2335,7 @@ class ReportTest(RunDirTest):
         output = self.nodocs_run()
         none = parse_tables(output)["nodocs"]["m-none"]
         self.assertEqual((none["Backend"], none["Probe"], none["Zeef"]), ("harness", "geen aanbieder", "niet gedraaid"))
-        self.assertEqual([none[k] for k in ("Afgerond", "Eerste poging", "Mediaan s", "Tokens in", "Kosten $",
+        self.assertEqual([none[k] for k in ("Afgerond", "Eerste poging", "Mediaan s", "Tokens in", self.COST,
                                             "Aanbieders", "A1")], ["-"] * 7)
         self.assertIn("- m-none (niet gedraaid): geen aanbieder; a_plain: model HTTP 503: No available model provider",
                       output)
@@ -2276,8 +2345,9 @@ class ReportTest(RunDirTest):
         stop = parse_tables(output)["nodocs"]["m-stop"]
         self.assertEqual((stop["Afgerond"], stop["Eerste poging"], stop["Zeef"]), ("0/3", "0", "gezakt"))
         self.assertIn("- m-stop (gezakt): afgerond: 0 van 3 (0.0%), minder dan 90%; "
-                      "niet afgerond: error 1x (R06/1); ontbreekt 2x (R07/1, R08/1)", output)
+                      "niet afgerond: error 1x (R06/1); ontbreekt 2x (R07/1, R08/1) (run gestopt: max_cost)", output)
         self.assertIn("Gestopt:\n- m-stop: max_cost", output)
+        self.assertIn("- m-stop: R06/1 (st0001): error (beurt 2 budget_exceeded, $0.0008)", output)
 
     def test_a_model_that_is_through_has_no_reason_line(self):
         output = self.nodocs_run()
@@ -2342,6 +2412,88 @@ class ReportTest(RunDirTest):
         self.assertIn("Patroon: " + ", ".join(pattern), block)
         self.assertIn(D02_FLAG[0], block)
 
+    def attempts_run(self):
+        """m-a: R06 ends in error on its first attempt (turn 2 budget_exceeded, $0.04 billed) and finishes on the second
+        ($0.005); R07 finishes at once ($0.001)."""
+        first = conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], poging=1, end="error",
+                          statuses=["completed", "budget_exceeded"],
+                          rows_extra=[{"cost_usd": 0.01}, {"cost_usd": 0.03, "error_code": "BUDGET_EXCEEDED"}])
+        second = conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], poging=2,
+                           rows_extra=[{"cost_usd": 0.002}, {"cost_usd": 0.003}])
+        single = conv_rows("m-a", "R07", "b00002", [FENCE_REPLY], rows_extra=[{"cost_usd": 0.001}])
+        return self.score_main(self.make_run(first + second + single))
+
+    def test_the_cost_in_the_table_is_the_spend_of_all_attempts_the_tokens_are_the_counted_ones(self):
+        row = parse_tables(self.attempts_run())["nodocs"]["m-a"]
+        # 0.04 + 0.005 + 0.001: the discarded attempt was billed; the counted attempts hold 2400 + 1200 tokens in
+        self.assertEqual((row[self.COST], row["Tokens in"], row["Tokens uit"], row["Afgerond"], row["Eerste poging"]),
+                         ("0.0460", "3600", "900", "2/2", "1"))
+
+    def test_a_conversation_with_a_second_attempt_gets_a_line_with_both_attempts(self):
+        output = self.attempts_run()
+        self.assertIn("Pogingen en niet afgeronde gesprekken:", output)
+        self.assertIn("- m-a: R06/1 (b00001): poging 1 error (beurt 2 budget_exceeded, BUDGET_EXCEEDED, $0.0400) "
+                      "-> poging 2 final ($0.0050)", output)
+        self.assertNotIn("R07/1", output)                          # finished at once, on the first attempt
+
+    def test_an_unfinished_conversation_gets_a_line_with_the_turn_it_broke_on(self):
+        rows = []
+        for model, cost, first_id in (("m-local", None, "l00001"), ("m-paid", 0.0004, "p00001")):
+            rows += conv_rows(model, "R06", first_id, ["Vraag?", ""], end="error", statuses=["completed", "failed"],
+                              rows_extra=[{"cost_usd": cost}, {"cost_usd": cost, "error_code": "MODEL_ERROR"}])
+        rows += conv_rows("m-local", "R07", "l00002", ["Vraag?"] * 4, end="no_final", rows_extra=[{"cost_usd": None}] * 4)
+        output = self.score_main(self.make_run(rows))
+        self.assertIn("- m-local: R06/1 (l00001): error (beurt 2 failed, MODEL_ERROR)", output)     # no cost: no amount
+        self.assertIn("- m-local: R07/1 (l00002): no_final", output)
+        self.assertIn("- m-paid: R06/1 (p00001): error (beurt 2 failed, MODEL_ERROR, $0.0008)", output)
+
+    def test_a_conversation_without_a_closing_row_and_a_second_attempt_that_failed_too(self):
+        cut_off = conv_rows("m-a", "R06", "b00001", ["Vraag?"], end=None, rows_extra=[{"cost_usd": 0.001}])
+        failed_twice = (
+            conv_rows("m-a", "R07", "b00002", ["Vraag?", ""], poging=1, end="error",
+                      statuses=["completed", "failed"], rows_extra=[{"cost_usd": 0.01}, {"error_code": "MODEL_ERROR"}])
+            + conv_rows("m-a", "R07", "b00002", ["Vraag?", ""], poging=2, end="error",
+                        statuses=["completed", "budget_exceeded"],
+                        rows_extra=[{"cost_usd": 0.02}, {"error_code": "BUDGET_EXCEEDED"}]))
+        output = self.score_main(self.make_run(cut_off + failed_twice))
+        self.assertIn("- m-a: R06/1 (b00001): zonder eindrij ($0.0010)", output)
+        self.assertIn("- m-a: R07/1 (b00002): poging 1 error (beurt 2 failed, MODEL_ERROR, $0.0104) "
+                      "-> poging 2 error (beurt 2 budget_exceeded, BUDGET_EXCEEDED, $0.0204)", output)
+
+    def test_no_line_when_every_conversation_finished_on_its_first_attempt(self):
+        rows = conv_rows("m-a", "R06", "b00001", [FENCE_REPLY]) + conv_rows("m-a", "R07", "b00002", [FENCE_REPLY])
+        self.assertNotIn("Pogingen en niet afgeronde gesprekken", self.score_main(self.make_run(rows)))
+
+    def test_a_cost_that_no_row_names_is_a_dash_and_an_unknown_cost_is_not_summed_as_a_price(self):
+        local = conv_rows("m-local", "R06", "b00001", [FENCE_REPLY], rows_extra=[{"cost_usd": None}])
+        mixed = (conv_rows("m-mixed", "R06", "b00002", [FENCE_REPLY], rows_extra=[{"cost_usd": 0.001}])
+                 + conv_rows("m-mixed", "R07", "b00003", [FENCE_REPLY], rows_extra=[{"cost_usd": None}]))
+        table = parse_tables(self.score_main(self.make_run(local + mixed)))["nodocs"]
+        self.assertEqual((table["m-local"][self.COST], table["m-mixed"][self.COST]), ("-", "0.0010"))
+
+    def test_the_legend_says_what_is_counted_over_which_attempts(self):
+        legend = ("Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; "
+                  "kosten: van alle pogingen.")
+        self.assertIn(legend, self.attempts_run())
+        copy = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, copy, ignore_errors=True)
+        shutil.copytree(OLD_RUN, copy / "run")
+        self.assertNotIn(legend, self.score_main(copy / "run"))     # an ollama table has no attempts and no cost
+
+    def test_stops_are_listed_once_for_the_whole_run(self):
+        rows = [plan_row("m-a", [("R06", 1), ("R07", 1), ("R08", 1)]), probe_row("m-a")]
+        rows += conv_rows("m-a", "R06", "b00001", [FENCE_REPLY])
+        rows += [stop_row("m-a", "max_cost"), stop_row("m-x", "http_402")]    # m-x: a stop row and nothing else
+        output = self.score_main(self.make_run(rows))
+        self.assertEqual(output.count("Gestopt:"), 1)
+        self.assertIn("Gestopt:\n- m-a: max_cost\n- m-x: http_402", output)
+        self.assertIn("ontbreekt 2x (R07/1, R08/1) (run gestopt: http_402, max_cost)", output)
+
+    def test_a_run_of_only_a_stop_row_still_shows_the_stop(self):
+        output = self.score_main(self.make_run([stop_row("m-x", "http_402")]))
+        self.assertIn("Geen gesprekken in deze run.", output)
+        self.assertIn("Gestopt:\n- m-x: http_402", output)
+
     def test_the_old_run_under_the_new_table(self):
         copy = Path(tempfile.mkdtemp())
         self.addCleanup(shutil.rmtree, copy, ignore_errors=True)
@@ -2354,9 +2506,9 @@ class ReportTest(RunDirTest):
         for model, flagged in (("qwen3.6:35b-a3b-coding", "ac5133"), ("qwen3.8-gsq-rco:27b-iq3_s-text", "1efe0d")):
             row = rows[model]
             self.assertEqual({k: row[k] for k in ("Backend", "Probe", "A5", "A8", "Afgerond", "Eerste poging",
-                                                  "Tokens in", "Kosten $", "Aanbieders", "Zeef")},
+                                                  "Tokens in", self.COST, "Aanbieders", "Zeef")},
                              {"Backend": "ollama", "Probe": "-", "A5": "2/3", "A8": "2/2*", "Afgerond": "10/10",
-                              "Eerste poging": "10", "Tokens in": "-", "Kosten $": "-", "Aanbieders": "-",
+                              "Eerste poging": "10", "Tokens in": "-", self.COST: "-", "Aanbieders": "-",
                               "Zeef": "gezakt"})
             self.assertIn(f"- {model} (gezakt): vlag op A5: {flagged}", output)
             self.assertIn(f"#### Vlag A5: {flagged} ({model}, R01, seed 1)", output)
