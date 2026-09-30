@@ -2,7 +2,8 @@
 # (no chat formatting, thinking not parsed). Reuse the official qwen3.8 renderer/parser
 # and sampling defaults so it behaves like qwen3.8:27b.
 # Text-only: only the IQ3_S weights blob of hf.co/ISTA-DASLab/Qwen3.8-27B-GSQ-RCO-GGUF:IQ3_S
-# (sha256 64b53b64…d810), without the ~0.9 GB mmproj vision projector, so it fits next to TEI.
+# (sha256 64b53b64…d810), without the ~0.9 GB mmproj vision projector. Next to TEI it still does not
+# fit completely: 95% on GPU at 16k context (41 tok/s), 90% at 32k (22 tok/s).
 FROM /usr/share/ollama/.ollama/models/blobs/sha256-64b53b64c7aa39f20a7e54bd80582fe595b1d745624ee8a72e92508c0326d810
 TEMPLATE {{ .Prompt }}
 RENDERER qwen3.8
