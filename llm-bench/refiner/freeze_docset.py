@@ -11,9 +11,11 @@ Freezing takes each file with `git show <sha>:<path>` and writes the bytes uncha
 <out>/<folder>/<slug>.md (README.md becomes manual/readme.md, the rest keeps its name in lower
 case), plus <out>/docset.json with the pin, the time, and a sha256 and size per file.
 
---check verifies those hashes and counts key shapes (sk-..., ghp_...) and Bearer values in the
-files. It prints counts and file names, never a matched value, and exits 1 on a changed or
-missing file or on any hit. The docset goes to OpenRouter as it stands, so a hit means stop.
+--check verifies those hashes, counts key shapes (sk-..., ghp_...) and Bearer values in the files,
+and counts every other file in the folder that docset.json does not list: the doc server serves
+the folder, so only the frozen, scanned set may sit in it. It prints counts and file names, never
+a matched value, and exits 1 on a changed, missing or unlisted file or on any hit. The docset goes
+to OpenRouter as it stands, so a finding means stop.
 
 Stdlib only.
 """
@@ -75,9 +77,10 @@ def scan(text):
 
 
 def check(docset):
-    """Verify every listed file against its sha256 and scan it. Prints counts and file names only.
+    """Verify every listed file against its sha256 and scan it, and find files the list does not name.
 
-    Returns True when no file is changed or missing and nothing matches a pattern."""
+    Prints counts and file names only. Returns True when no file is changed, missing or unlisted
+    and nothing matches a pattern."""
     docset = Path(docset)
     try:
         files = json.loads((docset / "docset.json").read_text(encoding="utf-8"))["files"]
@@ -98,12 +101,21 @@ def check(docset):
         n_keys, n_bearers = n_keys + keys, n_bearers + bearers
         if keys or bearers:
             hits.append((name, keys, bearers))
-    print(f"files={len(files)} hash_mismatches={len(mismatched)} key_shapes={n_keys} bearer_values={n_bearers}")
+    # Anything else in the folder is a finding: a symlink counts (it is not followed), a real folder does not.
+    # The unlisted files themselves are not read.
+    known = {f"{f['folder']}/{f['slug']}.md" for f in files} | {"docset.json"}
+    on_disk = {p.relative_to(docset).as_posix() for p in docset.rglob("*") if p.is_symlink() or not p.is_dir()}
+    unlisted = sorted(on_disk - known)
+    summary = {"files": len(files), "hash_mismatches": len(mismatched), "key_shapes": n_keys,
+               "bearer_values": n_bearers, "unlisted": len(unlisted)}
+    print(" ".join(f"{k}={v}" for k, v in summary.items()))
     for name in mismatched:
         print(f"hash mismatch: {name}")
     for name, keys, bearers in hits:
         print(f"hits in {name}: key_shapes={keys} bearer_values={bearers}")
-    return not (mismatched or n_keys or n_bearers)
+    for rel in unlisted:
+        print(f"unlisted: {rel}")
+    return not (mismatched or n_keys or n_bearers or unlisted)
 
 
 def main(argv=None):
@@ -111,7 +123,8 @@ def main(argv=None):
     ap.add_argument("--repo", help="agent-harness checkout to read with git show")
     ap.add_argument("--commit", help="full 40-character sha to freeze")
     ap.add_argument("--out", help="docset folder to write")
-    ap.add_argument("--check", metavar="DOCSET", help="verify the hashes of a docset and scan it for secrets")
+    ap.add_argument("--check", metavar="DOCSET",
+                    help="verify the hashes of a docset, scan it for secrets and refuse unlisted files")
     args = ap.parse_args(argv)
     if args.check is not None:
         if args.repo or args.commit or args.out:

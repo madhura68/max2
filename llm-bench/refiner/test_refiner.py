@@ -173,6 +173,7 @@ EXPECTED_DOCS = [("manual", "readme"),
                  ("runbooks", "idea-chat-worker"),
                  ("runbooks", "probe-and-run-max2"),
                  ("runbooks", "task-worker")]
+CLEAN = {"files": 8, "hash_mismatches": 0, "key_shapes": 0, "bearer_values": 0, "unlisted": 0}
 
 
 def docset_cli(*args, env=None):
@@ -241,7 +242,7 @@ class DocsetTest(unittest.TestCase):
     def test_check_passes_on_the_real_docset_with_zero_hits(self):
         r = docset_cli("--check", DOCSET)
         self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
-        self.assertEqual(counts(r.stdout), {"files": 8, "hash_mismatches": 0, "key_shapes": 0, "bearer_values": 0})
+        self.assertEqual(counts(r.stdout), CLEAN)
 
     def test_manifest_pins_the_eight_frozen_files(self):
         m = json.loads((DOCSET / "docset.json").read_text())
@@ -262,7 +263,7 @@ class DocsetTest(unittest.TestCase):
             f.write(b" ")
         r = docset_cli("--check", d)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(counts(r.stdout), {"files": 8, "hash_mismatches": 1, "key_shapes": 0, "bearer_values": 0})
+        self.assertEqual(counts(r.stdout), {**CLEAN, "hash_mismatches": 1})
         self.assertIn("runbooks/task-worker", r.stdout)
 
     def test_missing_file_counts_as_a_hash_mismatch(self):
@@ -270,7 +271,32 @@ class DocsetTest(unittest.TestCase):
         (d / "manual" / "readme.md").unlink()
         r = docset_cli("--check", d)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(counts(r.stdout)["hash_mismatches"], 1)
+        self.assertEqual(counts(r.stdout), {**CLEAN, "hash_mismatches": 1})
+
+    def test_unlisted_md_file_fails_the_check(self):
+        d = self.copy_docset()
+        (d / "specs" / "extra.md").write_text("# Not in docset.json\n")
+        r = docset_cli("--check", d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(counts(r.stdout), {**CLEAN, "unlisted": 1})
+        self.assertIn("unlisted: specs/extra.md", r.stdout)
+
+    def test_unlisted_files_of_any_kind_and_depth_are_counted(self):
+        d = self.copy_docset()
+        elsewhere = self.tmp / "elsewhere"
+        elsewhere.mkdir()
+        (elsewhere / "outside.md").write_text("# Outside the docset\n")
+        extras = ["notes.txt", "specs/.hidden", "extra/deep/file.bin"]
+        for rel in extras:
+            (d / rel).parent.mkdir(parents=True, exist_ok=True)
+            (d / rel).write_text("not listed")
+        os.symlink(elsewhere, d / "linked")   # a symlinked folder is one finding; it is not followed
+        r = docset_cli("--check", d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(counts(r.stdout), {**CLEAN, "unlisted": 4})
+        for rel in [*extras, "linked"]:
+            self.assertIn(f"unlisted: {rel}", r.stdout)
+        self.assertNotIn("outside.md", r.stdout)
 
     def test_hits_fail_the_check_and_their_values_are_never_printed(self):
         d = self.copy_docset()
@@ -282,7 +308,7 @@ class DocsetTest(unittest.TestCase):
         rehash(d, "specs", slug)
         r = docset_cli("--check", d)
         self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
-        self.assertEqual(counts(r.stdout), {"files": 8, "hash_mismatches": 0, "key_shapes": 1, "bearer_values": 1})
+        self.assertEqual(counts(r.stdout), {**CLEAN, "key_shapes": 1, "bearer_values": 1})
         self.assertIn(f"specs/{slug}", r.stdout)
         for secret in (key, bearer, "9f8e7d6c", "Qw3rTy"):
             self.assertNotIn(secret, r.stdout + r.stderr)
