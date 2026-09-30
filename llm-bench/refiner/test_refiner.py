@@ -156,6 +156,10 @@ class ChecksTest(unittest.TestCase):
         q = "Vragen voor je:\n" + "\n".join(f"{i}. Wat is het? [standaard: ja]" for i in range(1, 7))
         self.assertEqual(self.check([q, FENCE_REPLY])["A2"], "fail")
 
+    def test_numbered_lines_in_the_final_prompt_are_no_questions_for_a2(self):
+        steps = "```\n<task>\nDoe dit:\n1. Eerste stap\n2. Tweede stap\n</task>\n```\nInstellingen: effort medium."
+        self.assertEqual(self.check([QUESTIONS, steps])["A2"], "pass")
+
     def test_no_fence_fails_a3_a4(self):
         res = self.check([QUESTIONS] * 4)
         self.assertEqual((res["A3"], res["A4"]), ("fail", "fail"))
@@ -1030,6 +1034,14 @@ NOT_PATHS = [
     "Post naar https://hooks.slack.com/services/T0123/B0456/abc",
     "Open http://localhost:3000/api/x in de browser.",
 ]
+# real references with their end cut off: the docs hold the full slug or name, so the cut one is a bare substring of it
+TRUNCATED = [
+    ("Lees specs/2026-09-28-harness-run-logging voor de opzet.", "specs/2026-09-28-harness-run-logging"),
+    ("Lees specs/2026-09-28-harness-run voor de opzet.", "specs/2026-09-28-harness-run"),
+    ("Lees runbooks/task-work voor de opzet.", "runbooks/task-work"),
+    ("De logs staan in /srv/scrum4me/worker-l voor de opzet.", "/srv/scrum4me/worker-l"),
+    ("De code staat in `src/worker/run-log.t`.", "src/worker/run-log.t"),
+]
 
 
 class DocChecksTest(unittest.TestCase):
@@ -1187,6 +1199,41 @@ class DocChecksTest(unittest.TestCase):
         self.assertFalse(any("manual/readme" in t for t in real_docset()["texts"]))   # no file holds that text
         self.assertEqual(self.d3_of("Lees manual/readme, en kijk ook in runbooks/task-worker (uit de docs)."),
                          ("pass", []))
+
+    def test_d3_fails_on_an_invented_doc_reference_at_the_end_of_a_sentence(self):
+        for body in ("Zie specs/bestaat-niet.", "Bron: runbooks/bestaat-niet.\nEn verder.",
+                     "Zie specs/bestaat-niet..."):
+            with self.subTest(body=body):
+                self.assertEqual(self.d3_of(body)[0], "fail")
+        self.assertEqual(self.d3_of("Zie specs/bestaat-niet."), ("fail", ["D3 onbekend: specs/bestaat-niet"]))
+
+    def test_d3_accepts_a_real_doc_reference_at_the_end_of_a_sentence(self):
+        for body in ("Bron: runbooks/task-worker.", "Bron: specs/2026-09-28-harness-run-logging-design.",
+                     "Lees manual/readme.", "Lees specs/2026-09-28-harness-run-logging-design...",
+                     "Bron (runbooks/task-worker)."):
+            with self.subTest(body=body):
+                self.assertEqual(len(score.path_hits(body)), 1)   # the reference is seen, not skipped
+                self.assertEqual(self.d3_of(body), ("pass", []))
+
+    def test_d3_fails_on_a_reference_with_its_end_cut_off(self):
+        texts = real_docset()["texts"]
+        for body, hit in TRUNCATED:
+            with self.subTest(hit=hit):
+                self.assertTrue(any(hit in t for t in texts))   # as a bare substring the docs do hold it
+                self.assertEqual(self.d3_of(body), ("fail", ["D3 onbekend: " + hit]))
+
+    def test_d3_accepts_a_real_parent_directory(self):
+        # the docs' longer paths go on below it: what follows the directory is a slash, not more of its name
+        for body in ("De logs staan onder /srv/scrum4me/worker-logs.",
+                     "Kijk in `/srv/scrum4me` en in `/srv/scrum4me/worker-logs`."):
+            with self.subTest(body=body):
+                self.assertTrue(score.path_hits(body))
+                self.assertEqual(self.d3_of(body), ("pass", []))
+
+    def test_d3_reads_a_leading_dot_slash_as_the_same_path(self):
+        self.assertEqual(self.d3_of("Pas `./src/cli.ts` aan."), ("pass", []))
+        self.assertEqual(self.d3_of("Pas `./src/bestaat-niet.ts` aan."),
+                         ("fail", ["D3 onbekend: src/bestaat-niet.ts"]))
 
     def test_d3_accepts_what_the_user_said_but_not_what_nobody_said(self):
         body = "Pas `src/eigen-pad.ts` aan."
@@ -1520,13 +1567,64 @@ class DocHelpersTest(unittest.TestCase):
         # one mark is stripped, not all of them: a path followed by an ellipsis keeps two dots
         self.assertEqual(score.path_hits("Zie /srv/x/y..."), ["/srv/x/y.."])
 
+    def test_path_hits_see_a_doc_reference_before_a_full_stop_and_leave_file_names_to_path_rel(self):
+        self.assertEqual(score.path_hits("Bron: runbooks/task-worker. Zie specs/bestaat-niet.\nEn manual/readme..."),
+                         ["runbooks/task-worker", "specs/bestaat-niet", "manual/readme"])
+        # a file name is PATH_REL's, however it is written or punctuated: there is no doc reference inside it
+        self.assertEqual(score.path_hits("Zie specs/foo.md, docs/specs/foo.md en specs/foo.md."),
+                         ["specs/foo.md", "docs/specs/foo.md"])
+
+    def test_path_hits_drop_a_leading_dot_slash_and_nothing_else_of_the_front(self):
+        self.assertEqual(score.path_hits("Pas ./src/cli.ts aan, niet src/cli.ts of `./docs/a.md`."),
+                         ["src/cli.ts", "docs/a.md"])   # the same path written twice is one hit
+        self.assertEqual(score.path_hits("Zie ../src/cli.ts en .github/ci.yml"), ["../src/cli.ts", ".github/ci.yml"])
+
+    def test_a_hit_occurs_where_it_ends_on_a_token_boundary(self):
+        for hit, text, expected in (
+            ("specs/foo", "zie specs/foo", True),
+            ("specs/foo", "zie specs/foo.", True),                 # the full stop that ends a sentence
+            ("specs/foo", "zie (specs/foo), of", True),
+            ("specs/foo", "zie specs/foo/bar.md", True),           # a directory of a longer path
+            ("specs/foo", "zie specs/foo-bar", False),             # the slug goes on
+            ("specs/foo", "zie specs/foobar", False),
+            ("specs/foo", "zie specs/foo_bar", False),
+            ("specs/foo", "zie specs/foo.md", False),              # a file name, not this one
+            ("src/cli.ts", "zie docs/src/cli.ts:143", True),       # no left edge: a relative path ends a longer one
+            ("src/cli.ts", "zie src/cli.tsx", False),
+            ("a.b/c.d", "zie axb/c.d", False),                     # the hit is text, not a pattern
+            ("specs/foo", "specs/foo-bar en specs/foo.", True),    # one good occurrence is enough
+            ("specs/foo", "", False),
+        ):
+            with self.subTest(hit=hit, text=text):
+                self.assertEqual(score.occurs(hit, text), expected)
+
+    def test_every_path_the_docs_themselves_name_occurs_in_them(self):
+        # no false alarm on a genuine reference: what the patterns find in the docs, the boundary rule finds back
+        hits = 0
+        for text in real_docset()["texts"]:
+            for hit in score.path_hits(text):
+                hits += 1
+                with self.subTest(hit=hit):
+                    self.assertTrue(score.occurs(hit, text))
+        self.assertGreater(hits, 100)
+
+    def test_question_turns_are_the_turns_before_the_first_code_block(self):
+        self.assertEqual(score.question_turns(["a?", "b?", "```\nc\n```", "```\nd\n```"]), ["a?", "b?"])
+        self.assertEqual(score.question_turns(["a?", "b?"]), ["a?", "b?"])   # no code block: all of them
+        self.assertEqual(score.question_turns(["```\nc\n```", "a?"]), [])
+        self.assertEqual(score.question_turns([]), [])
+        self.assertEqual(score.first_fence(["a?", "```\nc\n```"]), 1)
+        self.assertIsNone(score.first_fence(["a?"]))
+
     def test_the_patterns_are_the_ones_of_the_brief(self):
         self.assertEqual(score.PATH_ABS.pattern, r"(?<![\w.:/~-])~?/[\w.~-]+(?:/[\w.~-]+)+")
         self.assertEqual(score.PATH_REL.pattern,
                          r"(?<![\w.:/~-])[a-z_.][\w.-]*(?:/[\w.-]+)+\.[A-Za-z]{1,6}(?![\w/-])")
+        # the brief's DOC_REF with its tail amended (fix round 1): a full stop that ends a sentence is no part of the
+        # slug and no reason to skip it, a full stop and a letter (specs/x.md) is a file name and PATH_REL's
         self.assertEqual(score.DOC_REF.pattern,
                          r"(?<![\w.:/~-])(?:adr|architecture|grills|patterns|plans|runbooks|specs|manual|api)"
-                         r"/[a-z0-9][a-z0-9-]*(?![\w/.-])")
+                         r"/[a-z0-9][a-z0-9-]*(?![\w/-]|\.\w)")
         self.assertEqual(score.CHANNEL.pattern, r"(?<![\w&])#(?![0-9a-f]{3}(?:[0-9a-f]{3})?\b)[a-z][a-z0-9_-]+")
         self.assertEqual(score.CHANNEL_CONTEXT.pattern, r"(?i)kanaal|channel|slack")
         self.assertEqual(score.MARK.pattern,

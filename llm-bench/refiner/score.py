@@ -41,8 +41,10 @@ CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
 DOC_TOOLS = ("search_product_docs", "get_product_doc", "list_product_docs", "related_product_docs")
 PATH_ABS = re.compile(r"(?<![\w.:/~-])~?/[\w.~-]+(?:/[\w.~-]+)+")                              # /srv/x/y, ~/x/y
 PATH_REL = re.compile(r"(?<![\w.:/~-])[a-z_.][\w.-]*(?:/[\w.-]+)+\.[A-Za-z]{1,6}(?![\w/-])")   # src/cli.ts, docs/x/y.md
+# Amended tail (the brief had (?![\w/.-])): a full stop that closes the sentence ("Bron: specs/x.") no longer hides the
+# reference; a full stop and a letter ("specs/x.md") is a file name and stays with PATH_REL
 DOC_REF = re.compile(r"(?<![\w.:/~-])(?:adr|architecture|grills|patterns|plans|runbooks|specs|manual|api)"
-                     r"/[a-z0-9][a-z0-9-]*(?![\w/.-])")                                        # specs/<slug>
+                     r"/[a-z0-9][a-z0-9-]*(?![\w/-]|\.\w)")                                    # specs/<slug>
 CHANNEL = re.compile(r"(?<![\w&])#(?![0-9a-f]{3}(?:[0-9a-f]{3})?\b)[a-z][a-z0-9_-]+")          # #harness-alerts, geen #e01e5a
 CHANNEL_CONTEXT = re.compile(r"(?i)kanaal|channel|slack")                                    # een #naam telt alleen in zo'n zin
 MARK = re.compile(r"(?i)onbekend|unknown|niet bekend|not known|ontbre|missing|nog in te vullen|to be provided"
@@ -117,10 +119,15 @@ def user_messages(case):
     return [m for m in sent if m]
 
 
+def first_fence(turns):
+    """The index of the first model turn with a code block (None when no turn has one)."""
+    return next((i for i, t in enumerate(turns) if fences(t)), None)
+
+
 def question_turns(turns):
-    """The model turns before the first one with a code block (all of them when none has one), as q_turns in
-    score_conversation: the turns in which the model still asks."""
-    first = next((i for i, t in enumerate(turns) if fences(t)), None)
+    """The model turns before the first one with a code block (all of them when none has one): the turns in which
+    the model still asks."""
+    first = first_fence(turns)
     return turns if first is None else turns[:first]
 
 
@@ -131,15 +138,25 @@ def question_lines(turns):
 
 def path_hits(text):
     """The path-like strings in text, each once: the matches of PATH_ABS, PATH_REL and DOC_REF, in that order, without
-    one trailing '.', ',', ';' or ':' (a PATH_ABS match can end in the full stop of the sentence)."""
+    one trailing '.', ',', ';' or ':' (a PATH_ABS match can end in the full stop of the sentence) and without a
+    leading './' (./src/cli.ts is src/cli.ts written differently)."""
     hits = []
     for pattern in (PATH_ABS, PATH_REL, DOC_REF):
         for m in pattern.finditer(text):
             hit = m.group(0)
             hit = hit[:-1] if hit[-1] in ".,;:" else hit
+            hit = hit[2:] if hit.startswith("./") else hit
             if hit not in hits:
                 hits.append(hit)
     return hits
+
+
+def occurs(hit, text):
+    """Whether hit occurs in text as a whole: what follows it may not go on with the same name (a word character, a
+    hyphen, or a full stop and a word character), so a truncated path or slug does not occur where the full one does.
+    Only the right edge is checked: a relative path is legitimately the end of a longer one, and a directory (followed
+    by a slash) occurs in the paths below it."""
+    return re.search(re.escape(hit) + r"(?![\w-]|\.\w)", text) is not None
 
 
 def assumption_bullets(text):
@@ -208,11 +225,13 @@ def check_d2(case, turns):
 
 
 def check_d3(case, turns, docset):
-    """D3: nothing invented. Each path-like string in the last prompt is in the text of a docset file, in a user
-    message or (a doc reference) listed as folder/slug in docset.json. With doc_absent_topic (D04) the model must also
-    have asked for or marked the missing fact, and invented nothing (absent_topic)."""
+    """D3: nothing invented. Each path-like string in the last prompt occurs (occurs(): a whole path or slug, not the
+    start of a longer one) in the text of a docset file or in a user message, or (a doc reference) is listed as
+    folder/slug in docset.json. With doc_absent_topic (D04) the model must also have asked for or marked the missing
+    fact, and invented nothing (absent_topic)."""
     known = docset["texts"] + user_messages(case)
-    unknown = [h for h in path_hits(last_prompt(turns)) if h not in docset["refs"] and not any(h in t for t in known)]
+    unknown = [h for h in path_hits(last_prompt(turns))
+               if h not in docset["refs"] and not any(occurs(h, t) for t in known)]
     notes = ["D3 onbekend: " + ", ".join(unknown)] if unknown else []
     if case.get("doc_absent_topic"):
         found = absent_topic(case, turns)
@@ -251,8 +270,8 @@ def score_conversation(case, turns, rows=None, docset=None):
     if docs and (rows is None or docset is None):
         raise ValueError(f"case {case.get('id')} is a docs case: score_conversation needs rows and docset")
     res, notes = {}, []
-    first_final = next((i for i, t in enumerate(turns) if fences(t)), None)
-    q_turns = turns[:first_final] if first_final is not None else turns
+    first_final = first_fence(turns)
+    q_turns = question_turns(turns)
     final = turns[first_final] if first_final is not None else None
     later = turns[first_final + 1:] if first_final is not None else []
 
