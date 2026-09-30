@@ -1,18 +1,24 @@
-"""Tests for the refiner eval: runner against a fake Ollama, checks against fixed transcripts.
+"""Tests for the refiner eval: runner against a fake Ollama, checks against fixed transcripts,
+and the frozen docset with its freezer and check.
 
   python3 -m unittest llm-bench/refiner/test_refiner.py
 """
+import hashlib
 import json
+import os
+import shutil
 import subprocess
 import sys
 import tempfile
 import threading
 import unittest
+from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
+import freeze_docset  # noqa: E402
 import run  # noqa: E402
 import score  # noqa: E402
 
@@ -155,6 +161,218 @@ class ChecksTest(unittest.TestCase):
         f1 = "```\n<task>\nSchrijf een stuk van maximaal 250 woorden.\n</task>\n```\nInstellingen: effort low."
         f2 = "```\n<task>\nSchrijf een stuk van maximaal 150 woorden, eerder 250.\n</task>\n```\nInstellingen: effort low."
         self.assertEqual(score.score_conversation(case("R05"), [f1, f2])[0]["A6"], "fail")
+
+
+DOCSET = HERE / "docset"
+PIN = "b2035961d403dd0b29dbc32cc4889012b699f3c5"
+EXPECTED_DOCS = [("manual", "readme"),
+                 ("specs", "2026-09-26-agent-harness-v0-design"),
+                 ("specs", "2026-09-26-idea-chat-local-llm-design"),
+                 ("specs", "2026-09-27-task-implementation-local-llm-design"),
+                 ("specs", "2026-09-28-harness-run-logging-design"),
+                 ("runbooks", "idea-chat-worker"),
+                 ("runbooks", "probe-and-run-max2"),
+                 ("runbooks", "task-worker")]
+
+
+def docset_cli(*args, env=None):
+    return subprocess.run([sys.executable, str(HERE / "freeze_docset.py"), *map(str, args)],
+                          capture_output=True, text=True, env=env)
+
+
+def counts(stdout):
+    """The summary line of --check as a dict of ints."""
+    line = next(ln for ln in stdout.splitlines() if ln.startswith("files="))
+    return {k: int(v) for k, v in (part.split("=") for part in line.split())}
+
+
+class ScanTest(unittest.TestCase):
+    """Key shapes and Bearer values, as freeze_docset --check counts them.
+
+    Fake secrets are built from pieces so this file holds no complete key shape itself."""
+
+    def test_task_implementation_is_no_key_shape(self):
+        # 'task-implementation-...' holds 'sk-' plus 16+ key characters; only the \b in the pattern stops it
+        for text in ("task-implementation-local-llm-design",
+                     "docs/specs/2026-09-27-task-implementation-local-llm-design.md",
+                     "risk-assessment-for-the-local-model"):
+            self.assertEqual(freeze_docset.scan(text), (0, 0), text)
+
+    def test_invented_key_shapes_are_found(self):
+        for key in ("sk-" + "a1B2c3D4e5F6g7H8",               # 16 characters after sk-
+                    "sk-or-v1-" + "0123456789abcdef" * 4,      # OpenRouter-shaped
+                    "ghp_" + "Z9y8X7w6V5u4T3s2R1q0"):          # 20 characters after ghp_
+            for text in (key, f"key: {key}.", f'"{key}"', f"({key})"):
+                self.assertEqual(freeze_docset.scan(text), (1, 0), text)
+
+    def test_values_below_the_minimum_length_are_no_hit(self):
+        for text in ("sk-" + "a" * 15, "ghp_" + "a" * 19, "Bearer " + "a" * 15):
+            self.assertEqual(freeze_docset.scan(text), (0, 0), text)
+        self.assertEqual(freeze_docset.scan("sk-" + "a" * 16), (1, 0))
+        self.assertEqual(freeze_docset.scan("ghp_" + "a" * 20), (1, 0))
+        self.assertEqual(freeze_docset.scan("Bearer " + "a" * 16), (0, 1))
+
+    def test_bearer_value_is_found_but_a_placeholder_is_not(self):
+        self.assertEqual(freeze_docset.scan("Authorization: Bearer " + "abc.DEF-123_xyz" * 2), (0, 1))
+        for text in ("Bearer <token>", "Authorization: Bearer $OPENROUTER_API_KEY", "Bearer ${KEY}", "a Bearer token"):
+            self.assertEqual(freeze_docset.scan(text), (0, 0), text)
+
+
+def rehash(docset, folder, slug):
+    """Bring one manifest entry in line with its (edited) file, so only the scan can object."""
+    manifest = json.loads((docset / "docset.json").read_text())
+    for f in manifest["files"]:
+        if (f["folder"], f["slug"]) == (folder, slug):
+            data = (docset / folder / f"{slug}.md").read_bytes()
+            f["sha256"], f["bytes"] = hashlib.sha256(data).hexdigest(), len(data)
+    (docset / "docset.json").write_text(json.dumps(manifest))
+
+
+class DocsetTest(unittest.TestCase):
+    """The committed docset and freeze_docset --check."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def copy_docset(self):
+        return Path(shutil.copytree(DOCSET, self.tmp / "docset"))
+
+    def test_check_passes_on_the_real_docset_with_zero_hits(self):
+        r = docset_cli("--check", DOCSET)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        self.assertEqual(counts(r.stdout), {"files": 8, "hash_mismatches": 0, "key_shapes": 0, "bearer_values": 0})
+
+    def test_manifest_pins_the_eight_frozen_files(self):
+        m = json.loads((DOCSET / "docset.json").read_text())
+        self.assertEqual(set(m), {"source_repo", "source_commit", "frozen_at", "product_id", "files"})
+        self.assertEqual((m["source_repo"], m["source_commit"], m["product_id"]),
+                         ("janpeter/agent-harness", PIN, "bench-agent-harness"))
+        datetime.strptime(m["frozen_at"], "%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual([(f["folder"], f["slug"]) for f in m["files"]], EXPECTED_DOCS)
+        self.assertEqual(sum(f["bytes"] for f in m["files"]), 158149)
+        for f in m["files"]:
+            self.assertEqual(set(f), {"folder", "slug", "source_path", "sha256", "bytes"})
+            data = (DOCSET / f["folder"] / f"{f['slug']}.md").read_bytes()
+            self.assertEqual((len(data), hashlib.sha256(data).hexdigest()), (f["bytes"], f["sha256"]))
+
+    def test_changed_file_gives_a_hash_mismatch(self):
+        d = self.copy_docset()
+        with open(d / "runbooks" / "task-worker.md", "ab") as f:
+            f.write(b" ")
+        r = docset_cli("--check", d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(counts(r.stdout), {"files": 8, "hash_mismatches": 1, "key_shapes": 0, "bearer_values": 0})
+        self.assertIn("runbooks/task-worker", r.stdout)
+
+    def test_missing_file_counts_as_a_hash_mismatch(self):
+        d = self.copy_docset()
+        (d / "manual" / "readme.md").unlink()
+        r = docset_cli("--check", d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(counts(r.stdout)["hash_mismatches"], 1)
+
+    def test_hits_fail_the_check_and_their_values_are_never_printed(self):
+        d = self.copy_docset()
+        key = "sk-or-v1-" + "9f8e7d6c" * 6
+        bearer = "Bearer " + "Qw3rTy.uIoP-asDf_GhJk"
+        slug = "2026-09-28-harness-run-logging-design"
+        path = d / "specs" / f"{slug}.md"
+        path.write_bytes(path.read_bytes() + f"\n{key}\nAuthorization: {bearer}\n".encode())
+        rehash(d, "specs", slug)
+        r = docset_cli("--check", d)
+        self.assertEqual(r.returncode, 1, r.stdout + r.stderr)
+        self.assertEqual(counts(r.stdout), {"files": 8, "hash_mismatches": 0, "key_shapes": 1, "bearer_values": 1})
+        self.assertIn(f"specs/{slug}", r.stdout)
+        for secret in (key, bearer, "9f8e7d6c", "Qw3rTy"):
+            self.assertNotIn(secret, r.stdout + r.stderr)
+
+    def test_check_without_a_manifest_fails_cleanly(self):
+        r = docset_cli("--check", self.tmp / "nothing")
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+
+
+def fixture_docs():
+    """Eight small docs on the paths the freezer reads; three carry bytes a text pipeline would change."""
+    docs = {path: f"# Doc {path}\n\nInhoud.\n".encode() for _, path in freeze_docset.SOURCES}
+    docs["README.md"] = b"# Harness\r\nCRLF and a trailing space \r\n\r\n"
+    docs["docs/specs/2026-09-26-agent-harness-v0-design.md"] = "# Ontwerp\n\nCafé — über\n".encode()
+    docs["docs/runbooks/task-worker.md"] = b"# Taak\n\nraw \xff\xfe bytes, no final newline"
+    return docs
+
+
+class FreezeTest(unittest.TestCase):
+    """freeze_docset --repo --commit --out, against a throw-away git repo (no agent-harness checkout needed)."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        # hermetic git: no inherited GIT_* (a hook would point them at another repo), no user or system config
+        self.env = {k: v for k, v in os.environ.items() if not k.startswith("GIT_")}
+        self.env.update(HOME=str(self.tmp), XDG_CONFIG_HOME=str(self.tmp), GIT_CONFIG_NOSYSTEM="1")
+        self.repo, self.out = self.tmp / "harness", self.tmp / "out"
+        self.repo.mkdir()
+        self.git("init", "-q")
+
+    def git(self, *args):
+        return subprocess.run(["git", "-C", str(self.repo), "-c", "user.name=T", "-c", "user.email=t@example.invalid",
+                               "-c", "core.autocrlf=false", *args],
+                              check=True, capture_output=True, text=True, env=self.env).stdout.strip()
+
+    def commit(self, files, message="fixture"):
+        for path, data in files.items():
+            (self.repo / path).parent.mkdir(parents=True, exist_ok=True)
+            (self.repo / path).write_bytes(data)
+        self.git("add", "-A")
+        self.git("commit", "-q", "-m", message)
+        return self.git("rev-parse", "HEAD")
+
+    def freeze(self, commit):
+        return docset_cli("--repo", self.repo, "--commit", commit, "--out", self.out, env=self.env)
+
+    def test_freeze_writes_the_bytes_unchanged_with_a_manifest(self):
+        docs = fixture_docs()
+        sha = self.commit(docs)
+        r = self.freeze(sha)
+        self.assertEqual(r.returncode, 0, r.stdout + r.stderr)
+        m = json.loads((self.out / "docset.json").read_text())
+        self.assertEqual(set(m), {"source_repo", "source_commit", "frozen_at", "product_id", "files"})
+        self.assertEqual((m["source_repo"], m["source_commit"], m["product_id"]),
+                         ("janpeter/agent-harness", sha, "bench-agent-harness"))
+        datetime.strptime(m["frozen_at"], "%Y-%m-%dT%H:%M:%SZ")
+        self.assertEqual([(f["folder"], f["slug"]) for f in m["files"]], EXPECTED_DOCS)
+        for f in m["files"]:
+            data = docs[f["source_path"]]
+            self.assertEqual((self.out / f["folder"] / f"{f['slug']}.md").read_bytes(), data)
+            self.assertEqual((f["sha256"], f["bytes"]), (hashlib.sha256(data).hexdigest(), len(data)))
+        # README.md lands as manual/readme.md; list the folder, as exists() would also accept README.md on macOS
+        self.assertEqual([p.name for p in (self.out / "manual").iterdir()], ["readme.md"])
+        self.assertEqual(docset_cli("--check", self.out).returncode, 0)
+
+    def test_freeze_reads_the_commit_not_the_work_tree(self):
+        docs = fixture_docs()
+        first = self.commit(docs)
+        self.commit({"README.md": b"# Changed in a later commit\n"}, "later")
+        (self.repo / "docs/runbooks/task-worker.md").write_bytes(b"uncommitted edit")
+        self.assertEqual(self.freeze(first).returncode, 0)
+        self.assertEqual((self.out / "manual" / "readme.md").read_bytes(), docs["README.md"])
+        self.assertEqual((self.out / "runbooks" / "task-worker.md").read_bytes(), docs["docs/runbooks/task-worker.md"])
+
+    def test_freeze_writes_nothing_when_a_source_is_missing(self):
+        docs = fixture_docs()
+        del docs["docs/runbooks/task-worker.md"]
+        r = self.freeze(self.commit(docs))
+        self.assertNotEqual(r.returncode, 0)
+        self.assertNotIn("Traceback", r.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_freeze_takes_a_full_sha_only(self):
+        self.commit(fixture_docs())
+        for ref in ("HEAD", self.git("rev-parse", "--short", "HEAD")):
+            r = self.freeze(ref)
+            self.assertNotEqual(r.returncode, 0, ref)
+            self.assertFalse(self.out.exists(), ref)
 
 
 if __name__ == "__main__":

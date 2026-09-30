@@ -1,0 +1,64 @@
+{
+  "source_repo": "janpeter/agent-harness",
+  "source_commit": "b2035961d403dd0b29dbc32cc4889012b699f3c5",
+  "frozen_at": "2026-09-30T19:21:43Z",
+  "product_id": "bench-agent-harness",
+  "files": [
+    {
+      "folder": "manual",
+      "slug": "readme",
+      "source_path": "README.md",
+      "sha256": "755e7963fb187885b6acd5fc42b374e5e16f6226d50932d02b8028cb6bbd1b29",
+      "bytes": 6475
+    },
+    {
+      "folder": "specs",
+      "slug": "2026-09-26-agent-harness-v0-design",
+      "source_path": "docs/specs/2026-09-26-agent-harness-v0-design.md",
+      "sha256": "058859535cd4c6f8dedf67e01311883a7d8b30c23e5a0260a1edd1772bfea032",
+      "bytes": 15591
+    },
+    {
+      "folder": "specs",
+      "slug": "2026-09-26-idea-chat-local-llm-design",
+      "source_path": "docs/specs/2026-09-26-idea-chat-local-llm-design.md",
+      "sha256": "5db05e4716e4790eece43a24784f127d3412faf94656f87bed0943248ee958fc",
+      "bytes": 14822
+    },
+    {
+      "folder": "specs",
+      "slug": "2026-09-27-task-implementation-local-llm-design",
+      "source_path": "docs/specs/2026-09-27-task-implementation-local-llm-design.md",
+      "sha256": "42395c66b5e8ef3a26237025a12f2eb08c02488f14ef5a27cbf6ed0d27da47af",
+      "bytes": 31858
+    },
+    {
+      "folder": "specs",
+      "slug": "2026-09-28-harness-run-logging-design",
+      "source_path": "docs/specs/2026-09-28-harness-run-logging-design.md",
+      "sha256": "9acb6000d7bd7faa3870838fe4de738414d6a5ec4c229d12ede673d0f4d363c5",
+      "bytes": 35516
+    },
+    {
+      "folder": "runbooks",
+      "slug": "idea-chat-worker",
+      "source_path": "docs/runbooks/idea-chat-worker.md",
+      "sha256": "9bbc59dd898acbeb468c67572310f5bf4895542c4e3165c6a53e98ee6a60a4b9",
+      "bytes": 21036
+    },
+    {
+      "folder": "runbooks",
+      "slug": "probe-and-run-max2",
+      "source_path": "docs/runbooks/probe-and-run-max2.md",
+      "sha256": "5a974c5a3a022a0d0ddccd3b8ee492137d27f0aca2799bf5745c3c3630c4edf0",
+      "bytes": 12415
+    },
+    {
+      "folder": "runbooks",
+      "slug": "task-worker",
+      "source_path": "docs/runbooks/task-worker.md",
+      "sha256": "e1986f36960725218f512c446b33a68d651fe0c75fe0b9bb71d7b6d09f633966",
+      "bytes": 20436
+    }
+  ]
+}
