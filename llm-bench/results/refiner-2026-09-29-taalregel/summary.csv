@@ -1,0 +1,13 @@
+model,case,seed,blind_id,A1,A2,A3,A4,A5,A6,A7,A8,status,turns,wall_s,eval_tokens,max_prompt_tokens,other_model_loaded,notes
+qwen3.6:35b-a3b-coding,R03,1,0bf86a,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,4,109.3,1191,3323,True,
+qwen3.6:35b-a3b-coding,R03,2,75cc3f,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,4,13.9,1136,3245,False,
+qwen3.6:35b-a3b-coding,R07,1,13213b,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,1,9.9,765,2463,False,
+qwen3.6:35b-a3b-coding,R07,2,db11ca,pass,fail,pass,pass,n.v.t.,pass,pass,n.v.t.,final,3,13.1,1016,2873,False,
+qwen3.6:35b-a3b-coding,R10,1,5cd2c7,pass,pass,pass,fail,n.v.t.,pass,pass,n.v.t.,final,3,11.5,886,2687,False,
+qwen3.6:35b-a3b-coding,R10,2,1944c2,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.3,915,2764,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R03,1,ca3291,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,79.0,1574,3415,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R03,2,4cb555,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,23.5,1222,3204,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R07,1,b03de3,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,17.8,910,2674,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R07,2,bdbdbf,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,15.7,821,2690,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R10,1,33c01b,fail,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.9,542,2667,False,
+qwen3.8-gsq-rco:27b-iq3_s-text,R10,2,a0f708,pass,pass,pass,fail,n.v.t.,pass,pass,n.v.t.,final,2,14.8,773,2687,False,
