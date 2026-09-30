@@ -1235,6 +1235,43 @@ class DocChecksTest(unittest.TestCase):
         self.assertEqual(self.d3_of("Pas `./src/bestaat-niet.ts` aan."),
                          ("fail", ["D3 onbekend: src/bestaat-niet.ts"]))
 
+    def test_d3_accepts_every_listed_doc_written_as_a_file_name(self):
+        # manual/readme is the file README.md in the docs, so no text holds "manual/readme.md": docset.json lists it
+        self.assertFalse(any("manual/readme.md" in t for t in real_docset()["texts"]))
+        refs = sorted(real_docset()["refs"])
+        self.assertEqual(len(refs), 8)
+        for ref in refs:
+            for spelling in (f"{ref}.md", f"docs/{ref}.md"):
+                with self.subTest(spelling=spelling):
+                    body = f"Lees {spelling} voor de opzet."
+                    self.assertEqual(score.path_hits(body), [spelling])   # one hit: the file name, no reference in it
+                    self.assertEqual(self.d3_of(body), ("pass", []))
+        self.assertEqual(self.d3_of("Zie [de readme](manual/readme.md#installatie)."), ("pass", []))
+
+    def test_d3_is_exact_about_a_listed_doc_written_as_a_file_name(self):
+        for near_miss in ("manual/readm.md", "manual/readme-old.md", "specs/readme.md",   # another slug, another folder
+                          "docs/docs/manual/readme.md", "manual/readme.md.md"):            # more than docs/ and .md
+            with self.subTest(near_miss=near_miss):
+                self.assertFalse(any(near_miss in t for t in real_docset()["texts"]))
+                self.assertEqual(self.d3_of(f"Lees {near_miss} voor de opzet."),
+                                 ("fail", ["D3 onbekend: " + near_miss]))
+
+    def test_d3_keeps_the_literal_rule_for_a_md_path_that_is_no_listed_doc(self):
+        # the docs name docs/plans/M1-agent-harness-v0.md, which docset.json does not list: it passes by occurring
+        self.assertNotIn("plans/M1-agent-harness-v0", real_docset()["refs"])
+        self.assertEqual(self.d3_of("Lees docs/plans/M1-agent-harness-v0.md voor de opzet."), ("pass", []))
+        self.assertEqual(self.d3_of("Lees docs/plans/M9-bestaat-niet.md voor de opzet."),
+                         ("fail", ["D3 onbekend: docs/plans/M9-bestaat-niet.md"]))
+        # and what the user said counts as it did
+        self.assertEqual(self.d3_of("Lees notes/todo.md.", input="Zet het in notes/todo.md"), ("pass", []))
+        self.assertEqual(self.d3_of("Lees notes/todo.md."), ("fail", ["D3 onbekend: notes/todo.md"]))
+
+    def test_a_d01_prompt_may_point_to_the_readme_as_manual_readme_md(self):
+        body = D01_BODY.replace("`npm run verify` slaagt.", "`npm run verify` slaagt (zie manual/readme.md).")
+        res, notes = score_docs("D01", [D01_QUESTION, prompt_block(body)])
+        self.assertEqual(self.d_checks(res), D01_GOOD)
+        self.assertEqual(notes, [])
+
     def test_d3_accepts_what_the_user_said_but_not_what_nobody_said(self):
         body = "Pas `src/eigen-pad.ts` aan."
         self.assertEqual(self.d3_of(body), ("fail", ["D3 onbekend: src/eigen-pad.ts"]))
@@ -1597,6 +1634,27 @@ class DocHelpersTest(unittest.TestCase):
         ):
             with self.subTest(hit=hit, text=text):
                 self.assertEqual(score.occurs(hit, text), expected)
+
+    def test_a_hit_is_listed_when_it_is_a_listed_doc_or_that_doc_written_as_a_file_name(self):
+        refs = {"manual/readme", "specs/2026-09-28-harness-run-logging-design"}
+        for hit, expected in (
+            ("manual/readme", True),                                      # the reference itself
+            ("manual/readme.md", True),                                   # as a file name
+            ("docs/manual/readme.md", True),                              # with the docs/ of the source repo
+            ("specs/2026-09-28-harness-run-logging-design.md", True),
+            ("manual/readm.md", False),                                   # exact: no near miss
+            ("manual/readme-old.md", False),
+            ("manual/README.md", False),                                  # slugs are lower case in the store
+            ("specs/readme.md", False),                                   # the slug, but another folder
+            ("manual/readme.mdx", False),
+            ("manual/readme.md.md", False),
+            ("docs/docs/manual/readme.md", False),                        # one docs/ and no other front
+            ("src/manual/readme.md", False),
+            ("docs/manual/readme", False),                                # docs/ belongs to a file name only
+            ("", False),
+        ):
+            with self.subTest(hit=hit):
+                self.assertEqual(score.listed(hit, refs), expected)
 
     def test_every_path_the_docs_themselves_name_occurs_in_them(self):
         # no false alarm on a genuine reference: what the patterns find in the docs, the boundary rule finds back

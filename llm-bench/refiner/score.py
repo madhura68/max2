@@ -159,6 +159,15 @@ def occurs(hit, text):
     return re.search(re.escape(hit) + r"(?![\w-]|\.\w)", text) is not None
 
 
+def listed(hit, refs):
+    """Whether hit names a document that docset.json lists (refs is its 'folder/slug' set): the reference itself, or
+    that reference written as a file name, folder/slug.md with or without the docs/ of the source repo. The docs spell
+    manual/readme as README.md, so the text never holds manual/readme.md, while the addendum has the model cite
+    folder/slug and models often add .md. Exact: one docs/, a lower-case .md, and a whole folder/slug."""
+    name = hit[len("docs/"):] if hit.startswith("docs/") else hit
+    return hit in refs or (name.endswith(".md") and name[:-len(".md")] in refs)
+
+
 def assumption_bullets(text):
     """The bullets in the assumptions section(s) of text, outside the code block: the line that starts with
     "Aannames" or "Assumptions" (after markup or a letter like "B.") and the bullets directly under it, blank lines
@@ -226,12 +235,12 @@ def check_d2(case, turns):
 
 def check_d3(case, turns, docset):
     """D3: nothing invented. Each path-like string in the last prompt occurs (occurs(): a whole path or slug, not the
-    start of a longer one) in the text of a docset file or in a user message, or (a doc reference) is listed as
-    folder/slug in docset.json. With doc_absent_topic (D04) the model must also have asked for or marked the missing
-    fact, and invented nothing (absent_topic)."""
+    start of a longer one) in the text of a docset file or in a user message, or names a document listed in
+    docset.json (listed(): folder/slug, also written as folder/slug.md or docs/folder/slug.md). With doc_absent_topic
+    (D04) the model must also have asked for or marked the missing fact, and invented nothing (absent_topic)."""
     known = docset["texts"] + user_messages(case)
     unknown = [h for h in path_hits(last_prompt(turns))
-               if h not in docset["refs"] and not any(occurs(h, t) for t in known)]
+               if not listed(h, docset["refs"]) and not any(occurs(h, t) for t in known)]
     notes = ["D3 onbekend: " + ", ".join(unknown)] if unknown else []
     if case.get("doc_absent_topic"):
         found = absent_topic(case, turns)
