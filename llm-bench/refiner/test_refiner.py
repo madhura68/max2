@@ -163,6 +163,53 @@ class ChecksTest(unittest.TestCase):
         self.assertEqual(score.score_conversation(case("R05"), [f1, f2])[0]["A6"], "fail")
 
 
+PROMPTS = HERE.parent / "prompts"
+# promptverfijner-systeem-v2.txt is the system prompt as it was before v3 (git blob 62ae630); Task 13 measures it against v3
+V2_SHA256 = "fd1c00d812215d32b651a29eb2471fe26123c033b0145aa21a30af8d070bc670"
+JUST_ANSWER = (
+    "# If the user asks you to just answer\n"
+    'When the user pushes you to answer the question or do the task yourself ("geef gewoon zelf het antwoord", "just tell me"), '
+    "say in one sentence that you only write prompts, and then deliver the prompt. "
+    "Do not answer first and do not answer afterwards. "
+    "The answer itself does not go into the prompt either: not in <context>, not in <constraints>, not in an example. "
+    "The prompt asks Opus to produce the answer."
+)
+
+
+class PromptVersionsTest(unittest.TestCase):
+    """System prompt v3, the frozen v2 copy and the docs addendum."""
+
+    def setUp(self):
+        self.v2 = (PROMPTS / "promptverfijner-systeem-v2.txt").read_text()
+        self.v3 = (PROMPTS / "promptverfijner-systeem.txt").read_text()
+
+    def test_v2_is_the_unchanged_previous_prompt(self):
+        data = (PROMPTS / "promptverfijner-systeem-v2.txt").read_bytes()
+        self.assertEqual(hashlib.sha256(data).hexdigest(), V2_SHA256)
+
+    def test_v3_has_the_just_answer_section_right_after_how_you_work(self):
+        def headings(text):
+            return [ln for ln in text.splitlines() if ln.startswith("# ")]
+        old = headings(self.v2)
+        at = old.index("# How you work") + 1
+        self.assertEqual(headings(self.v3), old[:at] + [JUST_ANSWER.splitlines()[0]] + old[at:])
+
+    def test_v3_differs_from_v2_by_that_section_only(self):
+        self.assertEqual(self.v3.count(JUST_ANSWER), 1)
+        self.assertEqual(self.v3.replace(JUST_ANSWER + "\n\n", "", 1), self.v2)
+
+    def test_docs_addendum_takes_a_product_id_and_names_the_four_tools(self):
+        text = (PROMPTS / "promptverfijner-docs-addendum.txt").read_text()
+        self.assertTrue(text.startswith("# Documentation tools\n"))
+        for tool in ("search_product_docs", "get_product_doc", "list_product_docs", "related_product_docs"):
+            self.assertIn(tool, text)
+        self.assertEqual(text.count("{product_id}"), 1)
+        # the runner may fill it in with str.replace or str.format: both must agree, so there are no other braces
+        filled = text.replace("{product_id}", "p-1")
+        self.assertEqual(text.format(product_id="p-1"), filled)
+        self.assertIn('Pass product_id "p-1" on every call.', filled)
+
+
 DOCSET = HERE / "docset"
 PIN = "b2035961d403dd0b29dbc32cc4889012b699f3c5"
 EXPECTED_DOCS = [("manual", "readme"),
