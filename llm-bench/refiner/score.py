@@ -6,6 +6,8 @@
 A1 language, A2 question form, A3 rounds, A4 final shape, A5 restraint (a flag, disqualifying
 only after JP confirms it), A6 fidelity, A7 Opus prompt rules, A8 revision. See PLANS/refiner-eval.
 The checks are heuristics: A1 detects which language, not how fluent; A5/A6 match patterns.
+A forbid_statement pattern counts only in a statement (statement_hits). For a docs case (variant
+"docs") the same A5 rule is reported as D5 and its A5 is n.v.t.
 """
 import csv
 import json
@@ -24,6 +26,9 @@ A7_CI = [r"stap voor stap", r"step[- ]by[- ]step", r"denk (goed|zorgvuldig|eerst
          r"think (carefully|hard)", r"controleer (nogmaals|dubbel)", r"double[- ]check",
          r"begin je antwoord met", r"start your answer with", r"!!!"]
 A7_CS = r"\b(BELANGRIJK|MOET|NOOIT|ALTIJD|CRITICAL|MUST|NEVER|ALWAYS|IMPORTANT)\b"
+QWORD = re.compile(r"(?i)\b(of|whether|if|wanneer|when|hoe|how|wat|what)\b")
+SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
+CLAUSE_END = re.compile(r"(?<=[.!?:;])\s+|\n+")
 CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
 
 
@@ -47,8 +52,35 @@ def matches(pattern, text):
     return re.search(pattern, text) is not None
 
 
+def _parts(end, text):
+    return [s.strip() for s in end.split(text) if s.strip()]
+
+
+def sentences(text):
+    """De zinnen van text: geknipt op . ! ? gevolgd door witruimte, en op regeleinden. Voor de D04-markering en CHANNEL_CONTEXT."""
+    return _parts(SENTENCE_END, text)
+
+
+def clauses(text):
+    """Als sentences(), maar ook geknipt op : en ; gevolgd door witruimte. Alleen voor statement_hits(): in de
+    D04-markering zou die knip onderwerp en invulplek scheiden ("Webhook: [FILL IN: …]")."""
+    return _parts(CLAUSE_END, text)
+
+
+def statement_hits(patterns, text):
+    """De patronen met een treffer in een bewering: in een zinsdeel uit clauses() dat niet op '?' eindigt, en helemaal
+    vóór het eerste QWORD van dat zinsdeel (er wordt alleen gezocht in s[:start van dat QWORD]). forbid_statement telt alleen zo."""
+    heads = []
+    for s in clauses(text):
+        if not s.endswith("?"):
+            q = QWORD.search(s)
+            heads.append(s[:q.start()] if q else s)
+    return [p for p in patterns if any(matches(p, h) for h in heads)]
+
+
 def score_conversation(case, turns):
-    """turns: model contents in order. Returns dict check -> 'pass'|'fail'|'n.v.t.' plus notes."""
+    """turns: model contents in order. Returns dict check -> 'pass'|'fail'|'flag'|'n.v.t.' plus notes.
+    A case with variant 'docs' gets D5 (the A5 rule, after A8) and its A5 is then n.v.t."""
     res, notes = {}, []
     first_final = next((i for i, t in enumerate(turns) if fences(t)), None)
     q_turns = turns[:first_final] if first_final is not None else turns
@@ -77,15 +109,18 @@ def score_conversation(case, turns):
         ok = len(fences(final)) == 1 and bullets <= 5 and EFFORT.search(outside(final))
         res["A4"] = "pass" if ok else "fail"
 
-    if case.get("forbid_regex") or case.get("outside_fence_forbid"):
+    docs = case.get("variant") == "docs"
+    if case.get("forbid_regex") or case.get("outside_fence_forbid") or case.get("forbid_statement"):
         all_text = "\n".join(turns)
         hits = [p for p in case.get("forbid_regex", []) if matches(p, all_text)]
         hits += [p for p in case.get("outside_fence_forbid", []) if matches(p, out_text)]
-        res["A5"] = "flag" if hits else "pass"
+        hits += statement_hits(case.get("forbid_statement", []), all_text)
+        restraint = "flag" if hits else "pass"
         if hits:
-            notes.append("A5 treffer: " + ", ".join(hits))
+            notes.append(("D5" if docs else "A5") + " treffer: " + ", ".join(hits))
     else:
-        res["A5"] = "n.v.t."
+        restraint = "n.v.t."
+    res["A5"] = "n.v.t." if docs else restraint   # a docs case reports this rule as D5 instead (set after A8)
 
     if final is None:
         res["A6"] = "fail"
@@ -115,6 +150,8 @@ def score_conversation(case, turns):
         res["A8"] = "pass" if ok else "fail"
     else:
         res["A8"] = "n.v.t."
+    if docs:
+        res["D5"] = restraint
     return res, notes
 
 

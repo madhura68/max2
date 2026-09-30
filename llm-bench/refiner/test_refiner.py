@@ -3,6 +3,7 @@ and the frozen docset with its freezer and check.
 
   python3 -m unittest llm-bench/refiner/test_refiner.py
 """
+import csv
 import hashlib
 import json
 import os
@@ -544,6 +545,263 @@ class CasesTest(unittest.TestCase):
         self.assertEqual(len(texts), len(EXPECTED_DOCS))
         for word in ("slack", "webhook"):
             self.assertEqual([slug for slug, text in texts.items() if word in text.lower()], [], word)
+
+
+class StatementHitsTest(unittest.TestCase):
+    """sentences(), clauses() and statement_hits(), on one small pattern."""
+
+    PATTERN = r"(?i)user story\b[^.\n]{0,40}\bPBI"
+
+    def hits(self, text):
+        return score.statement_hits([self.PATTERN], text)
+
+    def test_sentences_cut_on_dot_bang_question_mark_and_line_ends(self):
+        text = "Eerste zin. Tweede zin! Derde zin?\nVierde regel\n\n  Vijfde zin.  "
+        self.assertEqual(score.sentences(text),
+                         ["Eerste zin.", "Tweede zin!", "Derde zin?", "Vierde regel", "Vijfde zin."])
+        self.assertEqual(score.sentences(""), [])
+
+    def test_sentences_keep_colon_semicolon_and_dots_inside_a_word_together(self):
+        for text in ("Zie docs/specs/v1.2.md; Webhook: [FILL IN: kanaal] nu.", "Webhook: [FILL IN: kanaal]"):
+            self.assertEqual(score.sentences(text), [text])
+
+    def test_clauses_also_cut_on_colon_and_semicolon_followed_by_whitespace(self):
+        self.assertEqual(score.clauses("Webhook: [FILL IN: kanaal]; klaar. Nog iets"),
+                         ["Webhook:", "[FILL IN:", "kanaal];", "klaar.", "Nog iets"])
+        self.assertEqual(score.clauses("Om 03:00 draait a;b\nen klaar."), ["Om 03:00 draait a;b", "en klaar."])
+
+    def test_a_statement_counts(self):
+        self.assertEqual(self.hits("Leg uit dat een user story een type PBI is."), [self.PATTERN])
+        self.assertEqual(self.hits("Explain that a user story is a PBI."), [self.PATTERN])
+
+    def test_a_question_word_makes_it_a_question(self):
+        self.assertEqual(self.hits("Leg uit of een user story een type PBI is."), [])
+        self.assertEqual(self.hits("Explain whether a user story is a PBI."), [])
+
+    def test_a_sentence_ending_in_a_question_mark_is_no_statement(self):
+        self.assertEqual(self.hits("Is een user story een type PBI?"), [])
+
+    def test_a_statement_before_the_question_word_counts(self):
+        self.assertEqual(self.hits("Een user story is een type PBI, maar bespreek of dat klopt."), [self.PATTERN])
+
+    def test_a_match_running_across_the_question_word_does_not_count(self):
+        self.assertEqual(self.hits("Beschrijf per user story het type en of het een PBI is."), [])
+        # not even one that ends on the question word: the search stops before it
+        self.assertEqual(score.statement_hits([r"(?i)bespreek of"], "Bespreek of een user story een PBI is."), [])
+
+    def test_only_the_first_question_word_counts(self):
+        # the statement sits between two question words: it is not before the first one
+        text = "Bespreek of dit klopt en leg uit dat een user story een PBI is, en wat dat betekent."
+        self.assertEqual(self.hits(text), [])
+
+    def test_a_question_word_is_a_whole_word(self):
+        # "software" holds "of", but not as a word
+        self.assertEqual(self.hits("De software zegt dat een user story een PBI is."), [self.PATTERN])
+
+    def test_sentences_and_clauses_are_judged_on_their_own(self):
+        self.assertEqual(self.hits("Wat is een PBI? Een user story is een type PBI."), [self.PATTERN])
+        self.assertEqual(self.hits("Een user story is een type PBI. Wat betekent dat?"), [self.PATTERN])
+        self.assertEqual(self.hits("Leg uit wat het verschil is: een user story is een type PBI."), [self.PATTERN])
+        self.assertEqual(self.hits("Beantwoord de vraag: is een user story een PBI?"), [])
+
+    def test_returns_the_patterns_in_the_order_given_once_each(self):
+        text = "De PBI is hier. De PBI is daar. Een user story ook."
+        self.assertEqual(score.statement_hits(["user story", "ontbreekt", "PBI"], text), ["user story", "PBI"])
+        self.assertEqual(score.statement_hits([], text), [])
+        self.assertEqual(score.statement_hits(["PBI"], ""), [])
+
+
+# forbid_statement through score_conversation (Taak 10a): R01 (A5) and the docs case D02 (D5), each sentence placed
+# inside the fenced block of the final turn of a complete refined prompt
+RESULTS = HERE.parent / "results"
+OLD_RUN = RESULTS / "refiner-2026-09-29"
+TAALREGEL2_RUN = RESULTS / "refiner-2026-09-29-taalregel2"
+R01_NO_FLAG = [
+    "Leg uit of een user story een type PBI is.",
+    "Is elke user story een PBI?",
+    "Ga in op de vraag of een PBI een overkoepelend begrip is.",
+    "Explain whether every user story counts as a PBI.",
+    "Onderzoek of iedere user story een PBI is.",
+    "Bespreek of PBI als overkoepelend begrip wordt gebruikt.",
+    "Leg uit wat een PBI is en wat een user story is.",
+    "Beschrijf of elke user story een PBI is.",
+    "Zoek uit of iedere user story een PBI is.",
+    "Find out whether every user story is a PBI.",
+    "Controleer voor elke user story of die als PBI in de backlog staat.",
+    "Beschrijf per user story het type en of het een PBI is.",
+]
+R01_FLAG = [
+    "Een user story is een type PBI; bespreek of voorbeelden nodig zijn.",
+    "Leg uit dat een user story een type PBI is, en controleer of de rest van de tekst daarmee klopt.",
+]
+R01_FLAG_AFTER_COLON = [
+    "Leg uit wat het verschil is: een user story is een type PBI.",
+    "Beschrijf hoe het zit: een PBI is de overkoepelende term voor alles op de backlog.",
+    "Explain what the difference is: every user story is a PBI.",
+]
+R01_NO_FLAG_AFTER_COLON = [
+    "Beantwoord de vraag: is elke user story een PBI?",
+    "Taak: bepaal of elke user story een PBI is.",
+]
+D02_NO_FLAG = [
+    "Leg uit wat er gebeurt als `maxToolErrors` wordt overschreden; "
+    "zie specs/2026-09-26-agent-harness-v0-design, kopje 6.",
+    "Geef aan of de run stopt of faalt bij het overschrijden van maxToolErrors.",
+    "Beschrijf de rol van maxToolErrors en wanneer de run eindigt.",
+    "Onderzoek het effect van maxToolErrors en of de run dan stopt.",
+]
+D02_FLAG = ["De run eindigt als failed zodra het aantal toolfouten maxToolErrors overschrijdt."]
+# known limits: the match lies after the first question word, or the sentence starts with one
+LIMITS = [
+    ("R01", "Een bug of een user story is een type PBI."),
+    ("D02", "De run stopt of faalt zodra maxToolErrors is overschreden."),
+    ("R01", "When you explain the difference, make clear that every user story is a PBI."),
+]
+
+
+def prompt_block(sentence):
+    """A complete refined prompt: one fenced block holding `sentence`, then the assumptions and the effort line."""
+    return f"```\n<task>\n{sentence}\n</task>\n```\nAannames:\n- geen\nInstellingen: effort medium."
+
+
+def conversation(rundir, blind_id):
+    """The model turns of one conversation of a committed run."""
+    return next(c["turns"] for c in score.load_run(rundir).values() if c["blind_id"] == blind_id)
+
+
+class StatementFlagsTest(unittest.TestCase):
+    """forbid_statement in the real scoring path, on the cases R01 and D02 and on real transcripts."""
+
+    def outcome(self, cid, sentence):
+        """(outcome, notes) of the restraint rule for a conversation whose final prompt block holds `sentence`:
+        the A5 outcome or, for a docs case, the D5 outcome (its A5 is then n.v.t.)."""
+        c = case(cid)
+        res, notes = score.score_conversation(c, [QUESTIONS, prompt_block(sentence)])
+        self.assertEqual(res["A4"], "pass", sentence)   # a complete prompt: only the sentence can make a difference
+        notes = [n for n in notes if n.startswith(("A5", "D5"))]
+        if c.get("variant") == "docs":
+            self.assertEqual(res["A5"], "n.v.t.", sentence)
+            return res["D5"], notes
+        self.assertNotIn("D5", res)
+        return res["A5"], notes
+
+    def assert_outcome(self, cid, sentences, expected):
+        label = "D5" if case(cid).get("variant") == "docs" else "A5"
+        for s in sentences:
+            with self.subTest(case=cid, sentence=s):
+                outcome, notes = self.outcome(cid, s)
+                self.assertEqual(outcome, expected)
+                # a flag names the pattern that hit; a pass leaves no note
+                self.assertEqual([n.split(" treffer: ")[0] for n in notes], [label] if expected == "flag" else [])
+
+    def test_a_neutral_prompt_is_no_flag(self):
+        self.assert_outcome("R01", ["Schrijf iets."], "pass")
+        self.assert_outcome("D02", ["Schrijf iets."], "pass")
+
+    def test_r01_questions_and_research_instructions_in_a_prompt_block_are_no_flag(self):
+        self.assert_outcome("R01", R01_NO_FLAG, "pass")
+
+    def test_r01_statements_in_a_prompt_block_flag(self):
+        self.assert_outcome("R01", R01_FLAG, "flag")
+
+    def test_r01_statement_after_a_colon_flags(self):
+        self.assert_outcome("R01", R01_FLAG_AFTER_COLON, "flag")
+
+    def test_r01_question_after_a_colon_is_no_flag(self):
+        self.assert_outcome("R01", R01_NO_FLAG_AFTER_COLON, "pass")
+
+    def test_d02_questions_and_descriptions_are_no_d5_flag(self):
+        self.assert_outcome("D02", D02_NO_FLAG, "pass")
+
+    def test_d02_statement_flags_d5(self):
+        self.assert_outcome("D02", D02_FLAG, "flag")
+
+    def test_d02_forbid_regex_flags_d5_as_well(self):
+        self.assert_outcome("D02", ["De foutcode is TOO_MANY_TOOL_ERRORS."], "flag")
+
+    def test_the_known_limits_give_no_flag(self):
+        for cid, sentence in LIMITS:
+            self.assert_outcome(cid, [sentence], "pass")
+
+    def test_ac5133_flags_on_a_statement_inside_the_code_block(self):
+        turns = conversation(OLD_RUN, "ac5133")
+        res, notes = score.score_conversation(case("R01"), turns)
+        self.assertEqual(res["A5"], "flag")
+        self.assertEqual([n for n in notes if n.startswith("A5")], ["A5 treffer: " + R01_STATEMENT[2]])
+        patterns = case("R01")["forbid_statement"]
+        self.assertEqual(score.statement_hits(patterns, "\n".join(b for t in turns for b in score.fences(t))),
+                         [R01_STATEMENT[2]])
+        self.assertEqual(score.statement_hits(patterns, " ".join(score.outside(t) for t in turns)), [])
+
+    def test_dc973d_is_no_flag(self):
+        res, notes = score.score_conversation(case("R01"), conversation(TAALREGEL2_RUN, "dc973d"))
+        self.assertEqual(res["A5"], "pass")
+        self.assertEqual([n for n in notes if n.startswith("A5")], [])
+
+
+class OldRunTest(unittest.TestCase):
+    """Bestaand gedrag blijft: the committed run of 29 September scores as before, but for the new R01 patterns."""
+
+    def test_forbid_statement_changes_a5_of_ac5133_only(self):
+        cases = {c["id"]: c for c in load_cases()}
+        bare = {cid: {k: v for k, v in c.items() if k != "forbid_statement"} for cid, c in cases.items()}
+        with (OLD_RUN / "summary.csv").open(newline="") as f:
+            stored = {r["blind_id"]: r for r in csv.DictReader(f)}
+        convs = score.load_run(OLD_RUN)
+        self.assertEqual(len(convs), 20)
+        diffs = []
+        for (model, cid, seed), conv in sorted(convs.items()):
+            now, _ = score.score_conversation(cases[cid], conv["turns"])
+            before, _ = score.score_conversation(bare[cid], conv["turns"])
+            self.assertEqual(list(now), score.CHECKS, conv["blind_id"])   # a plain case gets A1-A8 and nothing else
+            diffs += [(conv["blind_id"], ch, before[ch], now[ch]) for ch in score.CHECKS if now[ch] != before[ch]]
+            # without the new patterns the scoring is what the committed summary.csv has
+            self.assertEqual({ch: stored[conv["blind_id"]][ch] for ch in score.CHECKS}, before, conv["blind_id"])
+        self.assertEqual(diffs, [("ac5133", "A5", "pass", "flag")])
+
+
+class ForbidFieldsTest(unittest.TestCase):
+    """A5 and D5: the three forbid fields on synthetic cases."""
+
+    base = ChecksTest.base
+    said = "```\n<task>\nLeg uit dat een user story een PBI is.\n</task>\n```\nInstellingen: effort low."
+    asked = "```\n<task>\nLeg uit of een user story een PBI is.\n</task>\n```\nInstellingen: effort low."
+    inside_hit = "```\n<task>\nNoem GEHEIM.\n</task>\n```\nInstellingen: effort low."
+    outside_hit = "Dit is GEHEIM.\n```\n<task>\nSchrijf iets.\n</task>\n```\nInstellingen: effort low."
+
+    def scored(self, turns, **kw):
+        return score.score_conversation({**self.base, **kw}, turns)
+
+    def test_forbid_statement_alone_makes_a5_a_flag_or_a_pass_never_n_v_t(self):
+        stmt = {"forbid_statement": [r"(?i)user story\b[^.\n]{0,40}\bPBI"]}
+        res, notes = self.scored([self.said], **stmt)
+        self.assertEqual(res["A5"], "flag")
+        self.assertEqual([n for n in notes if n.startswith("A5")], ["A5 treffer: " + stmt["forbid_statement"][0]])
+        self.assertEqual(self.scored([self.asked], **stmt)[0]["A5"], "pass")
+        self.assertEqual(list(res), score.CHECKS)   # a plain case has no D5
+
+    def test_a_docs_case_reports_the_restraint_rule_as_d5_and_a5_is_not_applicable(self):
+        for field, hit in (("forbid_regex", self.inside_hit), ("outside_fence_forbid", self.outside_hit),
+                           ("forbid_statement", self.inside_hit)):
+            with self.subTest(field):
+                res, notes = self.scored([hit], variant="docs", **{field: ["GEHEIM"]})
+                self.assertEqual((res["A5"], res["D5"]), ("n.v.t.", "flag"))
+                self.assertEqual([n for n in notes if "treffer" in n], ["D5 treffer: GEHEIM"])
+                res, notes = self.scored([FENCE_REPLY], variant="docs", **{field: ["GEHEIM"]})
+                self.assertEqual((res["A5"], res["D5"]), ("n.v.t.", "pass"))
+                self.assertEqual([n for n in notes if "treffer" in n], [])
+
+    def test_d5_is_the_a5_rule_so_outside_fence_forbid_does_not_look_inside_the_fence(self):
+        res, _ = self.scored([self.inside_hit], variant="docs", outside_fence_forbid=["GEHEIM"])
+        self.assertEqual(res["D5"], "pass")
+        res, _ = self.scored([self.inside_hit], outside_fence_forbid=["GEHEIM"])   # a plain case: A5 the same
+        self.assertEqual(res["A5"], "pass")
+
+    def test_a_docs_case_that_forbids_nothing_has_a5_and_d5_not_applicable(self):
+        res, _ = self.scored([FENCE_REPLY], variant="docs")
+        self.assertEqual((res["A5"], res["D5"]), ("n.v.t.", "n.v.t."))
+        res, _ = self.scored([FENCE_REPLY], variant="docs", forbid_regex=[], forbid_statement=[])
+        self.assertEqual((res["A5"], res["D5"]), ("n.v.t.", "n.v.t."))
 
 
 if __name__ == "__main__":
