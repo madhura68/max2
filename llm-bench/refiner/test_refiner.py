@@ -6,6 +6,7 @@ and the frozen docset with its freezer and check.
 import hashlib
 import json
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -446,6 +447,103 @@ class FreezeTest(unittest.TestCase):
             r = self.freeze(ref)
             self.assertNotEqual(r.returncode, 0, ref)
             self.assertFalse(self.out.exists(), ref)
+
+
+# the thirteen fields every case has; a docs case adds "variant" and at least one of DOC_FIELDS
+CASE_FIELDS = ["id", "titel", "lang", "input", "replies", "pressure_reply", "revision", "expect_direct",
+               "must_include", "must_include_revision", "must_not_include_revision", "forbid_regex",
+               "outside_fence_forbid"]
+DOC_FIELDS = ["doc_must_include", "doc_forbid_ask", "doc_absent_topic", "doc_absent_forbid"]
+# lists of regexes; must_include and doc_must_include hold a regex only where a value starts with "(?"
+REGEX_LISTS = ["forbid_regex", "outside_fence_forbid", "forbid_statement", "doc_forbid_ask", "doc_absent_forbid"]
+R01_STATEMENT = [
+    r"(?i)een (PBI|product backlog item) is (een|het|de)\b",
+    r"(?i)een user story is (een|het|de)\b",
+    r"(?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI",
+    r"(?i)\b(elke|iedere|every) user story\b[^.\n]{0,20}\bPBI",
+    r"(?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)",
+]
+ERROR_CODE = "TOO_MANY_TOOL_ERRORS"
+
+
+def load_cases():
+    return [json.loads(l) for l in (HERE / "cases.jsonl").read_text().splitlines() if l.strip()]
+
+
+def docset_texts():
+    """slug -> text of each file registered in docset.json: that is all 'in the docset' means."""
+    files = json.loads((DOCSET / "docset.json").read_text())["files"]
+    return {f["slug"]: (DOCSET / f["folder"] / f"{f['slug']}.md").read_text(encoding="utf-8") for f in files}
+
+
+def docset_hits(value, texts):
+    """Slugs of the docs a value hits: a regex when it starts with '(?', otherwise literal text (as in must_include)."""
+    pattern = value if value.startswith("(?") else re.escape(value)
+    return [slug for slug, text in texts.items() if re.search(pattern, text)]
+
+
+class CasesTest(unittest.TestCase):
+    """cases.jsonl: the fields of every case, R01's statement patterns and the docs cases against the frozen docset."""
+
+    def test_ten_plain_cases_then_five_docs_cases(self):
+        cases = load_cases()
+        self.assertEqual([c["id"] for c in cases],
+                         [f"R{n:02d}" for n in range(1, 11)] + [f"D{n:02d}" for n in range(1, 6)])
+        self.assertEqual([c.get("variant") for c in cases], [None] * 10 + ["docs"] * 5)
+
+    def test_every_case_has_the_thirteen_fields(self):
+        for c in load_cases():
+            self.assertEqual([f for f in CASE_FIELDS if f not in c], [], c["id"])
+
+    def test_a_docs_case_has_at_least_one_doc_field(self):
+        docs_cases = [c for c in load_cases() if c.get("variant") == "docs"]
+        self.assertEqual(len(docs_cases), 5)
+        for c in docs_cases:
+            self.assertTrue(set(DOC_FIELDS) & set(c), c["id"])
+
+    def test_r01_forbids_the_five_statement_patterns_and_keeps_its_other_checks(self):
+        r01 = case("R01")
+        self.assertEqual(r01["forbid_statement"], R01_STATEMENT)
+        self.assertEqual(r01["forbid_regex"], [])
+        self.assertEqual(r01["outside_fence_forbid"],
+                         [r"(?i)een PBI is\b", r"(?i)een user story is\b", r"(?i)product backlog item is\b"])
+        self.assertEqual([c["id"] for c in load_cases() if "forbid_statement" in c], ["R01", "D02"])
+
+    def test_patterns_compile_and_carry_no_control_characters(self):
+        # a JSON "\b" or "\n" with a single backslash is valid JSON, but decodes to a control character
+        for c in load_cases():
+            patterns = [p for f in REGEX_LISTS for p in c.get(f, [])]
+            patterns += [p for f in ("must_include", "doc_must_include") for p in c.get(f, []) if p.startswith("(?")]
+            if "doc_absent_topic" in c:
+                patterns.append(c["doc_absent_topic"])   # one regex, not a list
+            for p in patterns:
+                self.assertIsInstance(p, str, c["id"])
+                self.assertIsNone(re.search(r"[\x00-\x1f]", p), f"{c['id']}: {p!r}")
+                re.compile(p)
+
+    def test_doc_must_include_values_all_hit_the_docset(self):
+        texts = docset_texts()
+        with_values = {c["id"]: c["doc_must_include"] for c in load_cases() if "doc_must_include" in c}
+        self.assertEqual(sorted(with_values), ["D01", "D02", "D03", "D05"])
+        for cid, values in with_values.items():
+            self.assertTrue(values, cid)
+            for value in values:
+                self.assertTrue(docset_hits(value, texts), f"{cid}: {value!r} is not in the docset")
+
+    def test_d02_doc_reference_is_exactly_the_docs_that_hold_the_error_code(self):
+        d02 = case("D02")
+        self.assertEqual(d02["forbid_regex"], [ERROR_CODE])
+        self.assertEqual(len(d02["doc_must_include"]), 1)
+        m = re.fullmatch(r"\(\?i\)\(([^()]+)\)", d02["doc_must_include"][0])
+        self.assertIsNotNone(m, d02["doc_must_include"][0])
+        with_code = {slug for slug, text in docset_texts().items() if ERROR_CODE in text}
+        self.assertEqual(set(m.group(1).split("|")), with_code)
+
+    def test_slack_and_webhook_are_not_in_the_docset(self):
+        texts = docset_texts()
+        self.assertEqual(len(texts), len(EXPECTED_DOCS))
+        for word in ("slack", "webhook"):
+            self.assertEqual([slug for slug, text in texts.items() if word in text.lower()], [], word)
 
 
 if __name__ == "__main__":
