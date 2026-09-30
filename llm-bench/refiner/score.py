@@ -29,6 +29,8 @@ A7_CS = r"\b(BELANGRIJK|MOET|NOOIT|ALTIJD|CRITICAL|MUST|NEVER|ALWAYS|IMPORTANT)\
 QWORD = re.compile(r"(?i)\b(of|whether|if|wanneer|when|hoe|how|wat|what)\b")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
 CLAUSE_END = re.compile(r"(?<=[.!?:;])\s+|\n+")
+# a clause ends in '?' when only closing markup follows it: a closing tag, quote, bracket, * _ or backtick
+QEND = re.compile(r"\?(?:</\w+>|[\s*_`\"'»”’)\]}>])*$")
 CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
 
 
@@ -69,10 +71,12 @@ def clauses(text):
 
 def statement_hits(patterns, text):
     """De patronen met een treffer in een bewering: in een zinsdeel uit clauses() dat niet op '?' eindigt, en helemaal
-    vóór het eerste QWORD van dat zinsdeel (er wordt alleen gezocht in s[:start van dat QWORD]). forbid_statement telt alleen zo."""
+    vóór het eerste QWORD van dat zinsdeel (er wordt alleen gezocht in s[:start van dat QWORD]). forbid_statement telt alleen zo.
+    Een zinsdeel dat op '?' eindigt, eventueel gevolgd door sluitende opmaak (een sluittag, aanhalingsteken, haakje,
+    * _ of backtick), telt niet als bewering."""
     heads = []
     for s in clauses(text):
-        if not s.endswith("?"):
+        if not QEND.search(s):
             q = QWORD.search(s)
             heads.append(s[:q.start()] if q else s)
     return [p for p in patterns if any(matches(p, h) for h in heads)]

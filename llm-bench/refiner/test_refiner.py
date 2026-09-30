@@ -581,6 +581,21 @@ class StatementHitsTest(unittest.TestCase):
     def test_a_sentence_ending_in_a_question_mark_is_no_statement(self):
         self.assertEqual(self.hits("Is een user story een type PBI?"), [])
 
+    def test_a_question_followed_by_a_closing_tag_is_still_a_question(self):
+        self.assertEqual(self.hits("<task>Is een user story een type PBI?</task>"), [])
+        self.assertEqual(self.hits("<context><task>Is een user story een type PBI?</task></context>"), [])
+        # the same line as a statement still counts
+        self.assertEqual(self.hits("<task>Leg uit dat een user story een type PBI is.</task>"), [self.PATTERN])
+
+    def test_a_question_followed_by_other_closing_markup_is_still_a_question(self):
+        for tail in ("**", "*", "__", "_", "`", '"', "'", "»", "”", "’", ")", "]", "}", ">", "**)", '" )'):
+            with self.subTest(tail=tail):
+                self.assertEqual(self.hits("Is een user story een type PBI?" + tail), [])
+
+    def test_a_question_mark_inside_a_statement_does_not_make_it_a_question(self):
+        text = 'Noem de term "PBI?" en leg uit dat een user story een type PBI is.'
+        self.assertEqual(self.hits(text), [self.PATTERN])
+
     def test_a_statement_before_the_question_word_counts(self):
         self.assertEqual(self.hits("Een user story is een type PBI, maar bespreek of dat klopt."), [self.PATTERN])
 
@@ -657,11 +672,19 @@ LIMITS = [
     ("D02", "De run stopt of faalt zodra maxToolErrors is overschreden."),
     ("R01", "When you explain the difference, make clear that every user story is a PBI."),
 ]
+# a question that ends in closing markup (a one-line tag like the system prompt's skeleton, bold, quotes, brackets)
+R01_WRAPPED_QUESTIONS = [
+    "<task>Is elke user story een PBI?</task>",
+    "**Is elke user story een PBI?**",
+    'Beantwoord de vraag "Is elke user story een PBI?"',
+    "Beantwoord (is elke user story een PBI?)",
+]
+D02_WRAPPED_QUESTIONS = ["<task>Stopt de run als maxToolErrors wordt overschreden?</task>"]
 
 
-def prompt_block(sentence):
-    """A complete refined prompt: one fenced block holding `sentence`, then the assumptions and the effort line."""
-    return f"```\n<task>\n{sentence}\n</task>\n```\nAannames:\n- geen\nInstellingen: effort medium."
+def prompt_block(body):
+    """A complete refined prompt: one fenced block holding `body`, then the assumptions and the effort line."""
+    return f"```\n{body}\n```\nAannames:\n- geen\nInstellingen: effort medium."
 
 
 def conversation(rundir, blind_id):
@@ -672,11 +695,13 @@ def conversation(rundir, blind_id):
 class StatementFlagsTest(unittest.TestCase):
     """forbid_statement in the real scoring path, on the cases R01 and D02 and on real transcripts."""
 
-    def outcome(self, cid, sentence):
+    def outcome(self, cid, sentence, one_line=False):
         """(outcome, notes) of the restraint rule for a conversation whose final prompt block holds `sentence`:
-        the A5 outcome or, for a docs case, the D5 outcome (its A5 is then n.v.t.)."""
+        the A5 outcome or, for a docs case, the D5 outcome (its A5 is then n.v.t.). The sentence is a line of its own
+        between <task> lines or, with one_line, the only line of the block (it then carries its own tag)."""
         c = case(cid)
-        res, notes = score.score_conversation(c, [QUESTIONS, prompt_block(sentence)])
+        body = sentence if one_line else f"<task>\n{sentence}\n</task>"
+        res, notes = score.score_conversation(c, [QUESTIONS, prompt_block(body)])
         self.assertEqual(res["A4"], "pass", sentence)   # a complete prompt: only the sentence can make a difference
         notes = [n for n in notes if n.startswith(("A5", "D5"))]
         if c.get("variant") == "docs":
@@ -685,11 +710,11 @@ class StatementFlagsTest(unittest.TestCase):
         self.assertNotIn("D5", res)
         return res["A5"], notes
 
-    def assert_outcome(self, cid, sentences, expected):
+    def assert_outcome(self, cid, sentences, expected, one_line=False):
         label = "D5" if case(cid).get("variant") == "docs" else "A5"
         for s in sentences:
             with self.subTest(case=cid, sentence=s):
-                outcome, notes = self.outcome(cid, s)
+                outcome, notes = self.outcome(cid, s, one_line)
                 self.assertEqual(outcome, expected)
                 # a flag names the pattern that hit; a pass leaves no note
                 self.assertEqual([n.split(" treffer: ")[0] for n in notes], [label] if expected == "flag" else [])
@@ -722,6 +747,17 @@ class StatementFlagsTest(unittest.TestCase):
     def test_the_known_limits_give_no_flag(self):
         for cid, sentence in LIMITS:
             self.assert_outcome(cid, [sentence], "pass")
+
+    def test_r01_question_wrapped_in_closing_markup_is_no_flag(self):
+        self.assert_outcome("R01", R01_WRAPPED_QUESTIONS, "pass", one_line=True)
+
+    def test_d02_question_wrapped_in_a_closing_tag_is_no_d5_flag(self):
+        self.assert_outcome("D02", D02_WRAPPED_QUESTIONS, "pass", one_line=True)
+
+    def test_a_statement_in_a_one_line_tag_still_flags(self):
+        self.assert_outcome("R01", ["<task>Leg uit dat een user story een type PBI is.</task>"], "flag", one_line=True)
+        self.assert_outcome("D02", ["<task>De run eindigt als failed zodra maxToolErrors wordt overschreden.</task>"],
+                            "flag", one_line=True)
 
     def test_ac5133_flags_on_a_statement_inside_the_code_block(self):
         turns = conversation(OLD_RUN, "ac5133")
