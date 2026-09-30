@@ -28,7 +28,9 @@ A7_CI = [r"stap voor stap", r"step[- ]by[- ]step", r"denk (goed|zorgvuldig|eerst
 A7_CS = r"\b(BELANGRIJK|MOET|NOOIT|ALTIJD|CRITICAL|MUST|NEVER|ALWAYS|IMPORTANT)\b"
 QWORD = re.compile(r"(?i)\b(of|whether|if|wanneer|when|hoe|how|wat|what)\b")
 SENTENCE_END = re.compile(r"(?<=[.!?])\s+|\n+")
-CLAUSE_END = re.compile(r"(?<=[.!?:;])\s+|\n+")
+# clauses() cuts after . ! ? : ; and the closing markup that follows it (as in QEND), before the whitespace
+CLAUSE_CUT = re.compile(r"([.!?:;](?:</\w+>|[*_`\"'»”’)\]}>])*)\s+")
+LINE_END = re.compile(r"\n+")
 # a clause ends in '?' when only closing markup follows it: a closing tag, quote, bracket, * _ or backtick
 QEND = re.compile(r"\?(?:</\w+>|[\s*_`\"'»”’)\]}>])*$")
 CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
@@ -65,8 +67,10 @@ def sentences(text):
 
 def clauses(text):
     """Als sentences(), maar ook geknipt op : en ; gevolgd door witruimte. Alleen voor statement_hits(): in de
-    D04-markering zou die knip onderwerp en invulplek scheiden ("Webhook: [FILL IN: …]")."""
-    return _parts(CLAUSE_END, text)
+    D04-markering zou die knip onderwerp en invulplek scheiden ("Webhook: [FILL IN: …]").
+    Geknipt wordt ook als er tussen het leesteken en de witruimte alleen sluitende opmaak staat (een sluittag,
+    aanhalingsteken, haakje, * _ of backtick); die opmaak blijft bij het zinsdeel ervoor."""
+    return _parts(LINE_END, CLAUSE_CUT.sub(r"\1\n", text))
 
 
 def statement_hits(patterns, text):

@@ -547,6 +547,17 @@ class CasesTest(unittest.TestCase):
             self.assertEqual([slug for slug, text in texts.items() if word in text.lower()], [], word)
 
 
+# closing markup that may follow a question mark (or another cut character) before the whitespace:
+# closing tag, emphasis, code, quotes, brackets; QEND and the cut in clauses() must agree on this set
+CLOSING_TAILS = ("</task>", "</b></task>", "**", "*", "__", "_", "`", '"', "'", "»", "”", "’", ")", "]", "}", ">",
+                 "**)")
+
+
+def old_clauses(text):
+    """clauses() as the brief defined it before closing markup was taken into account (the oracle for plain text)."""
+    return [s.strip() for s in re.split(r"(?<=[.!?:;])\s+|\n+", text) if s.strip()]
+
+
 class StatementHitsTest(unittest.TestCase):
     """sentences(), clauses() and statement_hits(), on one small pattern."""
 
@@ -564,6 +575,12 @@ class StatementHitsTest(unittest.TestCase):
     def test_sentences_keep_colon_semicolon_and_dots_inside_a_word_together(self):
         for text in ("Zie docs/specs/v1.2.md; Webhook: [FILL IN: kanaal] nu.", "Webhook: [FILL IN: kanaal]"):
             self.assertEqual(score.sentences(text), [text])
+
+    def test_only_clauses_cut_after_closing_markup_sentences_do_not(self):
+        # sentences() stays as it was: the D04 marker rules are calibrated on it
+        text = "**Is het zo?** Ja <task>Leg uit.</task> Klaar!) Nee"
+        self.assertEqual(score.sentences(text), [text])
+        self.assertEqual(score.clauses(text), ["**Is het zo?**", "Ja <task>Leg uit.</task>", "Klaar!)", "Nee"])
 
     def test_clauses_also_cut_on_colon_and_semicolon_followed_by_whitespace(self):
         self.assertEqual(score.clauses("Webhook: [FILL IN: kanaal]; klaar. Nog iets"),
@@ -588,9 +605,48 @@ class StatementHitsTest(unittest.TestCase):
         self.assertEqual(self.hits("<task>Leg uit dat een user story een type PBI is.</task>"), [self.PATTERN])
 
     def test_a_question_followed_by_other_closing_markup_is_still_a_question(self):
-        for tail in ("**", "*", "__", "_", "`", '"', "'", "»", "”", "’", ")", "]", "}", ">", "**)", '" )'):
+        for tail in CLOSING_TAILS + ('" )',):
             with self.subTest(tail=tail):
                 self.assertEqual(self.hits("Is een user story een type PBI?" + tail), [])
+
+    def test_clauses_keep_closing_markup_with_the_clause_before_it(self):
+        self.assertEqual(score.clauses("1. **Is elke user story een PBI?** [standaard: nee]"),
+                         ["1.", "**Is elke user story een PBI?**", "[standaard:", "nee]"])
+        self.assertEqual(score.clauses("**Let op:** dit telt. <task>Wat is een PBI?</task> Leg het uit!) Klaar;"),
+                         ["**Let op:**", "dit telt.", "<task>Wat is een PBI?</task>", "Leg het uit!)", "Klaar;"])
+        # every closing tail, and the cut-off clause is what follows
+        for tail in CLOSING_TAILS:
+            with self.subTest(tail=tail):
+                self.assertEqual(score.clauses("Vraag?" + tail + " Volgende."), ["Vraag?" + tail, "Volgende."])
+        # only markup before the first whitespace stays behind: what comes after the whitespace is the next clause
+        self.assertEqual(score.clauses('Vraag?" ) Volgende.'), ['Vraag?"', ") Volgende."])
+
+    def test_qend_allows_whitespace_between_closers_but_no_trailing_text(self):
+        for tail in CLOSING_TAILS + ('" )',):
+            with self.subTest(tail=tail):
+                self.assertTrue(score.QEND.search("Is het zo?" + tail))
+        self.assertIsNone(score.QEND.search("Is het zo? Nee"))
+        self.assertIsNone(score.QEND.search("Is het zo?** Nee"))
+
+    def test_clauses_split_plain_text_exactly_as_before(self):
+        brief = (R01_NO_FLAG + R01_FLAG + R01_FLAG_AFTER_COLON + R01_NO_FLAG_AFTER_COLON + D02_NO_FLAG + D02_FLAG
+                 + [sentence for _, sentence in LIMITS])
+        self.assertEqual(len(brief), 27)
+        extra = ["Eerste zin. Tweede: derde; vierde!\n\nVijfde? Zesde", "Om 03:00 draait a;b. Nog iets",
+                 "Hmm... wat? Ja.", ""]
+        for text in brief + extra:
+            with self.subTest(text=text):
+                self.assertEqual(score.clauses(text), old_clauses(text))
+
+    def test_a_question_closed_by_markup_is_cut_off_from_what_follows(self):
+        # uncut, "Vraag?** Dat klopt." would end in a full stop and count as a statement
+        for tail in CLOSING_TAILS:
+            with self.subTest(tail=tail):
+                self.assertEqual(self.hits("Is een user story een type PBI?" + tail + " Dat klopt."), [])
+        # and a statement closed by markup is still one
+        for tail in CLOSING_TAILS:
+            with self.subTest(statement_tail=tail):
+                self.assertEqual(self.hits("Een user story is een type PBI." + tail + " Dat klopt."), [self.PATTERN])
 
     def test_a_question_mark_inside_a_statement_does_not_make_it_a_question(self):
         text = 'Noem de term "PBI?" en leg uit dat een user story een type PBI is.'
@@ -680,6 +736,24 @@ R01_WRAPPED_QUESTIONS = [
     "Beantwoord (is elke user story een PBI?)",
 ]
 D02_WRAPPED_QUESTIONS = ["<task>Stopt de run als maxToolErrors wordt overschreden?</task>"]
+# the refiner's numbered questions with a default in square brackets (system prompt, step 3), the question marked up
+MARKED_UP_QUESTIONS = [
+    "1. **Is elke user story een PBI?** [standaard: nee]",
+    "2. *Moet Opus uitleggen dat een user story een type PBI is?* [standaard: ja]",
+]
+# (plain, bold, outcome): three questions and two statements; bolding must not change the outcome
+BOLD_PAIRS = [
+    ("1. Is elke user story een PBI? [standaard: nee]",
+     "1. **Is elke user story een PBI?** [standaard: nee]", "pass"),
+    ("2. Moet Opus uitleggen dat een user story een type PBI is? [standaard: ja]",
+     "2. **Moet Opus uitleggen dat een user story een type PBI is?** [standaard: ja]", "pass"),
+    ("3. Moet de uitleg zeggen dat een PBI de overkoepelende term is? [standaard: nee]",
+     "3. **Moet de uitleg zeggen dat een PBI de overkoepelende term is?** [standaard: nee]", "pass"),
+    ("Een user story is een type PBI. Verder ...",
+     "**Een user story is een type PBI.** Verder ...", "flag"),
+    ("1. Welke uitleg? [standaard: een user story is een type PBI]",
+     "1. **Welke uitleg?** [standaard: een user story is een type PBI]", "flag"),
+]
 
 
 def prompt_block(body):
@@ -758,6 +832,18 @@ class StatementFlagsTest(unittest.TestCase):
         self.assert_outcome("R01", ["<task>Leg uit dat een user story een type PBI is.</task>"], "flag", one_line=True)
         self.assert_outcome("D02", ["<task>De run eindigt als failed zodra maxToolErrors wordt overschreden.</task>"],
                             "flag", one_line=True)
+
+    def test_numbered_questions_with_the_question_marked_up_are_no_flag(self):
+        self.assert_outcome("R01", MARKED_UP_QUESTIONS, "pass", one_line=True)
+        self.assert_outcome("D02", ["1. **Stopt de run als maxToolErrors wordt overschreden?** [standaard: ja]"],
+                            "pass", one_line=True)
+
+    def test_bolding_does_not_change_the_outcome(self):
+        for plain, bold, expected in BOLD_PAIRS:
+            with self.subTest(plain=plain):
+                plain_outcome, _ = self.outcome("R01", plain, one_line=True)
+                bold_outcome, _ = self.outcome("R01", bold, one_line=True)
+                self.assertEqual((plain_outcome, bold_outcome), (expected, expected))
 
     def test_ac5133_flags_on_a_statement_inside_the_code_block(self):
         turns = conversation(OLD_RUN, "ac5133")
