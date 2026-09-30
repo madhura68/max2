@@ -4,6 +4,7 @@ and the frozen docset with its freezer and check.
   python3 -m unittest llm-bench/refiner/test_refiner.py
 """
 import csv
+import functools
 import hashlib
 import json
 import os
@@ -105,6 +106,23 @@ class RunnerTest(unittest.TestCase):
         out, _ = self.run_cases("ask", "R03,R10")
         score.main(str(out))
         self.assertTrue((out / "summary.csv").exists())
+
+    def test_every_user_message_the_runner_sends_is_one_the_scorer_knows(self):
+        # D3 accepts a path or channel name that a user message holds: score.user_messages must list what run.py sends
+        plain = [c for c in load_cases() if c.get("variant") != "docs"]
+        by_input = {c["input"]: c for c in plain}
+        seen = set()
+        for behaviour in ("ask", "direct", "never"):
+            self.run_cases(behaviour, ",".join(c["id"] for c in plain))
+            for req in FakeOllama.calls:
+                users = [m["content"] for m in req["messages"] if m["role"] == "user"]
+                known = score.user_messages(by_input[users[0]])
+                for user in users:
+                    self.assertIn(user, known)
+                seen.update(users)
+        # the pressure turn, a revision and the go-ahead lines (Dutch and English) were all among them
+        self.assertTrue({case("R01")["pressure_reply"], case("R03")["revision"], "Akkoord, schrijf nu de prompt.",
+                         "Fine, write the prompt now."} <= seen)
 
 
 def case(cid):
@@ -686,6 +704,7 @@ class StatementHitsTest(unittest.TestCase):
 # inside the fenced block of the final turn of a complete refined prompt
 RESULTS = HERE.parent / "results"
 OLD_RUN = RESULTS / "refiner-2026-09-29"
+TAALREGEL_RUN = RESULTS / "refiner-2026-09-29-taalregel"
 TAALREGEL2_RUN = RESULTS / "refiner-2026-09-29-taalregel2"
 R01_NO_FLAG = [
     "Leg uit of een user story een type PBI is.",
@@ -766,6 +785,51 @@ def conversation(rundir, blind_id):
     return next(c["turns"] for c in score.load_run(rundir).values() if c["blind_id"] == blind_id)
 
 
+# A docs case is scored with the harness rows of its conversation and the docset (Taak 10b). The rows below have the
+# field names of the row contract of Task 11a; fixed values, so a test states only what it is about.
+@functools.lru_cache(maxsize=None)
+def real_docset():
+    """score.load_docset on the committed docset (read once)."""
+    return score.load_docset(DOCSET)
+
+
+SEARCH = {"name": "search_product_docs", "arguments": {"product_id": "bench-agent-harness", "query": "check-run-logs"},
+          "ok": True, "error_code": None}
+ROW_LIMITS = {"maxTurns": 8, "maxOutputTokens": 4096, "maxWallSeconds": 240, "maxToolErrors": 2, "contextTokens": 65536}
+
+
+def harness_row(turn, content, status="completed", tool_calls=(), **extra):
+    """One per-turn row of the harness backend."""
+    return {"model": "qwen3.6-openrouter", "case": "D01", "seed": 1, "blind_id": "a1b2c3", "backend": "harness",
+            "variant": "docs", "poging": 1, "turn": turn, "content": content, "status": status, "error_code": None,
+            "model_turns": 2, "tool_calls": list(tool_calls), "input_tokens": 1200, "output_tokens": 300,
+            "cached_tokens": 0, "reasoning_tokens": 120, "cost_usd": 0.0004, "providers": ["Novita"],
+            "finish_reason": "stop", "wall_s": 6.2, "harness_run": f"a1b2c3-p1-t{turn}", "prompt_sha256": "0" * 64,
+            "limits": ROW_LIMITS, **extra}
+
+
+def end_row(status="final"):
+    """The closing row of a conversation; its status is the conversation's (final, no_final, error)."""
+    return {"model": "qwen3.6-openrouter", "case": "D01", "seed": 1, "blind_id": "a1b2c3", "backend": "harness",
+            "variant": "docs", "poging": 1, "turn": "end", "status": status, "conversation_wall_s": 14.0,
+            "cost_usd": 0.0008}
+
+
+def docs_rows(turns, turn1_tools=(SEARCH,), statuses=None, end_status="final"):
+    """The rows of a docs conversation: one per model turn (with the docs lookup in turn 1 unless told otherwise),
+    then the closing row."""
+    statuses = statuses or ["completed"] * len(turns)
+    rows = [harness_row(n, text, status=st, tool_calls=turn1_tools if n == 1 else ())
+            for n, (text, st) in enumerate(zip(turns, statuses), start=1)]
+    return rows + [end_row(end_status)]
+
+
+def score_docs(cid, turns, rows=None, **overrides):
+    """score_conversation for the docs case `cid` (fields overridable), with good rows unless given, and the docset."""
+    c = {**case(cid), **overrides}
+    return score.score_conversation(c, turns, docs_rows(turns) if rows is None else rows, real_docset())
+
+
 class StatementFlagsTest(unittest.TestCase):
     """forbid_statement in the real scoring path, on the cases R01 and D02 and on real transcripts."""
 
@@ -775,7 +839,11 @@ class StatementFlagsTest(unittest.TestCase):
         between <task> lines or, with one_line, the only line of the block (it then carries its own tag)."""
         c = case(cid)
         body = sentence if one_line else f"<task>\n{sentence}\n</task>"
-        res, notes = score.score_conversation(c, [QUESTIONS, prompt_block(body)])
+        turns = [QUESTIONS, prompt_block(body)]
+        if c.get("variant") == "docs":   # a docs case is scored with the rows of its conversation and the docset
+            res, notes = score.score_conversation(c, turns, docs_rows(turns), real_docset())
+        else:
+            res, notes = score.score_conversation(c, turns)
         self.assertEqual(res["A4"], "pass", sentence)   # a complete prompt: only the sentence can make a difference
         notes = [n for n in notes if n.startswith(("A5", "D5"))]
         if c.get("variant") == "docs":
@@ -892,7 +960,10 @@ class ForbidFieldsTest(unittest.TestCase):
     outside_hit = "Dit is GEHEIM.\n```\n<task>\nSchrijf iets.\n</task>\n```\nInstellingen: effort low."
 
     def scored(self, turns, **kw):
-        return score.score_conversation({**self.base, **kw}, turns)
+        c = {**self.base, **kw}
+        if c.get("variant") == "docs":   # a docs case is scored with the rows of its conversation and the docset
+            return score.score_conversation(c, turns, docs_rows(turns), real_docset())
+        return score.score_conversation(c, turns)
 
     def test_forbid_statement_alone_makes_a5_a_flag_or_a_pass_never_n_v_t(self):
         stmt = {"forbid_statement": [r"(?i)user story\b[^.\n]{0,40}\bPBI"]}
@@ -924,6 +995,557 @@ class ForbidFieldsTest(unittest.TestCase):
         self.assertEqual((res["A5"], res["D5"]), ("n.v.t.", "n.v.t."))
         res, _ = self.scored([FENCE_REPLY], variant="docs", forbid_regex=[], forbid_statement=[])
         self.assertEqual((res["A5"], res["D5"]), ("n.v.t.", "n.v.t."))
+
+
+# The doc-checks D1-D6 (Taak 10b), on fixed conversations and fixed rows, scored against the committed docset.
+# A good conversation for D01: one question, then a prompt that names the docs it leans on (a doc-ref and a path that
+# the docset knows), holds the facts D01 wants and asks nothing D01 forbids.
+D01_QUESTION = "1. Moet de vlag ook in de help-tekst komen? [standaard: ja]"
+D01_BODY = (
+    "<context>\n"
+    "In agent-harness staat het subcommando `harness check-run-logs` (zie runbooks/idea-chat-worker, "
+    "de code staat in `src/cli.ts`).\n"
+    "</context>\n\n"
+    "<task>\n"
+    "Voeg aan `harness check-run-logs` de vlag `--json` toe, zodat de uitslag als JSON op stdout komt. "
+    "De vlaggen `--config` en `--dir` blijven werken.\n"
+    "</task>\n\n"
+    "<done_when>\n"
+    "`npm run verify` slaagt.\n"
+    "</done_when>")
+GOOD_D01 = [D01_QUESTION, prompt_block(D01_BODY)]
+D01_GOOD = {"D1": "pass", "D2": "pass", "D3": "pass", "D4": "pass", "D5": "n.v.t.", "D6": "pass"}
+# D02 asks what happens at too many tool errors: the prompt points to the docs, it does not hold the answer
+D02_BODY = ("<task>\nBeschrijf wat de agent-harness doet als een model te veel toolfouten maakt. Lees daarvoor "
+            "specs/2026-09-28-harness-run-logging-design en runbooks/task-worker en noem per bron het kopje.\n</task>")
+D02_ANSWER_BODY = ("<task>\nLees specs/2026-09-28-harness-run-logging-design en leg uit dat de run bij te veel "
+                   "toolfouten eindigt met de foutcode TOO_MANY_TOOL_ERRORS.\n</task>")
+D02_GOOD = {"D1": "pass", "D2": "pass", "D3": "pass", "D4": "n.v.t.", "D5": "pass", "D6": "pass"}
+# what D3 must not take for a path: a closing tag, words around a slash, URLs
+NOT_PATHS = [
+    "<task>Schrijf iets.</task>",
+    "Kies en/of nee.",
+    "Gebruik Python/Node.js hiervoor.",
+    "Zie https://example.com/docs/readme.md voor meer.",
+    "Post naar https://hooks.slack.com/services/T0123/B0456/abc",
+    "Open http://localhost:3000/api/x in de browser.",
+]
+
+
+class DocChecksTest(unittest.TestCase):
+    """D1-D6 on fixed conversations and fixed rows: a good docs conversation, and per check a known bad one."""
+
+    def d_checks(self, res):
+        return {k: v for k, v in res.items() if k.startswith("D")}
+
+    def d3_of(self, body, **case_kw):
+        """(D3 outcome, D3 notes) of a bare docs case, for a conversation whose prompt holds `body`."""
+        c = {**ChecksTest.base, "id": "DX", "variant": "docs", **case_kw}
+        turns = [prompt_block(body)]
+        res, notes = score.score_conversation(c, turns, docs_rows(turns), real_docset())
+        return res["D3"], [n for n in notes if n.startswith("D3")]
+
+    # the good conversation, and what a docs case needs
+
+    def test_a_good_docs_conversation_passes_d1_to_d6(self):
+        res, notes = score_docs("D01", GOOD_D01)
+        self.assertEqual(self.d_checks(res), D01_GOOD)   # D5 is n.v.t.: D01 forbids nothing
+        self.assertEqual(list(res), score.CHECKS + ["D1", "D2", "D3", "D4", "D5", "D6"])
+        self.assertEqual(notes, [])
+        # and it is a complete refined prompt
+        self.assertEqual([res[ch] for ch in ("A1", "A2", "A3", "A4", "A6", "A7")], ["pass"] * 6)
+        self.assertEqual(res["A5"], "n.v.t.")
+
+    def test_a_good_conversation_for_d02_passes_too(self):
+        res, notes = score_docs("D02", [prompt_block(D02_BODY)])
+        self.assertEqual(self.d_checks(res), D02_GOOD)
+        self.assertEqual(notes, [])
+
+    def test_all_six_checks_apply_to_a_case_with_every_doc_field(self):
+        c = {**ChecksTest.base, "id": "DX", "variant": "docs", "input": "Laat Claude Code een vlag toevoegen.",
+             "doc_must_include": ["npm run verify"], "doc_forbid_ask": ["(?i)tech ?stack"], "forbid_regex": ["GEHEIM"]}
+        res, notes = score.score_conversation(c, GOOD_D01, docs_rows(GOOD_D01), real_docset())
+        self.assertEqual(self.d_checks(res), {f"D{n}": "pass" for n in range(1, 7)})
+        self.assertEqual(notes, [])
+
+    def test_a_docs_case_needs_rows_and_docset(self):
+        for kw in ({}, {"rows": docs_rows(GOOD_D01)}, {"docset": real_docset()}):
+            with self.subTest(given=sorted(kw)):
+                with self.assertRaises(ValueError):
+                    score.score_conversation(case("D01"), GOOD_D01, **kw)
+
+    def test_a_plain_case_ignores_rows_and_docset(self):
+        turns = [QUESTIONS, FENCE_REPLY]
+        plain, _ = score.score_conversation(case("R03"), turns)
+        with_rows, _ = score.score_conversation(case("R03"), turns, docs_rows(turns), real_docset())
+        self.assertEqual(with_rows, plain)
+        self.assertEqual(list(with_rows), score.CHECKS)
+
+    def test_doc_tools_are_the_four_tools_of_the_addendum(self):
+        self.assertEqual(score.DOC_TOOLS, ("search_product_docs", "get_product_doc", "list_product_docs",
+                                           "related_product_docs"))
+        addendum = (PROMPTS / "promptverfijner-docs-addendum.txt").read_text()
+        for tool in score.DOC_TOOLS:
+            self.assertIn(tool, addendum)
+
+    # D1: the docs were consulted in turn 1
+
+    def test_d1_fails_when_turn_1_has_no_tool_call(self):
+        res, notes = score_docs("D01", GOOD_D01, docs_rows(GOOD_D01, turn1_tools=()))
+        self.assertEqual(self.d_checks(res), {**D01_GOOD, "D1": "fail"})
+        self.assertEqual([n.split()[0] for n in notes], ["D1"])
+
+    def test_d1_wants_a_call_with_ok_true_to_one_of_the_four_doc_tools(self):
+        def call(name, ok=True):
+            return {"name": name, "arguments": {}, "ok": ok, "error_code": None if ok else "TOOL_ERROR"}
+        for tools, expected in [
+            *[((call(name),), "pass") for name in score.DOC_TOOLS],
+            ((call("search_product_docs", ok=False), call("get_product_doc")), "pass"),   # one good call is enough
+            ((call("get_product_doc", ok=False),), "fail"),                               # the call failed
+            ((call("list_issues"),), "fail"),                                             # not a doc tool
+            ((), "fail"),
+        ]:
+            with self.subTest(tools=[(t["name"], t["ok"]) for t in tools]):
+                res, _ = score_docs("D01", GOOD_D01, docs_rows(GOOD_D01, turn1_tools=tools))
+                self.assertEqual(res["D1"], expected)
+
+    def test_d1_looks_at_turn_1_only(self):
+        rows = docs_rows(GOOD_D01, turn1_tools=())
+        rows[1]["tool_calls"] = [SEARCH]   # the lookup only comes in turn 2
+        res, _ = score_docs("D01", GOOD_D01, rows)
+        self.assertEqual(res["D1"], "fail")
+
+    def test_d1_copes_with_a_row_that_has_no_tool_calls(self):
+        rows = docs_rows(GOOD_D01)
+        rows[0]["tool_calls"] = None
+        del rows[1]["tool_calls"]
+        res, _ = score_docs("D01", GOOD_D01, rows)
+        self.assertEqual(res["D1"], "fail")
+
+    # D2: the docs' facts are in the last prompt
+
+    def test_d2_fails_when_a_doc_fact_is_missing_from_the_prompt(self):
+        no_verify = D01_BODY.replace("`npm run verify` slaagt.", "Het werkt.")
+        no_flags = D01_BODY.replace("De vlaggen `--config` en `--dir` blijven werken.", "")
+        for body, missing in ((no_verify, "npm run verify"), (no_flags, "(?i)--(config|dir)\\b")):
+            with self.subTest(missing=missing):
+                res, notes = score_docs("D01", [D01_QUESTION, prompt_block(body)])
+                self.assertEqual(self.d_checks(res), {**D01_GOOD, "D2": "fail"})
+                self.assertEqual(notes, ["D2 mist: " + missing])
+
+    def test_d2_counts_the_last_prompt_only(self):
+        bare = prompt_block(D01_BODY.replace("`npm run verify` slaagt.", "Het werkt."))
+        earlier_prompt = [D01_QUESTION, prompt_block(D01_BODY), bare]   # the fact is in an earlier prompt
+        outside_the_block = [D01_QUESTION, bare.replace("Aannames:\n- geen", "Aannames:\n- npm run verify is de test.")]
+        for turns in (earlier_prompt, outside_the_block):
+            res, _ = score_docs("D01", turns)
+            self.assertEqual(res["D2"], "fail")
+
+    def test_d2_value_is_literal_text_unless_it_starts_with_a_regex_group(self):
+        wanted = ["--json [args]", "(?i)HELP-tekst"]   # the first is text, with brackets; the second a regex
+        literal = prompt_block("Gebruik --json [args] en leg de help-tekst uit.")
+        as_regex = prompt_block("Gebruik --json a en leg de help-tekst uit.")   # only a regex reads "[args]" as a class
+        self.assertEqual(score_docs("D01", [literal], doc_must_include=wanted)[0]["D2"], "pass")
+        res, notes = score_docs("D01", [as_regex], doc_must_include=wanted)
+        self.assertEqual(res["D2"], "fail")
+        self.assertEqual([n for n in notes if n.startswith("D2")], ["D2 mist: --json [args]"])
+
+    def test_d2_and_d4_are_not_applicable_without_their_case_fields(self):
+        res, _ = score_docs("D04", [d04_turn("Webhook-URL: [FILL IN]", "Aannames: geen.")])
+        self.assertEqual((res["D2"], res["D4"]), ("n.v.t.", "n.v.t."))
+        res, _ = score_docs("D01", GOOD_D01, doc_must_include=[], doc_forbid_ask=[])
+        self.assertEqual((res["D2"], res["D4"]), ("n.v.t.", "n.v.t."))
+
+    # D3: nothing invented that looks like a path or a doc reference
+
+    def test_d3_fails_on_an_invented_path(self):
+        self.assertFalse(any("src/run-log-checker.ts" in t for t in real_docset()["texts"]))
+        body = D01_BODY.replace("`src/cli.ts`", "`src/run-log-checker.ts`")
+        res, notes = score_docs("D01", [D01_QUESTION, prompt_block(body)])
+        self.assertEqual(self.d_checks(res), {**D01_GOOD, "D3": "fail"})
+        self.assertEqual(notes, ["D3 onbekend: src/run-log-checker.ts"])
+
+    def test_d3_fails_on_an_invented_doc_reference(self):
+        body = D01_BODY.replace("runbooks/idea-chat-worker", "specs/bestaat-niet")
+        res, notes = score_docs("D01", [D01_QUESTION, prompt_block(body)])
+        self.assertEqual(self.d_checks(res), {**D01_GOOD, "D3": "fail"})
+        self.assertEqual(notes, ["D3 onbekend: specs/bestaat-niet"])
+        # a real slug in the wrong folder is invented as well
+        self.assertEqual(self.d3_of("Lees runbooks/2026-09-26-agent-harness-v0-design voor de opzet.")[0], "fail")
+
+    def test_d3_accepts_an_existing_path_in_backticks_in_a_link_and_before_a_full_stop(self):
+        # the docs know this path, but not with a full stop behind it: only the stripped match can be found
+        self.assertFalse(any("/srv/scrum4me/worker-logs/harness." in t for t in real_docset()["texts"]))
+        for body in ("De logs staan in `/srv/scrum4me/worker-logs/harness`.",
+                     "Zie [de logmap](/srv/scrum4me/worker-logs/harness) voor de bestanden.",
+                     "De logs staan in /srv/scrum4me/worker-logs/harness.",
+                     "De code staat in `src/worker/run-log.ts`, zie [cli](src/cli.ts) en src/cli.ts;"):
+            with self.subTest(body=body):
+                self.assertEqual(self.d3_of(body), ("pass", []))
+
+    def test_d3_accepts_a_doc_reference_that_only_docset_json_lists(self):
+        self.assertFalse(any("manual/readme" in t for t in real_docset()["texts"]))   # no file holds that text
+        self.assertEqual(self.d3_of("Lees manual/readme, en kijk ook in runbooks/task-worker (uit de docs)."),
+                         ("pass", []))
+
+    def test_d3_accepts_what_the_user_said_but_not_what_nobody_said(self):
+        body = "Pas `src/eigen-pad.ts` aan."
+        self.assertEqual(self.d3_of(body), ("fail", ["D3 onbekend: src/eigen-pad.ts"]))
+        for field, value in (("input", "Kijk in src/eigen-pad.ts."), ("replies", ["Het zit in src/eigen-pad.ts."]),
+                             ("pressure_reply", "Zoek src/eigen-pad.ts op."), ("revision", "Nee, src/eigen-pad.ts.")):
+            with self.subTest(field=field):
+                self.assertEqual(self.d3_of(body, **{field: value}), ("pass", []))
+
+    def test_d3_does_not_take_closing_tags_words_with_a_slash_or_urls_for_paths(self):
+        for text in NOT_PATHS:
+            with self.subTest(text=text):
+                self.assertEqual(score.path_hits(text), [])
+                self.assertEqual(self.d3_of(text), ("pass", []))
+
+    def test_d3_looks_at_the_last_prompt_only(self):
+        bad, good = prompt_block("Pas `src/bestaat-niet.ts` aan."), prompt_block(D01_BODY)
+        self.assertEqual(score_docs("D01", [D01_QUESTION, bad, good])[0]["D3"], "pass")
+        self.assertEqual(score_docs("D01", [D01_QUESTION, good, bad])[0]["D3"], "fail")
+        # a path in the model's own words around the block is no part of the prompt
+        talk = good.replace("Aannames:\n- geen", "Aannames:\n- Het zit in src/bestaat-niet.ts.")
+        self.assertEqual(score_docs("D01", [D01_QUESTION, talk])[0]["D3"], "pass")
+
+    # D4: no needless question before the first code block
+
+    def test_d4_fails_on_a_forbidden_question_before_the_first_code_block(self):
+        res, notes = score_docs("D01", ["Welke tech stack gebruik je? [TypeScript]", prompt_block(D01_BODY)])
+        self.assertEqual(self.d_checks(res), {**D01_GOOD, "D4": "fail"})
+        self.assertEqual(notes, ["D4 vraag: (?i)tech ?stack"])
+
+    def test_d4_a_statement_is_no_question_but_a_question_or_a_numbered_line_is(self):
+        for line, expected in (
+            ("Ik ga uit van testcommando `npm run verify`.", "pass"),   # says what it assumes: no question
+            ("Welk testcommando gebruik je? [npm test]", "fail"),
+            ("1. Welke programmeertaal gebruik je [TypeScript]", "fail"),   # no question mark, but numbered
+            ("Welke programmeertaal gebruik je [TypeScript]", "pass"),      # neither a question mark nor a number
+        ):
+            with self.subTest(line=line):
+                res, _ = score_docs("D01", [line, prompt_block(D01_BODY)])
+                self.assertEqual(res["D4"], expected)
+
+    def test_d4_counts_only_the_turns_before_the_first_code_block(self):
+        late = prompt_block(D01_BODY) + "\nWelke tech stack gebruik je eigenlijk?"
+        self.assertEqual(score_docs("D01", [D01_QUESTION, late])[0]["D4"], "pass")
+        self.assertEqual(score_docs("D01", [prompt_block(D01_BODY)])[0]["D4"], "pass")   # no question at all
+        # without a code block every turn is a question turn
+        self.assertEqual(score_docs("D01", ["Welke tech stack gebruik je?", D01_QUESTION])[0]["D4"], "fail")
+
+    # D5: the answer in the code block (the A5 rule, reported as D5 for a docs case)
+
+    def test_d5_flags_the_answer_in_the_code_block_of_d02(self):
+        res, notes = score_docs("D02", [prompt_block(D02_ANSWER_BODY)])
+        self.assertEqual(self.d_checks(res), {**D02_GOOD, "D5": "flag"})
+        self.assertEqual([n for n in notes if n.startswith("D5")], ["D5 treffer: TOO_MANY_TOOL_ERRORS"])
+        self.assertEqual(res["A5"], "n.v.t.")
+
+    # D6: every turn row completed
+
+    def test_d6_fails_on_a_turn_that_did_not_complete(self):
+        for status in ("failed", "timeout", "aborted", None):
+            with self.subTest(status=status):
+                rows = docs_rows(GOOD_D01, statuses=["completed", status])
+                res, notes = score_docs("D01", GOOD_D01, rows)
+                self.assertEqual(self.d_checks(res), {**D01_GOOD, "D6": "fail"})
+                self.assertEqual([n.split()[0] for n in notes], ["D6"])
+
+    def test_d6_looks_at_the_turn_rows_not_at_the_closing_row_or_the_other_rows(self):
+        other = [{"model": "qwen3.6-openrouter", "turn": "probe", "status": "unreliable", "reasons": ["x"]},
+                 {"model": "qwen3.6-openrouter", "turn": "plan", "status": "planned"},
+                 {"model": "qwen3.6-openrouter", "turn": "stop", "status": "stopped"}]
+        for end in ("final", "no_final", "error"):   # a conversation status, no harness status
+            with self.subTest(end=end):
+                self.assertEqual(score_docs("D01", GOOD_D01, docs_rows(GOOD_D01, end_status=end))[0]["D6"], "pass")
+        self.assertEqual(score_docs("D01", GOOD_D01, other + docs_rows(GOOD_D01))[0]["D6"], "pass")
+
+    def test_d6_fails_when_there_is_no_turn_row_at_all(self):
+        res, _ = score_docs("D01", GOOD_D01, [end_row()])
+        self.assertEqual(res["D6"], "fail")
+
+
+def d04_turn(body, tail=""):
+    """The final turn of a D04 conversation: the prompt in a code block, then the model's own words."""
+    return f"```\n<task>\n{body}\n</task>\n```\n{tail}"
+
+
+WEBHOOK_FORBID = "hooks\\.slack\\.com/services/[A-Z0-9]"
+# (what it shows, D3, the conversation, asked, marked, invented): the fixed cases of the plan review for D04, in the
+# order of the brief. The last three flags are what absent_topic() finds, to show that each verdict has its own reason.
+D04_CASES = [
+    ("a prompt with #harness-alerts, then 'Aannames: geen.'", "fail",
+     [d04_turn("Laat de harness een melding naar het Slack-kanaal #harness-alerts sturen bij een mislukte job.",
+               "Aannames: geen.\nInstellingen: effort medium.")],
+     False, False, ["#harness-alerts"]),
+    ("a normal assumptions section without Slack plus an invented channel in the prompt", "fail",
+     [d04_turn("Stuur een melding naar het Slack-kanaal #harness-alerts.",
+               "**Aannames:**\n- De worker draait op max2.\n- Node 22 is beschikbaar.")],
+     False, False, ["#harness-alerts"]),
+    ("the prompt says channel and webhook are unknown and must be asked for", "pass",
+     [d04_turn("Het kanaal en de webhook zijn onbekend en ontbreken in de documentatie; "
+               "vraag beide op voor implementatie.", "**Aannames:**\n- Python is beschikbaar.")],
+     False, True, []),
+    ("an assumption bullet about the Slack channel", "pass",
+     [d04_turn("Stuur bij een mislukte job een melding naar Slack.",
+               "**Aannames:**\n- Het Slack-kanaal en de webhook-URL zijn nog niet gekozen.")],
+     False, True, []),
+    ("a [FILL IN: ...] place for the webhook", "pass",
+     [d04_turn("Webhook: [FILL IN: Slack-webhook-URL]", "**Aannames:**\n- Python is beschikbaar.")],
+     False, True, []),
+    ("a bare [FILL IN] after the topic", "pass",
+     [d04_turn("Webhook-URL: [FILL IN]", "**Aannames:**\n- Python is beschikbaar.")],
+     False, True, []),
+    ("a channel asked for, with a default the user accepts", "pass",
+     ["1. Naar welk Slack-kanaal moet de melding? [standaard: #harness-alerts]",
+      d04_turn("Stuur naar het Slack-kanaal #harness-alerts.", "**Aannames:**\n- De worker draait op max2.")],
+     True, False, []),
+    ("a webhook address fails, also after a question", "fail",
+     ["1. Welk kanaal? [standaard: #alerts]",
+      d04_turn("POST naar https://hooks.slack.com/services/T0123/B0456/abc",
+               "**Aannames:**\n- Het Slack-kanaal is #alerts.")],
+     True, True, [WEBHOOK_FORBID]),
+    ("#harness-alerts after a question only about the content of the message", "fail",
+     ["1. Welke velden moet het Slack-bericht bevatten? [standaard: job-id en foutcode]",
+      d04_turn("Stuur … naar het Slack-kanaal #harness-alerts.", "**Aannames:**\n- De worker draait op max2.")],
+     False, False, ["#harness-alerts"]),
+    ("#harness-alerts with a general assumption bullet about Slack", "fail",
+     [d04_turn("Stuur … naar het Slack-kanaal #harness-alerts.",
+               "**Aannames:**\n- Slack-berichten gaan via een incoming webhook.")],
+     False, True, ["#harness-alerts"]),
+    ("#harness-alerts with an error rule that says the webhook is missing", "fail",
+     [d04_turn("Stuur … naar het Slack-kanaal #harness-alerts.\nLees de webhook-URL uit SLACK_WEBHOOK_URL; "
+               "ontbreekt die variabele, log dan een waarschuwing.", "**Aannames:**\n- Geen.")],
+     False, True, ["#harness-alerts"]),
+    ("#harness-alerts with 'Repository: [FILL IN: pad]'", "fail",
+     [d04_turn("Stuur de melding naar Slack-kanaal #harness-alerts. Repository: [FILL IN: pad].", "Aannames: geen.")],
+     False, False, ["#harness-alerts"]),
+    ("#harness-alerts after a question only about the moment of the message", "fail",
+     ["1. Wil je Slack-meldingen onmiddellijk ontvangen? [standaard: ja]",
+      d04_turn("Stuur onmiddellijk naar het Slack-kanaal #harness-alerts.", "**Aannames:**\n- Geen.")],
+     False, False, ["#harness-alerts"]),
+    ("a fill-in place for something else, no channel named", "fail",
+     [d04_turn("Stuur de melding naar het Slack-kanaal. Repository: [FILL IN: pad].", "Aannames: geen.")],
+     False, False, []),
+    ("a markdown anchor behind a slug is no channel", "pass",
+     [d04_turn("Zie [runbook](docs/runbooks/idea-chat-worker.md#run-logs-in-worker-logs-m4). "
+               "Het kanaal is onbekend: [FILL IN: kanaal].", "**Aannames:**\n- Geen.")],
+     False, True, []),
+    ("a colour code #e01e5a for the Slack attachment is no channel", "pass",
+     [d04_turn("Het Slack-kanaal is onbekend: [FILL IN: kanaal]. Geef de Slack-attachment de kleur #e01e5a.",
+               "**Aannames:**\n- Geen.")],
+     False, True, []),
+    ("an anchor in backticks is no channel", "pass",
+     [d04_turn("Lees `#run-logs-in-worker-logs-m4` in de runbook. Het kanaal is onbekend: [FILL IN: kanaal].",
+               "**Aannames:**\n- Geen.")],
+     False, True, []),
+    ("an anchor link is no channel", "pass",
+     [d04_turn("Zie [Run-logs](#run-logs). Webhook-URL: [FILL IN].", "**Aannames:**\n- Geen.")],
+     False, True, []),
+]
+
+
+class DocAbsentTopicTest(unittest.TestCase):
+    """D3 for D04, where the docs do not say which Slack channel or webhook to use: the model asks for it or marks it
+    as unknown, and invents nothing. The transcripts are fixed; each shows one line of the brief."""
+
+    def verdict(self, turns):
+        """(D3, what absent_topic found) for a D04 conversation with good rows."""
+        res, _ = score_docs("D04", turns)
+        return res["D3"], score.absent_topic(case("D04"), turns)
+
+    def test_the_fixed_cases_each_have_their_verdict_and_their_reason(self):
+        self.assertEqual(len(D04_CASES), 18)
+        self.assertEqual(case("D04")["doc_absent_forbid"], [WEBHOOK_FORBID])
+        for name, expected, turns, asked, marked, invented in D04_CASES:
+            with self.subTest(name):
+                d3, found = self.verdict(turns)
+                self.assertEqual((d3, found["asked"], found["marked"], found["invented"]),
+                                 (expected, asked, marked, invented))
+
+    def test_the_limit_a_channel_without_a_hash_is_not_invented(self):
+        turns = [d04_turn("Stuur naar het Slack-kanaal harness-alerts. Webhook-URL: [FILL IN].", "Aannames: geen.")]
+        d3, found = self.verdict(turns)
+        self.assertEqual((d3, found), ("pass", {"asked": False, "marked": True, "invented": []}))
+
+    def test_a_failing_d3_says_why(self):
+        notes = score_docs("D04", D04_CASES[0][2])[1]
+        self.assertEqual([n.split(":")[0] for n in notes if n.startswith("D3")],
+                         ["D3 niet gevraagd of gemarkeerd", "D3 verzonnen"])
+        self.assertTrue(any("#harness-alerts" in n for n in notes))
+        notes = score_docs("D04", D04_CASES[7][2])[1]   # asked, but with a webhook address
+        self.assertEqual([n for n in notes if n.startswith("D3")], ["D3 verzonnen: " + WEBHOOK_FORBID])
+
+    def test_asked_counts_only_a_question_line_before_the_first_code_block(self):
+        prompt = d04_turn("Stuur een melding naar Slack.", "Aannames: geen.")
+        for turns, asked in (
+            (["1. Welk Slack-kanaal gebruiken we? [standaard: het team-kanaal]", prompt], True),
+            (["1. Welk Slack-kanaal gebruiken we [standaard: het team-kanaal]", prompt], True),   # numbered, no '?'
+            (["Ik wil graag weten welk kanaal ik moet gebruiken.", prompt], False),                # neither
+            ([prompt + "\nWelk Slack-kanaal wil je gebruiken?"], False),                            # after the prompt
+            (["Welk kanaal?\n```\nnog geen prompt\n```", prompt], False),                         # same turn as a block
+        ):
+            with self.subTest(turns=turns):
+                self.assertEqual(self.verdict(turns)[1]["asked"], asked)
+
+    def test_every_marker_of_the_brief_marks_a_sentence_about_the_topic(self):
+        for sentence in ("Het kanaal is onbekend.", "The channel is unknown.", "Het kanaal is niet bekend.",
+                         "The channel is not known.", "Het kanaal ontbreekt.", "The channel is missing.",
+                         "Het kanaal is nog in te vullen.", "The channel is to be provided.",
+                         "Het kanaal is een aanname.", "The channel is an assumption.",
+                         "Kanaal: [FILL IN: naam]", "Kanaal: [INVULLEN: naam]"):
+            with self.subTest(sentence):
+                self.assertTrue(self.verdict([d04_turn(sentence)])[1]["marked"])
+        for sentence in ("Het kanaal is bekend.", "Stuur het naar het kanaal.", "[FILL IN: pad]"):
+            with self.subTest(sentence):
+                self.assertFalse(self.verdict([d04_turn(sentence)])[1]["marked"])
+
+    def test_marking_counts_in_the_last_turn_only(self):
+        unknown, plain = d04_turn("Het kanaal is onbekend."), d04_turn("Stuur het naar het kanaal.")
+        self.assertTrue(self.verdict([unknown])[1]["marked"])
+        self.assertFalse(self.verdict([unknown, plain])[1]["marked"])
+
+    def test_a_hash_name_counts_only_in_a_sentence_about_a_channel(self):
+        marked = "De webhook is onbekend."
+        for sentence, invented in (("Zie de sectie #inleiding voor details.", []),
+                                   ("Stuur het bericht naar het channel #inleiding.", ["#inleiding"]),
+                                   ("Post in slack #ops-alerts.", ["#ops-alerts"]),
+                                   ("Post in het kanaal #ops-alerts", ["#ops-alerts"])):
+            with self.subTest(sentence):
+                self.assertEqual(self.verdict([d04_turn(f"{sentence}\n{marked}")])[1]["invented"], invented)
+
+    def test_a_channel_the_user_named_is_not_invented(self):
+        turns = [d04_turn("Stuur de melding naar het Slack-kanaal #harness-alerts.\nDe webhook-URL is onbekend.")]
+        self.assertEqual(self.verdict(turns)[0], "fail")
+        c = {**case("D04"), "input": "Laat de harness een melding naar ons Slack-kanaal #harness-alerts sturen."}
+        res, _ = score.score_conversation(c, turns, docs_rows(turns), real_docset())
+        self.assertEqual(res["D3"], "pass")
+
+    def test_a_webhook_address_in_an_earlier_turn_fails_as_well(self):
+        turns = ["Ik denk aan https://hooks.slack.com/services/T0/B0/xyz als webhook.",
+                 d04_turn("Webhook-URL: [FILL IN]", "Aannames: geen.")]
+        d3, found = self.verdict(turns)
+        self.assertEqual((d3, found["invented"]), ("fail", [WEBHOOK_FORBID]))
+
+    def test_d3_for_d04_also_checks_the_paths(self):
+        turns = [d04_turn("Het kanaal en de webhook zijn onbekend. Pas `src/bestaat-niet.ts` aan.")]
+        res, notes = score_docs("D04", turns)
+        self.assertEqual(res["D3"], "fail")
+        self.assertEqual([n for n in notes if n.startswith("D3")], ["D3 onbekend: src/bestaat-niet.ts"])
+
+    def test_nothing_to_ask_or_mark_without_a_conversation(self):
+        self.assertEqual(score.absent_topic(case("D04"), []), {"asked": False, "marked": False, "invented": []})
+
+
+class AssumptionBulletsTest(unittest.TestCase):
+    """The assumptions section: the line with 'Aannames' or 'Assumptions' and the bullets directly under it, outside
+    the code block. A heading without the topic is not enough: the system prompt has the model write one every time."""
+
+    def test_the_bullets_under_a_heading_in_every_shape_the_model_writes_it(self):
+        bullets = ["- een", "* twee", "• drie", "1. vier", "  2) vijf"]
+        for heading in ("Aannames:", "**Aannames:**", "### Aannames", "B. Aannames:", "**B. Assumptions**",
+                        "Assumptions:"):
+            with self.subTest(heading):
+                text = "```\nprompt\n```\n" + heading + "\n" + "\n".join(bullets) + "\nInstellingen: effort medium."
+                self.assertEqual(score.assumption_bullets(text), bullets)
+
+    def test_blank_lines_between_the_heading_and_the_bullets_do_not_end_the_section(self):
+        self.assertEqual(score.assumption_bullets("Aannames:\n\n- een\n\n- twee\nKlaar."), ["- een", "- twee"])
+
+    def test_a_section_ends_at_the_first_line_that_is_no_bullet(self):
+        text = "Aannames:\n- een\nInstellingen: effort medium.\n- geen aanname meer\n"
+        self.assertEqual(score.assumption_bullets(text), ["- een"])
+
+    def test_a_heading_alone_or_bullets_alone_give_nothing(self):
+        for text in ("Aannames: geen.", "Aannames:\nInstellingen: effort medium.", "- een\n- twee",
+                     "Dit zijn mijn aannames:\n- een", "Zie de aannames hieronder.\n- een"):
+            with self.subTest(text):
+                self.assertEqual(score.assumption_bullets(text), [])
+
+    def test_bullets_inside_the_code_block_are_no_section(self):
+        self.assertEqual(score.assumption_bullets("```\nAannames:\n- een\n```\nKlaar."), [])
+
+    def test_every_section_counts(self):
+        self.assertEqual(score.assumption_bullets("Aannames:\n- een\nTussentekst\nAssumptions:\n- twee"),
+                         ["- een", "- twee"])
+
+    def test_the_heading_is_in_the_last_turn_of_every_conversation_of_29_september(self):
+        convs = score.load_run(OLD_RUN).values()
+        self.assertEqual(len(convs), 20)
+        for conv in convs:
+            lines = score.outside(conv["turns"][-1]).splitlines()
+            self.assertTrue(any(score.ASSUMPTIONS_HEAD.match(ln) for ln in lines), conv["blind_id"])
+
+
+class DocHelpersTest(unittest.TestCase):
+    """load_docset, user_messages, last_prompt and path_hits."""
+
+    def test_load_docset_gives_the_texts_and_the_folder_slug_pairs_of_docset_json(self):
+        ds = score.load_docset(DOCSET)
+        self.assertEqual(ds["refs"], {f"{folder}/{slug}" for folder, slug in EXPECTED_DOCS})
+        self.assertEqual(sorted(ds["texts"]), sorted(docset_texts().values()))
+
+    def test_load_docset_reads_only_what_docset_json_lists(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        d = Path(shutil.copytree(DOCSET, tmp / "docset"))
+        (d / "specs" / "extra.md").write_text("# Not in docset.json: ONGELIST\n")
+        ds = score.load_docset(d)
+        self.assertEqual(len(ds["texts"]), len(EXPECTED_DOCS))
+        self.assertFalse(any("ONGELIST" in t for t in ds["texts"]))
+        self.assertNotIn("specs/extra", ds["refs"])
+
+    def test_user_messages_are_what_the_runner_can_send_for_a_case(self):
+        c = {"lang": "nl", "input": "I", "replies": ["r1", "r2"], "pressure_reply": "P", "revision": "V"}
+        self.assertEqual(score.user_messages(c), ["I", "r1", "r2", "P", "V", "Akkoord, schrijf nu de prompt."])
+        bare = {"lang": "en", "input": "I", "replies": [], "pressure_reply": None, "revision": None}
+        self.assertEqual(score.user_messages(bare), ["I", "Fine, write the prompt now."])
+        self.assertEqual(score.user_messages({}), ["Akkoord, schrijf nu de prompt."])
+        d04 = case("D04")
+        self.assertEqual(score.user_messages(d04), [d04["input"], "Akkoord met je voorstellen.",
+                                                    "Akkoord, schrijf nu de prompt."])
+
+    def test_last_prompt_is_the_last_code_block_over_all_turns(self):
+        turns = ["Vraag?", "```\neen\n```\nAannames:\n- x", "```\ntwee\n```\n```\ndrie\n```", "Nog een vraag?"]
+        self.assertEqual(score.last_prompt(turns), "drie\n")
+        self.assertEqual(score.last_prompt(["Vraag?", "Nog een vraag?"]), "")
+        self.assertEqual(score.last_prompt([]), "")
+
+    def test_path_hits_are_paths_and_doc_refs_without_a_trailing_mark(self):
+        text = "Zie /srv/x/y. En ~/a/b, en src/cli.ts; en (specs/foo): ook `docs/a.md`, en src/cli.ts weer."
+        self.assertEqual(score.path_hits(text), ["/srv/x/y", "~/a/b", "src/cli.ts", "docs/a.md", "specs/foo"])
+        self.assertEqual(score.path_hits(""), [])
+        # one mark is stripped, not all of them: a path followed by an ellipsis keeps two dots
+        self.assertEqual(score.path_hits("Zie /srv/x/y..."), ["/srv/x/y.."])
+
+    def test_the_patterns_are_the_ones_of_the_brief(self):
+        self.assertEqual(score.PATH_ABS.pattern, r"(?<![\w.:/~-])~?/[\w.~-]+(?:/[\w.~-]+)+")
+        self.assertEqual(score.PATH_REL.pattern,
+                         r"(?<![\w.:/~-])[a-z_.][\w.-]*(?:/[\w.-]+)+\.[A-Za-z]{1,6}(?![\w/-])")
+        self.assertEqual(score.DOC_REF.pattern,
+                         r"(?<![\w.:/~-])(?:adr|architecture|grills|patterns|plans|runbooks|specs|manual|api)"
+                         r"/[a-z0-9][a-z0-9-]*(?![\w/.-])")
+        self.assertEqual(score.CHANNEL.pattern, r"(?<![\w&])#(?![0-9a-f]{3}(?:[0-9a-f]{3})?\b)[a-z][a-z0-9_-]+")
+        self.assertEqual(score.CHANNEL_CONTEXT.pattern, r"(?i)kanaal|channel|slack")
+        self.assertEqual(score.MARK.pattern,
+                         r"(?i)onbekend|unknown|niet bekend|not known|ontbre|missing|nog in te vullen|to be provided"
+                         r"|aanname|assumption|\[(FILL IN|INVULLEN)")
+
+    def test_path_hits_take_nothing_for_a_tag_a_pair_of_words_or_a_url(self):
+        for text in NOT_PATHS:
+            with self.subTest(text):
+                self.assertEqual(score.path_hits(text), [])
+
+    def test_the_path_patterns_find_six_real_paths_in_the_last_prompts_of_29_september(self):
+        found = set()
+        for run_dir in (OLD_RUN, TAALREGEL_RUN, TAALREGEL2_RUN):
+            for conv in score.load_run(run_dir).values():
+                found.update(score.path_hits(score.last_prompt(conv["turns"])))
+        self.assertEqual(found, {"/api/tags", "/etc/systemd/system/nas-sync.service",
+                                 "/etc/systemd/system/nas-sync.timer", "/srv/backups", "/usr/local/bin/nas-sync.sh",
+                                 "/var/log/nas-sync.log"})
 
 
 if __name__ == "__main__":

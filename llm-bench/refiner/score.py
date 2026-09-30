@@ -7,7 +7,9 @@ A1 language, A2 question form, A3 rounds, A4 final shape, A5 restraint (a flag, 
 only after JP confirms it), A6 fidelity, A7 Opus prompt rules, A8 revision. See PLANS/refiner-eval.
 The checks are heuristics: A1 detects which language, not how fluent; A5/A6 match patterns.
 A forbid_statement pattern counts only in a statement (statement_hits). For a docs case (variant
-"docs") the same A5 rule is reported as D5 and its A5 is n.v.t.
+"docs") the same A5 rule is reported as D5 and its A5 is n.v.t.; such a case also gets D1 (the docs were
+consulted in turn 1), D2 (the docs' facts are in the last prompt), D3 (nothing invented: paths, doc references
+and, for a fact the docs lack, a channel), D4 (no needless question) and D6 (every harness turn completed).
 """
 import csv
 import json
@@ -34,6 +36,20 @@ LINE_END = re.compile(r"\n+")
 # a clause ends in '?' when only closing markup follows it: a closing tag, quote, bracket, * _ or backtick
 QEND = re.compile(r"\?(?:</\w+>|[\s*_`\"'»”’)\]}>])*$")
 CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
+# the doc-checks D1-D6 (docs cases): the tools that read the docs, what D3 takes for a path or a doc reference, and for
+# D04 (a fact the docs lack) what counts as a channel name and as marking a fact unknown
+DOC_TOOLS = ("search_product_docs", "get_product_doc", "list_product_docs", "related_product_docs")
+PATH_ABS = re.compile(r"(?<![\w.:/~-])~?/[\w.~-]+(?:/[\w.~-]+)+")                              # /srv/x/y, ~/x/y
+PATH_REL = re.compile(r"(?<![\w.:/~-])[a-z_.][\w.-]*(?:/[\w.-]+)+\.[A-Za-z]{1,6}(?![\w/-])")   # src/cli.ts, docs/x/y.md
+DOC_REF = re.compile(r"(?<![\w.:/~-])(?:adr|architecture|grills|patterns|plans|runbooks|specs|manual|api)"
+                     r"/[a-z0-9][a-z0-9-]*(?![\w/.-])")                                        # specs/<slug>
+CHANNEL = re.compile(r"(?<![\w&])#(?![0-9a-f]{3}(?:[0-9a-f]{3})?\b)[a-z][a-z0-9_-]+")          # #harness-alerts, geen #e01e5a
+CHANNEL_CONTEXT = re.compile(r"(?i)kanaal|channel|slack")                                    # een #naam telt alleen in zo'n zin
+MARK = re.compile(r"(?i)onbekend|unknown|niet bekend|not known|ontbre|missing|nog in te vullen|to be provided"
+                  r"|aanname|assumption|\[(FILL IN|INVULLEN)")
+# the assumptions section of a final answer: its heading ("**Aannames:**", "B. Assumptions") and its bullets
+ASSUMPTIONS_HEAD = re.compile(r"(?i)^\W*(?:[AB][.)]\s*)?\W*(aannames|assumptions)\b")
+BULLET = re.compile(r"^\s*(?:[-*•]|\d+[.)])\s")
 
 
 def fences(text):
@@ -86,9 +102,154 @@ def statement_hits(patterns, text):
     return [p for p in patterns if any(matches(p, h) for h in heads)]
 
 
-def score_conversation(case, turns):
+def last_prompt(turns):
+    """De laatste prompt: het laatste codeblok over alle modelbeurten van het gesprek ('' zonder codeblok)."""
+    blocks = [b for t in turns for b in fences(t)]
+    return blocks[-1] if blocks else ""
+
+
+def user_messages(case):
+    """The user turns run.py can send for this case: the input, the scripted replies, the pressure reply, the revision
+    and the go-ahead line converse() falls back on when the replies run out. A path or channel name that one of them
+    holds is the user's own, so D3 does not call it invented."""
+    go = "Fine, write the prompt now." if case.get("lang") == "en" else "Akkoord, schrijf nu de prompt."
+    sent = [case.get("input"), *(case.get("replies") or []), case.get("pressure_reply"), case.get("revision"), go]
+    return [m for m in sent if m]
+
+
+def question_turns(turns):
+    """The model turns before the first one with a code block (all of them when none has one), as q_turns in
+    score_conversation: the turns in which the model still asks."""
+    first = next((i for i, t in enumerate(turns) if fences(t)), None)
+    return turns if first is None else turns[:first]
+
+
+def question_lines(turns):
+    """The question lines of turns: lines with a '?' and lines that start with a number (NUMBERED)."""
+    return [ln for t in turns for ln in t.splitlines() if "?" in ln or NUMBERED.match(ln)]
+
+
+def path_hits(text):
+    """The path-like strings in text, each once: the matches of PATH_ABS, PATH_REL and DOC_REF, in that order, without
+    one trailing '.', ',', ';' or ':' (a PATH_ABS match can end in the full stop of the sentence)."""
+    hits = []
+    for pattern in (PATH_ABS, PATH_REL, DOC_REF):
+        for m in pattern.finditer(text):
+            hit = m.group(0)
+            hit = hit[:-1] if hit[-1] in ".,;:" else hit
+            if hit not in hits:
+                hits.append(hit)
+    return hits
+
+
+def assumption_bullets(text):
+    """The bullets in the assumptions section(s) of text, outside the code block: the line that starts with
+    "Aannames" or "Assumptions" (after markup or a letter like "B.") and the bullets directly under it, blank lines
+    allowed. A heading alone proves nothing: the system prompt has the model write one in every final answer."""
+    bullets, in_section = [], False
+    for line in outside(text).splitlines():
+        if ASSUMPTIONS_HEAD.match(line):
+            in_section = True
+        elif in_section and BULLET.match(line):
+            bullets.append(line)
+        elif in_section and line.strip():
+            in_section = False
+    return bullets
+
+
+def channels(text):
+    """The channel names (CHANNEL) in the sentences of text that also mention CHANNEL_CONTEXT."""
+    return {m.group(0) for s in sentences(text) if CHANNEL_CONTEXT.search(s) for m in CHANNEL.finditer(s)}
+
+
+def absent_topic(case, turns):
+    """What the model did about a fact the docs lack (case doc_absent_topic, D04), as {'asked', 'marked', 'invented'}:
+    asked: a question line before the first code block names the topic;
+    marked: in the last turn, a sentence names the topic and holds a MARK, or an assumption bullet names it;
+    invented: the doc_absent_forbid patterns that hit a model turn, then the channel names in the last prompt that no
+    question line before the first code block and no user message holds. A channel written without '#' is not found."""
+    topic = re.compile(case["doc_absent_topic"])
+    lines = question_lines(question_turns(turns))
+    last = turns[-1] if turns else ""
+    asked = any(topic.search(ln) for ln in lines)
+    marked = (any(topic.search(s) and MARK.search(s) for s in sentences(last))
+              or any(topic.search(b) for b in assumption_bullets(last)))
+    named = {m.group(0) for text in lines + user_messages(case) for m in CHANNEL.finditer(text)}
+    invented = [p for p in case.get("doc_absent_forbid") or [] if any(matches(p, t) for t in turns)]
+    invented += sorted(channels(last_prompt(turns)) - named)
+    return {"asked": asked, "marked": marked, "invented": invented}
+
+
+def load_docset(dirpath):
+    """De bevroren docset voor D3: {'texts': [inhoud van elk bestand uit docset.json], 'refs': {'folder/slug', ...}}.
+    Alleen wat docset.json noemt telt mee; de hashes controleert freeze_docset.py --check."""
+    d = Path(dirpath)
+    files = json.loads((d / "docset.json").read_text(encoding="utf-8"))["files"]
+    return {"texts": [(d / f["folder"] / f"{f['slug']}.md").read_text(encoding="utf-8") for f in files],
+            "refs": {f"{f['folder']}/{f['slug']}" for f in files}}
+
+
+# D1-D6 for a docs case. Each returns (outcome, notes); D5 is the restraint rule score_conversation already evaluated.
+def check_d1(rows):
+    """D1: the row of turn 1 holds a successful call (ok true) to one of the DOC_TOOLS."""
+    used = any(tc.get("ok") is True and tc.get("name") in DOC_TOOLS
+               for r in rows if r.get("turn") == 1 for tc in r.get("tool_calls") or [])
+    return ("pass", []) if used else ("fail", ["D1 geen geslaagde doc-toolaanroep in beurt 1"])
+
+
+def check_d2(case, turns):
+    """D2: every doc_must_include value is in the last prompt (a regex if it starts "(?", else literal, as in A6)."""
+    wanted = case.get("doc_must_include") or []
+    if not wanted:
+        return "n.v.t.", []
+    body = last_prompt(turns)
+    miss = [p for p in wanted if not matches(p if p.startswith("(?") else re.escape(p), body)]
+    return ("fail", ["D2 mist: " + ", ".join(miss)]) if miss else ("pass", [])
+
+
+def check_d3(case, turns, docset):
+    """D3: nothing invented. Each path-like string in the last prompt is in the text of a docset file, in a user
+    message or (a doc reference) listed as folder/slug in docset.json. With doc_absent_topic (D04) the model must also
+    have asked for or marked the missing fact, and invented nothing (absent_topic)."""
+    known = docset["texts"] + user_messages(case)
+    unknown = [h for h in path_hits(last_prompt(turns)) if h not in docset["refs"] and not any(h in t for t in known)]
+    notes = ["D3 onbekend: " + ", ".join(unknown)] if unknown else []
+    if case.get("doc_absent_topic"):
+        found = absent_topic(case, turns)
+        if not (found["asked"] or found["marked"]):
+            notes.append("D3 niet gevraagd of gemarkeerd: " + case["doc_absent_topic"])
+        if found["invented"]:
+            notes.append("D3 verzonnen: " + ", ".join(found["invented"]))
+    return ("fail" if notes else "pass"), notes
+
+
+def check_d4(case, turns):
+    """D4: no doc_forbid_ask pattern in a question line before the first code block."""
+    forbid = case.get("doc_forbid_ask") or []
+    if not forbid:
+        return "n.v.t.", []
+    lines = question_lines(question_turns(turns))
+    hit = [p for p in forbid if any(matches(p, ln) for ln in lines)]
+    return ("fail", ["D4 vraag: " + ", ".join(hit)]) if hit else ("pass", [])
+
+
+def check_d6(rows):
+    """D6: every turn row has the harness status 'completed'. Only rows whose turn is a number count: the closing row
+    (turn 'end') holds the status of the conversation, and the plan, probe and stop rows are no turn."""
+    turn_rows = [r for r in rows if isinstance(r.get("turn"), int)]
+    if not turn_rows:
+        return "fail", ["D6 geen beurtrijen"]
+    bad = [f"beurt {r['turn']} {r.get('status')}" for r in turn_rows if r.get("status") != "completed"]
+    return ("fail", ["D6 status: " + ", ".join(bad)]) if bad else ("pass", [])
+
+
+def score_conversation(case, turns, rows=None, docset=None):
     """turns: model contents in order. Returns dict check -> 'pass'|'fail'|'flag'|'n.v.t.' plus notes.
-    A case with variant 'docs' gets D5 (the A5 rule, after A8) and its A5 is then n.v.t."""
+    A case with variant 'docs' also gets D1-D6 after A8 (D5 is the A5 rule, and its A5 is then n.v.t.); rows, the
+    harness rows of the conversation, and docset, from load_docset(), are then required. A plain case ignores both."""
+    docs = case.get("variant") == "docs"
+    if docs and (rows is None or docset is None):
+        raise ValueError(f"case {case.get('id')} is a docs case: score_conversation needs rows and docset")
     res, notes = {}, []
     first_final = next((i for i, t in enumerate(turns) if fences(t)), None)
     q_turns = turns[:first_final] if first_final is not None else turns
@@ -117,7 +278,6 @@ def score_conversation(case, turns):
         ok = len(fences(final)) == 1 and bullets <= 5 and EFFORT.search(outside(final))
         res["A4"] = "pass" if ok else "fail"
 
-    docs = case.get("variant") == "docs"
     if case.get("forbid_regex") or case.get("outside_fence_forbid") or case.get("forbid_statement"):
         all_text = "\n".join(turns)
         hits = [p for p in case.get("forbid_regex", []) if matches(p, all_text)]
@@ -159,7 +319,11 @@ def score_conversation(case, turns):
     else:
         res["A8"] = "n.v.t."
     if docs:
-        res["D5"] = restraint
+        for check, (outcome, why) in (("D1", check_d1(rows)), ("D2", check_d2(case, turns)),
+                                      ("D3", check_d3(case, turns, docset)), ("D4", check_d4(case, turns)),
+                                      ("D5", (restraint, [])), ("D6", check_d6(rows))):
+            res[check] = outcome
+            notes += why
     return res, notes
 
 
