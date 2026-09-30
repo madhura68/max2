@@ -3,9 +3,11 @@ and the frozen docset with its freezer and check.
 
   python3 -m unittest llm-bench/refiner/test_refiner.py
 """
+import contextlib
 import csv
 import functools
 import hashlib
+import io
 import json
 import os
 import re
@@ -812,11 +814,11 @@ def harness_row(turn, content, status="completed", tool_calls=(), **extra):
             "limits": ROW_LIMITS, **extra}
 
 
-def end_row(status="final"):
+def end_row(status="final", **extra):
     """The closing row of a conversation; its status is the conversation's (final, no_final, error)."""
     return {"model": "qwen3.6-openrouter", "case": "D01", "seed": 1, "blind_id": "a1b2c3", "backend": "harness",
             "variant": "docs", "poging": 1, "turn": "end", "status": status, "conversation_wall_s": 14.0,
-            "cost_usd": 0.0008}
+            "cost_usd": 0.0008, **extra}
 
 
 def docs_rows(turns, turn1_tools=(SEARCH,), statuses=None, end_status="final"):
@@ -1702,6 +1704,662 @@ class DocHelpersTest(unittest.TestCase):
         self.assertEqual(found, {"/api/tags", "/etc/systemd/system/nas-sync.service",
                                  "/etc/systemd/system/nas-sync.timer", "/srv/backups", "/usr/local/bin/nas-sync.sh",
                                  "/var/log/nas-sync.log"})
+
+
+# Taak 10c: poging, plan-noemer, zeef en tabel. The rows follow the row contract of Task 11: a row per turn, the closing
+# row (turn "end") and the plan, probe and stop rows, which have no case and so belong to no conversation.
+def conv_rows(model, cid, bid, contents, variant="nodocs", poging=1, end="final", statuses=None, tools=(), **keys):
+    """The rows of one attempt of a harness conversation: a row for each text in contents (the docs lookup `tools` in
+    turn 1), then the closing row (end=None leaves it out). keys are conversation fields such as seed."""
+    keys = {"model": model, "case": cid, "blind_id": bid, "variant": variant, "poging": poging, **keys}
+    statuses = statuses or ["completed"] * len(contents)
+    rows = [harness_row(n, text, status=st, tool_calls=tools if n == 1 else (), **keys)
+            for n, (text, st) in enumerate(zip(contents, statuses), start=1)]
+    return rows + ([end_row(end, **keys)] if end else [])
+
+
+def plan_row(model, conversations, variant="nodocs"):
+    return {"turn": "plan", "model": model, "variant": variant, "conversations": [list(p) for p in conversations]}
+
+
+def probe_row(model, verdict="reliable", label=None, reasons=None, variant="nodocs"):
+    return {"turn": "probe", "model": model, "backend": "harness", "variant": variant, "verdict": verdict,
+            "label": label, "reasons": reasons or {}}
+
+
+def stop_row(model, reason):
+    return {"turn": "stop", "model": model, "reason": reason}
+
+
+def scored_conv(n, status="final", **over):
+    """A scored conversation as the sieve reads it (a row of summary.csv): every check passes, except A5 and A8, which
+    apply to no conversation, unless over says otherwise."""
+    row = {"case": f"R{n:02d}", "seed": 1, "blind_id": f"b{n:05d}", "status": status}
+    row.update({ch: "pass" for ch in score.CHECKS})
+    row.update({"A5": "n.v.t.", "A8": "n.v.t.", **over})
+    return row
+
+
+class RunDirTest(unittest.TestCase):
+    """Base for the tests that load or score a synthetic run directory."""
+
+    def make_run(self, rows):
+        run_dir = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, run_dir, ignore_errors=True)
+        (run_dir / "raw.jsonl").write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows),
+                                           encoding="utf-8")
+        return run_dir
+
+    def score_main(self, run_dir, *args):
+        """score.main on run_dir with the printed output captured and returned."""
+        out = io.StringIO()
+        with contextlib.redirect_stdout(out):
+            score.main(run_dir, *args)
+        return out.getvalue()
+
+    def summary(self, run_dir):
+        with (Path(run_dir) / "summary.csv").open(newline="", encoding="utf-8") as f:
+            return list(csv.DictReader(f))
+
+
+class LoadRunTest(RunDirTest):
+    """load_run: the highest poging counts, poging 1 is remembered, and a row that belongs to no conversation is skipped."""
+
+    def test_the_rows_of_poging_2_count_and_the_status_of_poging_1_is_kept(self):
+        rows = (conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], poging=1, end="error",
+                          statuses=["completed", "budget_exceeded"])
+                + conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], poging=2))
+        convs = score.load_run(self.make_run(rows))
+        self.assertEqual(list(convs), [("m-a", "R06", 1)])
+        c = convs[("m-a", "R06", 1)]
+        self.assertEqual((c["poging"], c["first_attempt_status"], c["status"]), (2, "error", "final"))
+        self.assertEqual(c["turns"], ["Vraag?", FENCE_REPLY])
+        self.assertEqual([(r["poging"], r["turn"], r["status"]) for r in c["rows"]],
+                         [(2, 1, "completed"), (2, 2, "completed")])
+        self.assertEqual((c["blind_id"], c["wall_s"]), ("b00001", 14.0))
+
+    def test_the_highest_poging_counts_wherever_it_stands_in_the_file(self):
+        first = conv_rows("m-a", "R06", "b00001", ["een"], poging=1, end="error")
+        second = conv_rows("m-a", "R06", "b00001", ["twee", "drie"], poging=2, end=None)   # no closing row yet
+        c = score.load_run(self.make_run(second + first))[("m-a", "R06", 1)]
+        self.assertEqual((c["poging"], c["first_attempt_status"], c["status"], c["turns"]),
+                         (2, "error", None, ["twee", "drie"]))
+
+    def test_a_single_attempt_is_its_own_first_attempt(self):
+        rows = conv_rows("m-a", "R06", "b00001", ["Vraag?"] * 4, end="no_final")
+        c = score.load_run(self.make_run(rows))[("m-a", "R06", 1)]
+        self.assertEqual((c["poging"], c["first_attempt_status"], c["status"]), (1, "no_final", "no_final"))
+
+    def test_rows_without_poging_stay_as_they_were(self):
+        # the ollama rows of 29 September carry no backend, variant or poging, and the conversation none either
+        convs = score.load_run(OLD_RUN)
+        self.assertEqual(len(convs), 20)
+        for conv in convs.values():
+            self.assertNotIn("poging", conv)
+            self.assertNotIn("first_attempt_status", conv)
+            self.assertEqual((conv["backend"], conv["variant"]), (None, None))
+            self.assertEqual((conv["status"], len(conv["rows"])), ("final", len(conv["turns"])))
+
+    def test_backend_and_variant_come_from_the_rows(self):
+        c = score.load_run(self.make_run(conv_rows("m-a", "R06", "b00001", [FENCE_REPLY])))[("m-a", "R06", 1)]
+        self.assertEqual((c["backend"], c["variant"]), ("harness", "nodocs"))
+
+    def test_plan_probe_and_stop_rows_belong_to_no_conversation(self):
+        meta = [plan_row("m-a", [("R06", 1)]), probe_row("m-a"), stop_row("m-a", "max_cost"),
+                probe_row("m-b", verdict="none", label="geen aanbieder")]
+        rows = meta + conv_rows("m-a", "R06", "b00001", [FENCE_REPLY])
+        self.assertEqual(list(score.load_run(self.make_run(rows))), [("m-a", "R06", 1)])
+        self.assertEqual(score.load_run(self.make_run(meta)), {})   # nothing but such rows: no conversation at all
+
+    def test_every_turn_row_is_a_row_and_a_string_content_is_a_turn(self):
+        rows = conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], statuses=["completed", "failed"], end="error")
+        # the ollama runner's shape for a failed call: a turn row with an error and no content
+        rows.insert(2, {"model": "m-a", "case": "R06", "seed": 1, "blind_id": "b00001", "turn": 3, "error": "timeout"})
+        c = score.load_run(self.make_run(rows))[("m-a", "R06", 1)]
+        self.assertEqual(c["turns"], ["Vraag?", ""])                      # a failed turn has content "" and is a turn
+        self.assertEqual([r["turn"] for r in c["rows"]], [1, 2, 3])       # a row without content is a row, not a turn
+        self.assertEqual([r["status"] for r in c["rows"][:2]], ["completed", "failed"])   # D1 and D6 see failed turns
+
+    def test_a_closing_row_without_wall_time_is_fine(self):
+        # an invocation error: run.py writes the closing row with a status only, and there is no turn row
+        end = {"model": "m-a", "case": "R06", "seed": 1, "blind_id": "b00001", "backend": "harness",
+               "variant": "nodocs", "poging": 1, "turn": "end", "status": "invocation_error"}
+        c = score.load_run(self.make_run([end]))[("m-a", "R06", 1)]
+        self.assertEqual((c["status"], c["wall_s"], c["turns"], c["rows"]), ("invocation_error", None, [], []))
+
+
+class LoadMetaTest(RunDirTest):
+    """load_meta: the plan, probe and stop row of each model."""
+
+    def test_the_plan_probe_and_stop_row_per_model(self):
+        plan_a, probe_a, stop_a = plan_row("m-a", [("R06", 1)]), probe_row("m-a"), stop_row("m-a", "http_402")
+        probe_b = probe_row("m-b", verdict="none", label="geen aanbieder", reasons={"a_plain": "model HTTP 503"})
+        rows = [probe_a, probe_b, plan_a] + conv_rows("m-a", "R06", "b00001", [FENCE_REPLY]) + [stop_a]
+        self.assertEqual(score.load_meta(self.make_run(rows)),
+                         {"m-a": {"plan": plan_a, "probe": probe_a, "stop": stop_a},
+                          "m-b": {"plan": None, "probe": probe_b, "stop": None}})
+
+    def test_a_run_without_such_rows_has_no_meta(self):
+        self.assertEqual(score.load_meta(OLD_RUN), {})
+        self.assertEqual(score.load_meta(self.make_run(conv_rows("m-a", "R06", "b00001", [FENCE_REPLY]))), {})
+
+    def test_a_later_row_of_the_same_kind_replaces_the_earlier_one(self):
+        first, second = plan_row("m-a", [("R06", 1)]), plan_row("m-a", [("R06", 1), ("R07", 1)])
+        self.assertEqual(score.load_meta(self.make_run([first, second]))["m-a"]["plan"], second)
+
+    def test_plan_rows_of_two_variants_for_one_model_are_refused(self):
+        # a run directory holds one variant (spec 5.7); reading two plans as one would change a denominator unseen
+        rows = [plan_row("m-a", [("R06", 1)]), plan_row("m-a", [("D01", 1)], variant="docs")]
+        with self.assertRaisesRegex(ValueError, "m-a"):
+            score.load_meta(self.make_run(rows))
+
+
+class SieveTest(unittest.TestCase):
+    """sieve (spec 5.8): 90% of the conversations end with a prompt, no A5 or D5 flag, every other check in 80% of the
+    conversations it applies to, and a check with fewer than five conversations does not count."""
+
+    @staticmethod
+    def convs(n):
+        """n scored conversations, all finished, every check passing."""
+        return [scored_conv(i) for i in range(1, n + 1)]
+
+    def test_a_model_that_finishes_and_trips_nothing_is_through(self):
+        r = score.sieve(self.convs(15))
+        self.assertEqual((r["outcome"], r["completed"], r["first_attempt_completed"], r["flags"], r["reasons"]),
+                         ("door", (15, 15), 15, [], []))
+        self.assertEqual(r["checks"]["A1"], (15, 15, True))
+        self.assertEqual(r["checks"]["A5"], (0, 0, False))      # applies to no conversation
+        self.assertEqual(r["checks"]["A8"], (0, 0, False))
+        self.assertNotIn("D1", r["checks"])                     # only the checks the conversations carry
+
+    def test_a_failed_conversation_counts_in_the_denominator(self):
+        r = score.sieve(self.convs(9) + [scored_conv(10, status="error")])
+        self.assertEqual((r["completed"], r["outcome"]), ((9, 10), "door"))         # 9 of 10 is exactly 90%
+        r = score.sieve(self.convs(8) + [scored_conv(9, status="error"), scored_conv(10, status="no_final")])
+        self.assertEqual((r["completed"], r["outcome"]), ((8, 10), "gezakt"))
+        self.assertEqual(r["reasons"], ["afgerond: 8 van 10 (80.0%), minder dan 90%",
+                                        "niet afgerond: error 1x (R09/1); no_final 1x (R10/1)"])
+
+    def test_13_of_15_fails_and_14_of_15_passes(self):
+        r = score.sieve(self.convs(13) + [scored_conv(14, status="error"), scored_conv(15, status="no_final")])
+        self.assertEqual((r["completed"], r["outcome"]), ((13, 15), "gezakt"))
+        r = score.sieve(self.convs(14) + [scored_conv(15, status="error")])
+        self.assertEqual((r["completed"], r["outcome"]), ((14, 15), "door"))
+        self.assertEqual(r["reasons"], [])
+
+    def test_15_planned_with_13_present_and_finished_is_13_of_15_and_fails(self):
+        planned = [[f"R{i:02d}", 1] for i in range(1, 16)]           # the pairs as the plan row holds them: JSON lists
+        r = score.sieve(self.convs(13), planned)
+        self.assertEqual((r["completed"], r["outcome"]), ((13, 15), "gezakt"))
+        self.assertEqual(r["reasons"], ["afgerond: 13 van 15 (86.7%), minder dan 90%",
+                                        "niet afgerond: ontbreekt 2x (R14/1, R15/1)"])
+        r = score.sieve(self.convs(14), planned)
+        self.assertEqual((r["completed"], r["outcome"]), ((14, 15), "door"))
+
+    def test_without_a_plan_the_denominator_is_the_conversations_there_are(self):
+        for planned in (None, []):                                   # an old run has no plan row
+            r = score.sieve(self.convs(13), planned)
+            self.assertEqual((r["completed"], r["outcome"]), ((13, 13), "door"))
+
+    def test_a_conversation_outside_the_plan_does_not_raise_the_count_above_the_plan(self):
+        planned = [[f"R{i:02d}", 1] for i in range(1, 16)]
+        r = score.sieve(self.convs(16), planned)
+        self.assertEqual(r["completed"], (15, 15))
+
+    def test_one_flag_fails_the_model(self):
+        scored = self.convs(15)
+        for c in scored[:3]:
+            c["A5"] = "pass"
+        r = score.sieve(scored)
+        self.assertEqual((r["outcome"], r["flags"], r["checks"]["A5"]), ("door", [], (3, 3, True)))
+        scored[1]["A5"] = "flag"
+        r = score.sieve(scored)
+        self.assertEqual((r["outcome"], r["flags"], r["checks"]["A5"]), ("gezakt", ["b00002"], (2, 3, True)))
+        self.assertEqual(r["reasons"], ["vlag op A5: b00002"])
+        self.assertEqual(score.sieve([scored_conv(1, A5="flag")])["outcome"], "gezakt")   # one conversation is enough
+
+    def test_a_d5_flag_fails_the_model_too(self):
+        scored = [scored_conv(i, **dict.fromkeys(score.DOC_CHECKS, "pass")) for i in range(1, 16)]
+        scored[4]["D5"] = "flag"
+        r = score.sieve(scored)
+        self.assertEqual((r["outcome"], r["flags"], r["checks"]["D5"]), ("gezakt", ["b00005"], (14, 15, True)))
+        self.assertEqual(r["reasons"], ["vlag op D5: b00005"])
+
+    def test_a_check_with_fewer_than_five_conversations_is_shown_but_does_not_count(self):
+        scored = self.convs(15)
+        scored[0]["A8"] = scored[1]["A8"] = "fail"                   # A8 applies to two conversations only
+        r = score.sieve(scored)
+        self.assertEqual((r["checks"]["A8"], r["outcome"], r["reasons"]), ((0, 2, False), "door", []))
+
+    def test_a_check_counts_from_five_conversations_and_needs_80_percent(self):
+        def with_a8(results):
+            scored = self.convs(15)
+            for c, v in zip(scored, results):
+                c["A8"] = v
+            return score.sieve(scored)
+        r = with_a8(["pass"] * 4 + ["fail"])
+        self.assertEqual((r["checks"]["A8"], r["outcome"]), ((4, 5, True), "door"))            # exactly 80%
+        r = with_a8(["pass"] * 3 + ["fail"] * 2)
+        self.assertEqual((r["checks"]["A8"], r["outcome"], r["reasons"]),
+                         ((3, 5, True), "gezakt", ["A8: 3 van 5 (60.0%), minder dan 80%"]))
+        r = with_a8(["fail"] * 4)                                                              # four is too few
+        self.assertEqual((r["checks"]["A8"], r["outcome"]), ((0, 4, False), "door"))
+
+    def test_the_80_percent_rule_on_a_large_denominator(self):
+        scored = self.convs(15)
+        for c in scored[:3]:
+            c["A3"] = "fail"                                         # 12 of 15 is 80%
+        self.assertEqual(score.sieve(scored)["outcome"], "door")
+        scored[3]["A3"] = "fail"
+        r = score.sieve(scored)
+        self.assertEqual((r["outcome"], r["reasons"]), ("gezakt", ["A3: 11 van 15 (73.3%), minder dan 80%"]))
+
+    def test_d1_to_d4_count_and_d6_is_only_shown(self):
+        scored = [scored_conv(i, **dict.fromkeys(score.DOC_CHECKS, "pass")) for i in range(1, 16)]
+        for c in scored:
+            c["D6"] = "fail"                                         # spec 5.8 lists D1-D4; D6 follows from "afgerond"
+        r = score.sieve(scored)
+        self.assertEqual((r["outcome"], r["checks"]["D6"]), ("door", (0, 15, False)))
+        for c in scored[:5]:
+            c["D3"] = "fail"
+        r = score.sieve(scored)
+        self.assertEqual((r["outcome"], r["checks"]["D3"], r["reasons"]),
+                         ("gezakt", (10, 15, True), ["D3: 10 van 15 (66.7%), minder dan 80%"]))
+
+    def test_the_first_attempts_that_finished_are_counted_apart(self):
+        scored = self.convs(15)
+        for c in scored[:4]:
+            c["first_attempt_status"] = "error"                      # finished on the second attempt
+        for c in scored[4:6]:
+            c["first_attempt_status"] = "final"
+        r = score.sieve(scored)                                      # the other nine have no first_attempt_status
+        self.assertEqual((r["completed"], r["first_attempt_completed"]), ((15, 15), 11))
+
+    def test_nothing_planned_and_nothing_present_is_not_run_with_the_reason_of_the_probe(self):
+        none = probe_row("m-x", verdict="none", label="geen aanbieder",
+                         reasons={"a_plain": "model HTTP 503: No available model provider"})
+        r = score.sieve([], None, none)
+        self.assertEqual((r["outcome"], r["completed"], r["first_attempt_completed"], r["flags"], r["checks"]),
+                         ("niet gedraaid", (0, 0), 0, [], {}))
+        self.assertEqual(r["reasons"], ["geen aanbieder", "a_plain: model HTTP 503: No available model provider"])
+        same = {"a_plain": "model HTTP 429: rate limited", "b_single_tool": "model HTTP 429: rate limited"}
+        r = score.sieve([], [], probe_row("m-x", verdict="none", label="probe-fout 429", reasons=same))
+        self.assertEqual((r["outcome"], r["reasons"]), ("niet gedraaid", [
+            "probe-fout 429", "a_plain, b_single_tool: model HTTP 429: rate limited"]))
+        weak = probe_row("m-x", verdict="unreliable", reasons={"c_two_tools": "expected exactly one tool call, got 0"})
+        self.assertEqual(score.sieve([], None, weak)["reasons"],
+                         ["probe-oordeel unreliable", "c_two_tools: expected exactly one tool call, got 0"])
+
+    def test_not_run_without_a_probe_row_still_says_why(self):
+        r = score.sieve([])
+        self.assertEqual((r["outcome"], r["completed"]), ("niet gedraaid", (0, 0)))
+        self.assertEqual(len(r["reasons"]), 1)
+        self.assertIn("geen", r["reasons"][0])
+
+    def test_a_plan_without_conversations_is_failed_not_unrun(self):
+        # the plan names 3 and none ran (a cost stop before this model): 0 of 3, and the probe is not the reason
+        r = score.sieve([], [["R06", 1], ["R07", 1], ["R08", 1]], probe_row("m-x"))
+        self.assertEqual((r["outcome"], r["completed"]), ("gezakt", (0, 3)))
+        self.assertEqual(r["reasons"][-1], "niet afgerond: ontbreekt 3x (R06/1, R07/1, R08/1)")
+
+
+class SummaryCsvTest(RunDirTest):
+    """summary.csv: an explicit column list, the plain columns as they were, and more for a run of the harness backend."""
+
+    PLAIN = ["model", "case", "seed", "blind_id", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "status", "turns",
+             "wall_s", "eval_tokens", "max_prompt_tokens", "other_model_loaded", "notes"]
+    EXTRA = ["variant", "poging", "first_attempt_status", "D1", "D2", "D3", "D4", "D5", "D6", "model_turns",
+             "tool_calls", "input_tokens", "output_tokens", "reasoning_tokens", "cost_usd", "providers"]
+
+    def header(self, run_dir):
+        with (Path(run_dir) / "summary.csv").open(newline="", encoding="utf-8") as f:
+            return next(csv.reader(f))
+
+    def test_the_column_lists(self):
+        self.assertEqual(score.COLUMNS, self.PLAIN)
+        self.assertEqual(score.HARNESS_COLUMNS, self.EXTRA)
+
+    def test_a_harness_run_adds_the_columns_after_the_plain_ones(self):
+        run_dir = self.make_run(conv_rows("m-a", "R06", "b00001", [FENCE_REPLY]))
+        self.score_main(run_dir)
+        self.assertEqual(self.header(run_dir), self.PLAIN + self.EXTRA)
+
+    def test_a_run_without_harness_rows_has_the_plain_columns_only(self):
+        ollama = [{"model": "m-o", "case": "R06", "seed": 1, "blind_id": "b00001", "turn": 1, "content": FENCE_REPLY,
+                   "eval_count": 7, "prompt_eval_count": 40, "wall_s": 1.5, "ps_before": ["m-o"], "tei_on": False},
+                  {"model": "m-o", "case": "R06", "seed": 1, "blind_id": "b00001", "turn": "end", "status": "final",
+                   "conversation_wall_s": 1.5, "ps_before": ["m-o"], "tei_on": False}]
+        run_dir = self.make_run(ollama)
+        self.score_main(run_dir)
+        self.assertEqual(self.header(run_dir), self.PLAIN)
+        (row,) = self.summary(run_dir)
+        self.assertEqual((row["eval_tokens"], row["max_prompt_tokens"], row["other_model_loaded"], row["status"]),
+                         ("7", "40", "False", "final"))
+
+    def test_a_harness_row_sums_its_turns(self):
+        fine = prompt_block("<task>\nSchrijf iets.\n</task>")
+        keys = {"model": "m-a", "case": "R06", "blind_id": "b00001", "variant": "nodocs"}
+        rows = [harness_row(1, "Wat is het doel?", model_turns=1, input_tokens=1000, output_tokens=200,
+                            reasoning_tokens=50, cost_usd=0.001, providers=["Novita"], **keys),
+                harness_row(2, fine, tool_calls=[SEARCH, SEARCH], model_turns=2, input_tokens=1500, output_tokens=300,
+                            reasoning_tokens=70, cost_usd=0.0015, providers=["Novita", "DeepInfra"], **keys),
+                end_row("final", **keys)]
+        run_dir = self.make_run(rows)
+        self.score_main(run_dir)
+        (row,) = self.summary(run_dir)
+        self.assertEqual({k: row[k] for k in ("variant", "poging", "first_attempt_status", "status", "turns")},
+                         {"variant": "nodocs", "poging": "1", "first_attempt_status": "final", "status": "final",
+                          "turns": "2"})
+        self.assertEqual({k: row[k] for k in ("model_turns", "tool_calls", "input_tokens", "output_tokens",
+                                              "reasoning_tokens", "cost_usd", "providers")},
+                         {"model_turns": "3", "tool_calls": "2", "input_tokens": "2500", "output_tokens": "500",
+                          "reasoning_tokens": "120", "cost_usd": "0.0025", "providers": "DeepInfra, Novita"})
+        self.assertEqual(row["wall_s"], "14.0")
+        # the measurements of the Ollama runner do not exist for this backend: empty, not 0 and not False
+        self.assertEqual((row["eval_tokens"], row["max_prompt_tokens"], row["other_model_loaded"]), ("", "", ""))
+        # a plain case has no doc-checks: the cells stay empty
+        self.assertEqual([row[d] for d in score.DOC_CHECKS], [""] * 6)
+
+    def test_a_missing_amount_counts_as_zero_and_cost_is_summed_without_token_counts(self):
+        keys = {"model": "m-a", "case": "R06", "blind_id": "b00001", "variant": "nodocs"}
+        first = harness_row(1, "Vraag?", input_tokens=None, output_tokens=None, reasoning_tokens=None,
+                            cost_usd=0.002, **keys)
+        second = harness_row(2, FENCE_REPLY, input_tokens=900, output_tokens=100, reasoning_tokens=None,
+                             cost_usd=None, providers=None, **keys)
+        for gone in ("model_turns", "tool_calls"):
+            second.pop(gone)
+        # a second conversation whose rows carry no token count at all, only a cost
+        other = {**keys, "case": "R07", "blind_id": "b00002"}
+        no_counts = harness_row(1, FENCE_REPLY, input_tokens=None, output_tokens=None, reasoning_tokens=None,
+                                cost_usd=0.003, **other)
+        run_dir = self.make_run([first, second, end_row("final", **keys), no_counts, end_row("final", **other)])
+        self.score_main(run_dir)
+        rows = {r["blind_id"]: r for r in self.summary(run_dir)}
+        self.assertEqual({k: rows["b00001"][k] for k in ("model_turns", "tool_calls", "input_tokens", "output_tokens",
+                                                         "reasoning_tokens", "cost_usd", "providers")},
+                         {"model_turns": "2", "tool_calls": "0", "input_tokens": "900", "output_tokens": "100",
+                          "reasoning_tokens": "0", "cost_usd": "0.002", "providers": "Novita"})
+        self.assertEqual({k: rows["b00002"][k] for k in ("input_tokens", "output_tokens", "reasoning_tokens", "cost_usd")},
+                         {"input_tokens": "0", "output_tokens": "0", "reasoning_tokens": "0", "cost_usd": "0.003"})
+
+    def test_reasoning_tokens_are_part_of_the_output_tokens(self):
+        keys = {"model": "m-a", "case": "R06", "blind_id": "b00001", "variant": "nodocs"}
+        row = harness_row(1, FENCE_REPLY, output_tokens=300, reasoning_tokens=120, **keys)
+        run_dir = self.make_run([row, end_row("final", **keys)])
+        self.score_main(run_dir)
+        (out,) = self.summary(run_dir)
+        self.assertEqual((out["output_tokens"], out["reasoning_tokens"]), ("300", "120"))   # never 420
+
+    def test_a_second_attempt_counts_with_its_own_rows_only(self):
+        first = conv_rows("m-a", "R06", "b00001", ["Vraag?", ""], poging=1, end="error",
+                          statuses=["completed", "budget_exceeded"])
+        second = conv_rows("m-a", "R06", "b00001", ["Vraag?", FENCE_REPLY], poging=2)
+        run_dir = self.make_run(first + second)
+        self.score_main(run_dir)
+        (row,) = self.summary(run_dir)
+        self.assertEqual((row["poging"], row["first_attempt_status"], row["status"]), ("2", "error", "final"))
+        self.assertEqual((row["turns"], row["model_turns"], row["input_tokens"]), ("2", "4", "2400"))   # two rows, not four
+
+    def test_a_closing_row_without_backend_does_not_make_a_harness_row_an_ollama_row(self):
+        # the conversation keys of a closing row are model, case, seed, blind_id, variant and poging: no backend. After an
+        # invocation error it is all a conversation has, and the run is a harness run all the same
+        lone_end = {"model": "m-a", "case": "R07", "seed": 1, "blind_id": "b00002", "variant": "nodocs", "poging": 1,
+                    "turn": "end", "status": "invocation_error"}
+        run_dir = self.make_run(conv_rows("m-a", "R06", "b00001", [FENCE_REPLY]) + [lone_end])
+        output = self.score_main(run_dir)
+        broken = {r["blind_id"]: r for r in self.summary(run_dir)}["b00002"]
+        self.assertEqual({k: broken[k] for k in ("status", "variant", "poging", "first_attempt_status", "turns",
+                                                 "model_turns", "cost_usd", "eval_tokens", "other_model_loaded")},
+                         {"status": "invocation_error", "variant": "nodocs", "poging": "1",
+                          "first_attempt_status": "invocation_error", "turns": "0", "model_turns": "0",
+                          "cost_usd": "0.0", "eval_tokens": "", "other_model_loaded": ""})
+        self.assertEqual(parse_tables(output)["nodocs"]["m-a"]["Backend"], "harness")
+
+    def test_a_docs_row_after_a_plain_row_does_not_clash(self):
+        # a plain row that sorts first used to fix the columns of the writer; a docs row has D1-D6 on top
+        final = prompt_block("<task>\nLaat Claude Code een foutcode toevoegen.\n</task>")
+        plain = conv_rows("a-model", "R06", "b00001", [FENCE_REPLY])
+        docs = conv_rows("b-model", "D01", "b00002", ["Vraag?", final], variant="docs", tools=(SEARCH,))
+        run_dir = self.make_run(plain + docs)
+        self.score_main(run_dir)
+        rows = {r["model"]: r for r in self.summary(run_dir)}
+        self.assertEqual([rows["a-model"][d] for d in score.DOC_CHECKS], [""] * 6)
+        self.assertEqual((rows["b-model"]["D1"], rows["b-model"]["D6"]), ("pass", "pass"))
+        self.assertEqual(self.header(run_dir), self.PLAIN + self.EXTRA)
+
+    def test_a_docs_conversation_is_scored_with_its_rows_and_the_docset(self):
+        final = prompt_block("<task>\nLaat Claude Code een foutcode toevoegen.\n</task>")
+        looked_up = conv_rows("m-a", "D01", "d00001", ["Vraag?", final], variant="docs", tools=(SEARCH,))
+        not_looked_up = conv_rows("m-a", "D01", "d00002", ["Vraag?", final], variant="docs", seed=2)
+        failed = conv_rows("m-a", "D01", "d00003", ["Vraag?", ""], variant="docs", seed=3, tools=(SEARCH,),
+                           statuses=["completed", "budget_exceeded"], end="error")
+        run_dir = self.make_run(looked_up + not_looked_up + failed)
+        self.score_main(run_dir)           # the docset is the frozen one next to score.py
+        rows = {r["blind_id"]: r for r in self.summary(run_dir)}
+        self.assertEqual((rows["d00001"]["D1"], rows["d00001"]["D6"]), ("pass", "pass"))
+        self.assertEqual(rows["d00002"]["D1"], "fail")
+        self.assertEqual((rows["d00003"]["D6"], rows["d00003"]["status"]), ("fail", "error"))
+        self.assertIn("D6 status: beurt 2 budget_exceeded", rows["d00003"]["notes"])
+
+    def test_a_run_with_probe_rows_only_writes_the_header(self):
+        run_dir = self.make_run([probe_row("m-x", verdict="none", label="geen aanbieder")])
+        output = self.score_main(run_dir)
+        self.assertEqual(self.header(run_dir), self.PLAIN + self.EXTRA)
+        self.assertEqual(self.summary(run_dir), [])
+        self.assertIn("niet gedraaid", output)
+
+    def test_the_docset_option_names_the_docset_d3_reads(self):
+        final = prompt_block("<task>\nLaat Claude Code een foutcode toevoegen.\n</task>")
+        docs_run = self.make_run(conv_rows("m-a", "D01", "d00001", ["Vraag?", final], variant="docs", tools=(SEARCH,)))
+        plain_run = self.make_run(conv_rows("m-a", "R06", "b00001", [FENCE_REPLY]))
+        nowhere = docs_run / "geen-docset"
+
+        def cli(run_dir, *options):
+            return subprocess.run([sys.executable, str(HERE / "score.py"), str(run_dir), *map(str, options)],
+                                  capture_output=True, text=True)
+        done = cli(docs_run, "--docset", DOCSET)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertTrue((docs_run / "summary.csv").exists())
+        self.assertEqual(cli(docs_run).returncode, 0)             # the default is the docset next to score.py
+        broken = cli(docs_run, "--docset", nowhere)
+        self.assertNotEqual(broken.returncode, 0)
+        self.assertIn("docset.json", broken.stderr)
+        self.assertEqual(cli(plain_run, "--docset", nowhere).returncode, 0)   # no docs case: the docset is not read
+
+
+class OldRunSummaryTest(RunDirTest):
+    """Bestaand gedrag blijft: a copy of the run of 29 September scores to the committed summary.csv, but for the new
+    R01 patterns."""
+
+    def copy_of_old_run(self):
+        tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, tmp, ignore_errors=True)
+        return Path(shutil.copytree(OLD_RUN, tmp / "run"))
+
+    def test_the_summary_differs_from_the_committed_one_in_the_r01_rows_only(self):
+        copy = self.copy_of_old_run()
+        self.score_main(copy)
+        old = (OLD_RUN / "summary.csv").read_bytes().decode().splitlines(keepends=True)
+        new = (copy / "summary.csv").read_bytes().decode().splitlines(keepends=True)
+        self.assertEqual(len(new), len(old))
+        self.assertEqual(new[0], old[0])      # the same columns in the same order
+        changed = {}
+        for was, now in zip(old[1:], new[1:]):
+            if was != now:                    # every other row is identical, byte for byte
+                (a,), (b,) = csv.DictReader([old[0], was]), csv.DictReader([new[0], now])
+                changed[a["blind_id"]] = {col: (a[col], b[col]) for col in a if a[col] != b[col]}
+        old_pattern = r"(?i)een user story is\b"    # the outside-the-fence pattern of the run of 29 September
+        self.assertEqual(changed, {
+            "ac5133": {"A5": ("pass", "flag"), "notes": ("", "A5 treffer: " + R01_STATEMENT[2])},
+            "1efe0d": {"notes": ("A5 treffer: " + old_pattern,
+                                 "A5 treffer: " + ", ".join([old_pattern, *R01_STATEMENT[1:]]))}})
+
+    def test_the_committed_files_are_not_touched(self):
+        before = (OLD_RUN / "summary.csv").read_bytes()
+        copy = self.copy_of_old_run()
+        self.score_main(copy)
+        self.assertEqual((OLD_RUN / "summary.csv").read_bytes(), before)
+        self.assertEqual(sorted(p.name for p in copy.iterdir()), sorted(p.name for p in OLD_RUN.iterdir()))
+
+
+def parse_tables(text):
+    """{variant: {model: {column: cell}}} from the markdown tables score.main prints under '### Variant <name>'."""
+    tables, variant, header = {}, None, None
+    for line in text.splitlines():
+        if line.startswith("### Variant "):
+            variant, header = line[len("### Variant "):].strip(), None
+            tables[variant] = {}
+        elif line.startswith("|") and variant is not None:
+            cells = [c.strip() for c in line.strip("|").split("|")]
+            if header is None:
+                header = cells
+            elif not set("".join(cells)) <= set("-:"):      # skip the |---|---| line
+                tables[variant][cells[0]] = dict(zip(header, cells))
+    return tables
+
+
+class ReportTest(RunDirTest):
+    """The printed output: a table per variant, the sieve reasons, the stops and the flagged transcripts."""
+
+    COLUMNS = ["Model", "Backend", "Probe", "A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8", "Afgerond", "Eerste poging",
+               "Mediaan s", "Tokens in", "Tokens uit", "Kosten $", "Aanbieders", "Zeef"]
+    FLAGGED = "Leg uit dat een user story een type PBI is."
+
+    def nodocs_run(self):
+        """Four models in the variant nodocs: one through, one flagged, one without a provider, one stopped."""
+        fine = prompt_block("<task>\nSchrijf iets.\n</task>")
+        rows = [plan_row("m-ok", [("R06", 1), ("R07", 1), ("R08", 1)]), probe_row("m-ok")]
+        for n, cid in enumerate(["R06", "R07", "R08"], start=1):
+            rows += conv_rows("m-ok", cid, f"ok000{n}", ["Vraag?", fine])
+        rows += [plan_row("m-flag", [("R01", 1)]),
+                 probe_row("m-flag", verdict="unreliable", reasons={"c_two_tools": "expected one tool call, got 0"})]
+        rows += conv_rows("m-flag", "R01", "fl0001", [prompt_block(f"<task>\n{self.FLAGGED}\n</task>")])
+        rows.append(probe_row("m-none", verdict="none", label="geen aanbieder",
+                              reasons={"a_plain": "model HTTP 503: No available model provider"}))
+        rows += [plan_row("m-stop", [("R06", 1), ("R07", 1), ("R08", 1)]), probe_row("m-stop")]
+        rows += conv_rows("m-stop", "R06", "st0001", ["Vraag?", ""], end="error",
+                          statuses=["completed", "budget_exceeded"])
+        rows.append(stop_row("m-stop", "max_cost"))
+        return self.score_main(self.make_run(rows))
+
+    def test_a_table_per_variant_with_a_row_per_model(self):
+        output = self.nodocs_run()
+        tables = parse_tables(output)
+        self.assertEqual(list(tables), ["nodocs"])
+        self.assertEqual(sorted(tables["nodocs"]), ["m-flag", "m-none", "m-ok", "m-stop"])
+        header = next(line for line in output.splitlines() if line.startswith("| Model"))
+        self.assertEqual([c.strip() for c in header.strip("|").split("|")], self.COLUMNS)
+
+    def test_the_cells_of_a_model_that_ran(self):
+        ok = parse_tables(self.nodocs_run())["nodocs"]["m-ok"]
+        self.assertEqual({k: ok[k] for k in ("Backend", "Probe", "Afgerond", "Eerste poging", "Mediaan s", "Tokens in",
+                                             "Tokens uit", "Kosten $", "Aanbieders", "Zeef", "A5", "A8")},
+                         {"Backend": "harness", "Probe": "reliable", "Afgerond": "3/3", "Eerste poging": "3",
+                          "Mediaan s": "14", "Tokens in": "7200", "Tokens uit": "1800", "Kosten $": "0.0024",
+                          "Aanbieders": "Novita", "Zeef": "door", "A5": "-", "A8": "-"})
+
+    def test_a_flag_gives_gezakt_and_shows_in_the_a5_count(self):
+        flag = parse_tables(self.nodocs_run())["nodocs"]["m-flag"]
+        self.assertEqual((flag["A5"], flag["Zeef"], flag["Probe"], flag["Afgerond"]), ("0/1", "gezakt", "unreliable", "1/1"))
+
+    def test_a_model_that_did_not_run_has_a_row_with_the_reason_outside_the_table(self):
+        output = self.nodocs_run()
+        none = parse_tables(output)["nodocs"]["m-none"]
+        self.assertEqual((none["Backend"], none["Probe"], none["Zeef"]), ("harness", "geen aanbieder", "niet gedraaid"))
+        self.assertEqual([none[k] for k in ("Afgerond", "Eerste poging", "Mediaan s", "Tokens in", "Kosten $",
+                                            "Aanbieders", "A1")], ["-"] * 7)
+        self.assertIn("- m-none (niet gedraaid): geen aanbieder; a_plain: model HTTP 503: No available model provider",
+                      output)
+
+    def test_a_planned_conversation_that_never_ran_counts_and_the_stop_is_named(self):
+        output = self.nodocs_run()
+        stop = parse_tables(output)["nodocs"]["m-stop"]
+        self.assertEqual((stop["Afgerond"], stop["Eerste poging"], stop["Zeef"]), ("0/3", "0", "gezakt"))
+        self.assertIn("- m-stop (gezakt): afgerond: 0 van 3 (0.0%), minder dan 90%; "
+                      "niet afgerond: error 1x (R06/1); ontbreekt 2x (R07/1, R08/1)", output)
+        self.assertIn("Gestopt:\n- m-stop: max_cost", output)
+
+    def test_a_model_that_is_through_has_no_reason_line(self):
+        output = self.nodocs_run()
+        self.assertNotIn("- m-ok", output)
+        self.assertIn("- m-flag (gezakt): vlag op A5: fl0001", output)
+
+    def test_a_check_with_fewer_than_five_conversations_is_starred(self):
+        output = self.nodocs_run()
+        ok = parse_tables(output)["nodocs"]["m-ok"]
+        self.assertTrue(ok["A1"].endswith("/3*"), ok["A1"])
+        self.assertIn("* minder dan vijf gesprekken", output)
+        self.assertFalse(parse_tables(output)["nodocs"]["m-flag"]["A5"].endswith("*"))   # the flag rule always counts
+
+    def test_a_flag_shows_its_pattern_and_its_transcript(self):
+        output = self.nodocs_run()
+        start = output.index("#### Vlag A5: fl0001")
+        block = output[start:]
+        self.assertIn("(m-flag, R01, seed 1)", block.splitlines()[0])
+        self.assertIn("Patroon: " + R01_STATEMENT[2], block)
+        self.assertIn("transcripts/fl0001.md", block)
+        self.assertIn(self.FLAGGED, block)
+
+    def test_a_docs_run_shows_the_doc_checks_and_the_variant(self):
+        final = prompt_block("<task>\nLaat Claude Code een foutcode toevoegen.\n</task>")
+        rows = [plan_row("m-d", [("D01", 1)], variant="docs"), probe_row("m-d", variant="docs")]
+        rows += conv_rows("m-d", "D01", "d00001", ["Vraag?", final], variant="docs", tools=(SEARCH,))
+        output = self.score_main(self.make_run(rows))
+        tables = parse_tables(output)
+        self.assertEqual(list(tables), ["docs"])
+        row = tables["docs"]["m-d"]
+        # D1 is one of the 80% checks, with one conversation too few to count; D01 has no restraint rule, so D5 does not
+        # apply; D6 is shown without counting, which is no question of how many conversations there are
+        self.assertEqual([row[d] for d in ("D1", "D5", "D6")], ["1/1*", "-", "1/1"])
+        self.assertEqual((row["A5"], row["Afgerond"]), ("-", "1/1"))
+        self.assertIn("D6 telt niet mee", output)
+
+    def test_variants_are_separate_tables_with_nodocs_first_and_a_plan_counts_in_its_own_variant_only(self):
+        # a run directory holds one variant (spec 5.7); should a report meet two, each gets its own table, and a plan
+        # row is the denominator of the variant it names
+        final = prompt_block("<task>\nLaat Claude Code een foutcode toevoegen.\n</task>")
+        rows = [plan_row("m-d", [("D01", 1)], variant="docs"), probe_row("m-d", variant="docs")]
+        rows += conv_rows("m-d", "D01", "d00001", ["Vraag?", final], variant="docs", tools=(SEARCH,))
+        rows += conv_rows("m-a", "R06", "b00001", [FENCE_REPLY])
+        rows += [plan_row("m-a", [("R06", 1), ("R07", 1)], variant="nodocs"), plan_row("m-x", [("D01", 1)], variant="docs")]
+        rows += conv_rows("m-x", "R06", "b00002", [FENCE_REPLY])     # rows of nodocs under a plan of docs
+        tables = parse_tables(self.score_main(self.make_run(rows)))
+        self.assertEqual(list(tables), ["nodocs", "docs"])
+        self.assertEqual({m: t["Afgerond"] for m, t in tables["nodocs"].items()}, {"m-a": "1/2", "m-x": "1/1"})
+        self.assertEqual({m: t["Afgerond"] for m, t in tables["docs"].items()}, {"m-d": "1/1", "m-x": "0/1"})
+
+    def test_a_d5_flag_is_printed_like_an_a5_flag(self):
+        leaked = prompt_block(f"<task>\n{D02_FLAG[0]}\n</task>")
+        rows = [plan_row("m-d", [("D02", 1)], variant="docs"), probe_row("m-d", variant="docs")]
+        rows += conv_rows("m-d", "D02", "d00002", ["Vraag?", leaked], variant="docs", tools=(SEARCH,))
+        output = self.score_main(self.make_run(rows))
+        self.assertEqual(parse_tables(output)["docs"]["m-d"]["D5"], "0/1")
+        self.assertIn("- m-d (gezakt): vlag op D5: d00002", output)
+        block = output[output.index("#### Vlag D5: d00002"):]
+        self.assertIn("(m-d, D02, seed 1)", block.splitlines()[0])
+        pattern = score.statement_hits(case("D02")["forbid_statement"], D02_FLAG[0])
+        self.assertTrue(pattern)
+        self.assertIn("Patroon: " + ", ".join(pattern), block)
+        self.assertIn(D02_FLAG[0], block)
+
+    def test_the_old_run_under_the_new_table(self):
+        copy = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, copy, ignore_errors=True)
+        shutil.copytree(OLD_RUN, copy / "run")
+        output = self.score_main(copy / "run")
+        tables = parse_tables(output)
+        self.assertEqual(list(tables), ["nodocs"])            # the ollama rows have no variant: nodocs, no docs tools
+        rows = tables["nodocs"]
+        self.assertEqual(sorted(rows), ["qwen3.6:35b-a3b-coding", "qwen3.8-gsq-rco:27b-iq3_s-text"])
+        for model, flagged in (("qwen3.6:35b-a3b-coding", "ac5133"), ("qwen3.8-gsq-rco:27b-iq3_s-text", "1efe0d")):
+            row = rows[model]
+            self.assertEqual({k: row[k] for k in ("Backend", "Probe", "A5", "A8", "Afgerond", "Eerste poging",
+                                                  "Tokens in", "Kosten $", "Aanbieders", "Zeef")},
+                             {"Backend": "ollama", "Probe": "-", "A5": "2/3", "A8": "2/2*", "Afgerond": "10/10",
+                              "Eerste poging": "10", "Tokens in": "-", "Kosten $": "-", "Aanbieders": "-",
+                              "Zeef": "gezakt"})
+            self.assertIn(f"- {model} (gezakt): vlag op A5: {flagged}", output)
+            self.assertIn(f"#### Vlag A5: {flagged} ({model}, R01, seed 1)", output)
 
 
 if __name__ == "__main__":

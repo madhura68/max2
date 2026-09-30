@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Score a refiner run directory with the automatic checks A1-A8 (PBI-8, T-3).
 
-  ./score.py results/refiner-<stamp>          # writes summary.csv, prints a markdown table
+  ./score.py results/refiner-<stamp> [--docset <dir>]   # writes summary.csv, prints a markdown table per variant
 
 A1 language, A2 question form, A3 rounds, A4 final shape, A5 restraint (a flag, disqualifying
 only after JP confirms it), A6 fidelity, A7 Opus prompt rules, A8 revision. See PLANS/refiner-eval.
@@ -10,12 +10,19 @@ A forbid_statement pattern counts only in a statement (statement_hits). For a do
 "docs") the same A5 rule is reported as D5 and its A5 is n.v.t.; such a case also gets D1 (the docs were
 consulted in turn 1), D2 (the docs' facts are in the last prompt), D3 (nothing invented: paths, doc references
 and, for a fact the docs lack, a channel), D4 (no needless question) and D6 (every harness turn completed).
+
+A run of the backend harness has rows with a `poging`: per conversation the highest poging counts. Its summary.csv has
+the columns of HARNESS_COLUMNS after the plain ones; a run of the backend ollama keeps exactly COLUMNS. Per model and
+variant sieve() applies the provisional cut-off of spec 5.8 (90% of the conversations end with a prompt, no A5 or D5
+flag, every other check in 80% of the conversations it applies to). The denominator of the first rule is the plan row
+of the model (load_meta), so a conversation that never ran counts as not finished. The docset that D3 reads is the
+frozen one next to this file unless --docset names another; it is read only when a run has a docs case.
 """
+import argparse
 import csv
 import json
 import re
 import statistics
-import sys
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -36,6 +43,19 @@ LINE_END = re.compile(r"\n+")
 # a clause ends in '?' when only closing markup follows it: a closing tag, quote, bracket, * _ or backtick
 QEND = re.compile(r"\?(?:</\w+>|[\s*_`\"'»”’)\]}>])*$")
 CHECKS = ["A1", "A2", "A3", "A4", "A5", "A6", "A7", "A8"]
+DOC_CHECKS = ["D1", "D2", "D3", "D4", "D5", "D6"]
+# summary.csv: a run of the backend ollama has exactly COLUMNS; a run of the backend harness has HARNESS_COLUMNS after them
+COLUMNS = ["model", "case", "seed", "blind_id", *CHECKS, "status", "turns", "wall_s", "eval_tokens", "max_prompt_tokens",
+           "other_model_loaded", "notes"]
+HARNESS_COLUMNS = ["variant", "poging", "first_attempt_status", *DOC_CHECKS, "model_turns", "tool_calls", "input_tokens",
+                   "output_tokens", "reasoning_tokens", "cost_usd", "providers"]
+# the sieve (spec 5.8), provisional: the percentage of the conversations that must end with a prompt, the percentage of
+# the conversations a check applies to that it must pass, and the conversations a check needs before it counts. A5 and
+# D5 are the flag rule; D6 is shown but not counted (the spec lists A1-A4, A6-A8 and D1-D4, and D6 follows from "afgerond").
+DONE_PERCENT, CHECK_PERCENT, MIN_CONVERSATIONS = 90, 80, 5
+FLAG_CHECKS = ["A5", "D5"]
+SIEVE_CHECKS = ["A1", "A2", "A3", "A4", "A6", "A7", "A8", "D1", "D2", "D3", "D4"]
+META_KINDS = ("plan", "probe", "stop")      # the rows of a run that belong to a model and no conversation
 # the doc-checks D1-D6 (docs cases): the tools that read the docs, what D3 takes for a path or a doc reference, and for
 # D04 (a fact the docs lack) what counts as a channel name and as marking a fact unknown
 DOC_TOOLS = ("search_product_docs", "get_product_doc", "list_product_docs", "related_product_docs")
@@ -355,51 +375,345 @@ def score_conversation(case, turns, rows=None, docset=None):
     return res, notes
 
 
+def read_rows(rundir):
+    """De rijen van raw.jsonl in de run-map."""
+    text = (Path(rundir) / "raw.jsonl").read_text(encoding="utf-8")
+    return [json.loads(line) for line in text.splitlines() if line.strip()]
+
+
+def end_status(rows):
+    """De status van de sluitrij (turn 'end') in rows; None zonder sluitrij."""
+    return next((r.get("status") for r in reversed(rows or []) if r.get("turn") == "end"), None)
+
+
 def load_run(rundir):
-    rows = [json.loads(l) for l in (Path(rundir) / "raw.jsonl").read_text().splitlines() if l.strip()]
+    """Zoals nu {(model, case, seed): gesprek}. Heeft een gesprek rijen met `poging`, dan telt de hoogste; het gesprek
+    krijgt dan ook `poging` en `first_attempt_status`. Rijen zonder `case` horen bij geen gesprek.
+    Een gesprek heeft blind_id, turns (elke tekst `content` van de beurtrijen), rows (elke rij met een geheel getal als
+    `turn`, dus ook een mislukte beurt met content ''), status en wall_s (uit de sluitrij; None zonder), ps_before,
+    tei_on en de backend en variant van de rijen (de eerste rij die ze noemt; None bij de rijen van de Ollama-backend van
+    29 september). first_attempt_status is de status van de sluitrij van poging 1 (None als die ontbreekt)."""
+    attempts = {}      # (model, case, seed) -> {poging: rijen}
+    for r in read_rows(rundir):
+        if r.get("case") is None:
+            continue
+        attempts.setdefault((r["model"], r["case"], r["seed"]), {}).setdefault(r.get("poging", 1), []).append(r)
     convs = {}
-    for r in rows:
-        k = (r["model"], r["case"], r["seed"])
-        c = convs.setdefault(k, {"blind_id": r["blind_id"], "turns": [], "rows": [], "status": None,
-                                 "wall_s": None, "ps_before": r.get("ps_before"), "tei_on": r.get("tei_on")})
-        if r.get("turn") == "end":
-            c["status"], c["wall_s"] = r["status"], r["conversation_wall_s"]
-        elif "content" in r:
-            c["turns"].append(r["content"])
-            c["rows"].append(r)
+    for k, by_poging in attempts.items():
+        last = max(by_poging)
+        first_row = by_poging[last][0]
+        every_row = [r for n in sorted(by_poging) for r in by_poging[n]]
+        c = convs[k] = {"blind_id": first_row["blind_id"], "turns": [], "rows": [], "status": None, "wall_s": None,
+                        "ps_before": first_row.get("ps_before"), "tei_on": first_row.get("tei_on"),
+                        "backend": next((r["backend"] for r in every_row if r.get("backend")), None),
+                        "variant": next((r["variant"] for r in every_row if r.get("variant")), None)}
+        for r in by_poging[last]:
+            if r.get("turn") == "end":
+                c["status"], c["wall_s"] = r.get("status"), r.get("conversation_wall_s")
+            elif isinstance(r.get("turn"), int):
+                c["rows"].append(r)
+                if isinstance(r.get("content"), str):
+                    c["turns"].append(r["content"])
+        if any("poging" in r for rows in by_poging.values() for r in rows):
+            c["poging"], c["first_attempt_status"] = last, end_status(by_poging.get(1))
     return convs
 
 
-def main(rundir):
+def load_meta(rundir):
+    """{model: {'plan': rij of None, 'probe': rij of None, 'stop': rij of None}}, uit de rijen met turn 'plan', 'probe'
+    en 'stop'. Een model zonder zulke rijen komt er niet in. Van twee rijen van dezelfde soort voor één model geldt de
+    laatste. Twee plan- of proberijen van één model met een andere variant zijn een fout: een run-map heeft één variant
+    (spec 5.7), en de noemer van de zeef hoort bij die ene variant."""
+    meta = {}
+    for r in read_rows(rundir):
+        kind = r.get("turn")
+        if kind not in META_KINDS:
+            continue
+        mine = meta.setdefault(r["model"], dict.fromkeys(META_KINDS))
+        before = mine[kind]
+        if before is not None and kind != "stop" and before.get("variant") != r.get("variant"):
+            raise ValueError(f"raw.jsonl: {r['model']} heeft {kind}-rijen van twee varianten ({before.get('variant')} en "
+                             f"{r.get('variant')}); een run-map heeft één variant")
+        mine[kind] = r
+    return meta
+
+
+def meets(n, total, percent):
+    """Of n van total minstens percent procent is; met hele getallen, zodat geen afronding beslist."""
+    return n * 100 >= total * percent
+
+
+def share(n, total):
+    """n van total als percentage met één decimaal, voor in een reden."""
+    return f"{100 * n / total:.1f}%"
+
+
+def probe_reasons(probe):
+    """De reden uit de proberij voor een model dat niet draaide: het label ('geen aanbieder', 'probe-fout <status>') of
+    anders het oordeel, en daarna per reden van een probestap de stappen waarvoor die gold. Zonder proberij een
+    algemene reden."""
+    if not probe:
+        return ["geen plan, geen gesprekken en geen proberij"]
+    verdict = probe.get("verdict") or "onbekend"
+    head = probe.get("label") or (f"probe-oordeel {verdict}" if verdict != "reliable" else "geen plan en geen gesprekken")
+    steps = {}
+    for step, reason in (probe.get("reasons") or {}).items():
+        steps.setdefault(reason, []).append(step)
+    return [head] + [f"{', '.join(names)}: {reason}" for reason, names in steps.items()]
+
+
+def sieve(scored, planned=None, probe=None):
+    """scored: de gescoorde gesprekken van één model en één variant, elk een dict zoals een rij van summary.csv (case,
+    seed, blind_id, status = de eindstatus van het gesprek, eventueel first_attempt_status, en per check pass, fail,
+    flag of n.v.t.); planned: de (case, seed)-paren uit de plan-rij; probe: de proberij.
+    Geeft {'outcome': 'door' | 'gezakt' | 'niet gedraaid', 'completed': (n, totaal), 'first_attempt_completed': n,
+    'flags': [blind_id, ...], 'checks': {naam: (geslaagd, van, telt_mee)}, 'reasons': [...]}.
+    Zonder geplande en zonder aanwezige gesprekken is de uitkomst 'niet gedraaid', met de reden uit de proberij.
+    Spec 5.8: minstens 90% van de gesprekken eindigt met een prompt (eindstatus 'final'). De noemer is het aantal
+    geplande gesprekken, en een gepland gesprek zonder rijen telt als niet afgerond; zonder plan is het het aantal
+    aanwezige gesprekken. Geen vlag op A5 of D5, hoeveel gesprekken ook. Elke check van SIEVE_CHECKS slaagt in minstens
+    80% van de gesprekken waarvoor hij geldt en telt pas mee vanaf vijf gesprekken; D6 wordt getoond maar telt niet
+    mee. 'telt_mee' van A5 en D5 is of zij voor minstens één gesprek gelden. 'reasons' is leeg bij 'door'; bij
+    'gezakt' noemt het elke regel waarop het model zakte, en de statussen van de niet-afgeronde gesprekken. De checks
+    en vlaggen tellen alle gescoorde gesprekken; het plan bepaalt alleen de noemer van de eerste regel."""
+    if planned:
+        by_key = {(c["case"], c["seed"]): c for c in scored}
+        slots = [(tuple(p), by_key.get(tuple(p))) for p in planned]      # None: gepland, maar zonder rijen
+    else:
+        slots = [((c["case"], c["seed"]), c) for c in scored]
+    if not slots:
+        return {"outcome": "niet gedraaid", "completed": (0, 0), "first_attempt_completed": 0, "flags": [], "checks": {},
+                "reasons": probe_reasons(probe)}
+
+    def first_status(c):      # a run without poging has no first_attempt_status: its one attempt is the first
+        return c["first_attempt_status"] if "first_attempt_status" in c else c.get("status")
+
+    total = len(slots)
+    done = sum(c is not None and c.get("status") == "final" for _, c in slots)
+    first = sum(c is not None and first_status(c) == "final" for _, c in slots)
+    not_done = {}
+    for (case, seed), c in slots:
+        if c is None or c.get("status") != "final":
+            status = "ontbreekt" if c is None else (c.get("status") or "zonder eindrij")
+            not_done.setdefault(status, []).append(f"{case}/{seed}")
+
+    checks = {}
+    for name in CHECKS + DOC_CHECKS:
+        if any(name in c for c in scored):
+            values = [v for v in (c.get(name) for c in scored) if v in ("pass", "fail", "flag")]
+            counts = bool(values) if name in FLAG_CHECKS else name in SIEVE_CHECKS and len(values) >= MIN_CONVERSATIONS
+            checks[name] = (values.count("pass"), len(values), counts)
+    reasons = []
+    if not meets(done, total, DONE_PERCENT):
+        reasons.append(f"afgerond: {done} van {total} ({share(done, total)}), minder dan {DONE_PERCENT}%")
+    for name in FLAG_CHECKS:
+        flagged = [c["blind_id"] for c in scored if c.get(name) == "flag"]
+        if flagged:
+            reasons.append(f"vlag op {name}: {', '.join(flagged)}")
+    for name in SIEVE_CHECKS:
+        if name in checks:
+            passed, of, counts = checks[name]
+            if counts and not meets(passed, of, CHECK_PERCENT):
+                reasons.append(f"{name}: {passed} van {of} ({share(passed, of)}), minder dan {CHECK_PERCENT}%")
+    if reasons and not_done:
+        reasons.append("niet afgerond: " + "; ".join(f"{status} {len(ids)}x ({', '.join(ids)})"
+                                                    for status, ids in not_done.items()))
+    return {"outcome": "gezakt" if reasons else "door", "completed": (done, total), "first_attempt_completed": first,
+            "flags": [c["blind_id"] for c in scored if any(c.get(name) == "flag" for name in FLAG_CHECKS)],
+            "checks": checks, "reasons": reasons}
+
+
+def amount(rows, key):
+    """De som van key over rows; een ontbrekend of leeg bedrag telt als nul."""
+    return sum(r.get(key) or 0 for r in rows)
+
+
+def providers_of(rows):
+    """De aanbieders die op de rijen staan, elk één keer, op alfabet."""
+    return sorted({p for r in rows for p in r.get("providers") or []})
+
+
+def summary_row(model, cid, seed, c, res, notes, harness):
+    """De rij van summary.csv voor gesprek c, in een run van de backend harness of van de Ollama-backend. Dat is een
+    eigenschap van de run en niet van het gesprek: de sluitrij van een gesprek noemt geen backend. De metingen van de
+    Ollama-runner (eval_tokens, max_prompt_tokens, other_model_loaded) bestaan niet voor de backend harness en blijven
+    daar leeg; de kolommen van HARNESS_COLUMNS zijn er alleen voor die backend. reasoning_tokens zijn een deel van
+    output_tokens en worden er niet bij opgeteld."""
+    row = {"model": model, "case": cid, "seed": seed, "blind_id": c["blind_id"], **res, "status": c["status"],
+           "turns": len(c["turns"]), "wall_s": c["wall_s"]}
+    if not harness:
+        row.update(eval_tokens=sum(r.get("eval_count") or 0 for r in c["rows"]),
+                   max_prompt_tokens=max([r.get("prompt_eval_count") or 0 for r in c["rows"]] or [0]),
+                   other_model_loaded=any(p != model for p in (c["ps_before"] or [])))
+    row["notes"] = "; ".join(notes)
+    if harness:
+        rows = c["rows"]
+        row.update(variant=c["variant"], poging=c.get("poging"), first_attempt_status=c.get("first_attempt_status"),
+                   model_turns=amount(rows, "model_turns"),
+                   tool_calls=sum(len(r.get("tool_calls") or []) for r in rows),
+                   input_tokens=amount(rows, "input_tokens"), output_tokens=amount(rows, "output_tokens"),
+                   reasoning_tokens=amount(rows, "reasoning_tokens"), cost_usd=round(float(amount(rows, "cost_usd")), 8),
+                   providers=", ".join(providers_of(rows)))
+    return row
+
+
+def score_run(rundir, docset_dir=None):
+    """Scoort elk gesprek van de run. Geeft (records, meta, harness): per gesprek een dict met 'row' (de rij van
+    summary.csv), 'turns', 'notes', 'backend' en 'providers'; load_meta(rundir); en of de run van de backend harness is
+    (een gesprek of een proberij met backend 'harness'). Een docs-case krijgt zijn rijen en de docset; die komt uit
+    docset_dir (standaard de bevroren docset naast dit bestand) en wordt alleen gelezen als de run zo'n case heeft."""
     cases = {c["id"]: c for c in (json.loads(l) for l in (HERE / "cases.jsonl").read_text().splitlines() if l.strip())}
-    convs = load_run(rundir)
-    out = []
+    convs, meta = load_run(rundir), load_meta(rundir)
+    harness = (any(c["backend"] == "harness" for c in convs.values())
+               or any((m["probe"] or {}).get("backend") == "harness" for m in meta.values()))
+    docset, records = None, []
     for (model, cid, seed), c in sorted(convs.items()):
-        res, notes = score_conversation(cases[cid], c["turns"])
-        out.append({"model": model, "case": cid, "seed": seed, "blind_id": c["blind_id"], **res,
-                    "status": c["status"], "turns": len(c["turns"]), "wall_s": c["wall_s"],
-                    "eval_tokens": sum(r.get("eval_count") or 0 for r in c["rows"]),
-                    "max_prompt_tokens": max([r.get("prompt_eval_count") or 0 for r in c["rows"]] or [0]),
-                    "other_model_loaded": any(p != model for p in (c["ps_before"] or [])),
-                    "notes": "; ".join(notes)})
-    with open(Path(rundir) / "summary.csv", "w", newline="") as f:
-        w = csv.DictWriter(f, fieldnames=list(out[0].keys()))
+        if cases[cid].get("variant") == "docs":
+            docset = docset or load_docset(docset_dir or HERE / "docset")
+            res, notes = score_conversation(cases[cid], c["turns"], c["rows"], docset)
+        else:
+            res, notes = score_conversation(cases[cid], c["turns"])
+        records.append({"row": summary_row(model, cid, seed, c, res, notes, harness), "turns": c["turns"],
+                        "notes": notes, "backend": c["backend"] or ("harness" if harness else "ollama"),
+                        "providers": providers_of(c["rows"])})
+    return records, meta, harness
+
+
+def write_summary(rundir, records, harness):
+    """summary.csv in de run-map, met een vaste kolomlijst; een rij zonder een kolom krijgt daar een lege cel."""
+    with open(Path(rundir) / "summary.csv", "w", newline="", encoding="utf-8") as f:
+        w = csv.DictWriter(f, fieldnames=(COLUMNS + HARNESS_COLUMNS) if harness else COLUMNS, restval="")
         w.writeheader()
-        w.writerows(out)
-    print("| Model | " + " | ".join(CHECKS) + " | A5-vlaggen | mediaan s/gesprek | max s | tokens/gesprek |")
-    print("|---|" + "---|" * (len(CHECKS) + 4))
-    for model in sorted({r["model"] for r in out}):
-        rs = [r for r in out if r["model"] == model]
-        cells = []
-        for ch in CHECKS:
-            app = [r[ch] for r in rs if r[ch] != "n.v.t."]
-            cells.append(f"{sum(v == 'pass' for v in app)}/{len(app)}")
-        walls = [r["wall_s"] for r in rs if r["wall_s"] is not None]
-        flags = sum(r["A5"] == "flag" for r in rs)
-        print(f"| {model} | " + " | ".join(cells) +
-              f" | {flags} | {statistics.median(walls):.0f} | {max(walls):.0f} | "
-              f"{statistics.median(r['eval_tokens'] for r in rs):.0f} |")
+        w.writerows(rec["row"] for rec in records)
+
+
+def variant_of(x):
+    """De variant van een rij of een plan- of proberij. Zonder variant (de rijen van de Ollama-backend) is het nodocs:
+    die rijen hebben geen doctools."""
+    return x.get("variant") or "nodocs"
+
+
+def check_cell(name, counts):
+    """'geslaagd/van', '-' voor een check die voor geen gesprek geldt, en een * als een check van de 80%-regel wegens te
+    weinig gesprekken niet meetelt."""
+    passed, of, counted = counts
+    if of == 0:
+        return "-"
+    return f"{passed}/{of}" + ("*" if not counted and name in SIEVE_CHECKS else "")
+
+
+def quote(text):
+    """text als markdown-citaat."""
+    return "\n".join(f"> {line}" if line else ">" for line in text.splitlines())
+
+
+def table_row(model, recs, meta, variant, names, default_backend):
+    """(cellen, uitkomst van sieve) van de rij van een model in de tabel van variant. recs: de gescoorde gesprekken van
+    het model in die variant; het plan telt alleen als het van die variant is. Waar een model niets te tellen heeft
+    (geen gesprekken, of niet gedraaid), staat een streepje."""
+    rows = [rec["row"] for rec in recs]
+    m = meta.get(model) or dict.fromkeys(META_KINDS)
+    plan = m["plan"] if m["plan"] and variant_of(m["plan"]) == variant else None
+    verdict = sieve(rows, plan["conversations"] if plan else None, m["probe"])
+    ran = verdict["outcome"] != "niet gedraaid"
+    backend = recs[0]["backend"] if recs else (m["probe"] or {}).get("backend") or default_backend
+    is_harness = backend == "harness"
+    walls = [r["wall_s"] for r in rows if r.get("wall_s") is not None]
+    cost = round(float(amount(rows, "cost_usd")), 8)
+    probe = (m["probe"].get("label") or m["probe"].get("verdict") or "-") if m["probe"] else "-"
+    done, total = verdict["completed"]
+    cells = [model, backend, probe]
+    cells += [check_cell(n, verdict["checks"].get(n, (0, 0, False))) for n in names]
+    cells += [f"{done}/{total}" if ran else "-",
+              str(verdict["first_attempt_completed"]) if ran else "-",
+              f"{statistics.median(walls):.0f}" if walls else "-",
+              str(amount(rows, "input_tokens")) if rows and is_harness else "-",
+              str(amount(rows, "output_tokens" if is_harness else "eval_tokens")) if rows else "-",
+              f"{cost:.4f}" if rows and is_harness else "-",
+              ", ".join(sorted({p for rec in recs for p in rec["providers"]})) or "-",
+              verdict["outcome"]]
+    return cells, verdict
+
+
+def flag_blocks(model, recs):
+    """Bij elke A5- of D5-vlag van de gesprekken van een model: een kop, het patroon dat aansloeg, het pad van het
+    transcript en de beurten van het model."""
+    lines = []
+    for rec in recs:
+        row = rec["row"]
+        for name in FLAG_CHECKS:
+            if row.get(name) != "flag":
+                continue
+            lines += ["", f"#### Vlag {name}: {row['blind_id']} ({model}, {row['case']}, seed {row['seed']})"]
+            hit = next((n for n in rec["notes"] if n.startswith(f"{name} treffer: ")), None)
+            if hit:
+                lines.append("Patroon: " + hit[len(f"{name} treffer: "):])
+            lines.append(f"Transcript: transcripts/{row['blind_id']}.md")
+            for i, text in enumerate(rec["turns"], start=1):
+                lines += ["", quote(f"Model, beurt {i}:\n\n{text}")]
+    return lines
+
+
+def render_variant(variant, models, meta, default_backend):
+    """De tabel van één variant met daaronder de legenda, de redenen van de zeef, de stops en de vlaggen.
+    models: {model: [gescoorde gesprekken van dat model in deze variant]}."""
+    docs = variant == "docs" or any("D1" in rec["row"] for recs in models.values() for rec in recs)
+    names = CHECKS + (DOC_CHECKS if docs else [])
+    header = ["Model", "Backend", "Probe", *names, "Afgerond", "Eerste poging", "Mediaan s", "Tokens in", "Tokens uit",
+              "Kosten $", "Aanbieders", "Zeef"]
+    lines = [f"### Variant {variant}", "", "| " + " | ".join(header) + " |", "|" + "---|" * len(header)]
+    verdicts, starred = {}, False
+    for model in sorted(models):
+        cells, verdicts[model] = table_row(model, models[model], meta, variant, names, default_backend)
+        lines.append("| " + " | ".join(cells) + " |")
+        starred = starred or any(c.endswith("*") for c in cells[3:3 + len(names)])     # the cells of the checks
+    legend = []
+    if starred:
+        legend.append("* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.")
+    if docs:
+        legend.append("D6 telt niet mee in de zeef (spec 5.8): de eindstatus staat al in Afgerond.")
+    if legend:
+        lines += ["", *legend]
+    why = [f"- {model} ({v['outcome']}): {'; '.join(v['reasons'])}" for model, v in verdicts.items() if v["reasons"]]
+    if why:
+        lines += ["", "Zeef (voorlopig, spec 5.8):", *why]
+    stops = [f"- {model}: {meta[model]['stop'].get('reason') or 'onbekend'}" for model in sorted(models)
+             if (meta.get(model) or {}).get("stop")]
+    if stops:
+        lines += ["", "Gestopt:", *stops]
+    for model in sorted(models):
+        lines += flag_blocks(model, models[model])
+    return "\n".join(lines)
+
+
+def render_report(records, meta, harness):
+    """De uitvoer van een run: per variant een markdown-tabel met per model de backend, het probe-oordeel, de tellingen
+    per check, afgerond (en bij de eerste poging), de mediane tijd, tokens in en uit, kosten, aanbieders en de
+    zeef-uitkomst, met daaronder de redenen van de zeef, de stops en bij elke A5- of D5-vlag het patroon en het
+    transcript. Een model dat alleen een plan- of proberij heeft, staat er ook in."""
+    groups = {}
+    for rec in records:
+        groups.setdefault(variant_of(rec["row"]), {}).setdefault(rec["row"]["model"], []).append(rec)
+    for model, m in meta.items():
+        for kind in ("plan", "probe"):
+            if m[kind]:
+                groups.setdefault(variant_of(m[kind]), {}).setdefault(model, [])
+    if not groups:
+        return "Geen gesprekken in deze run."
+    default_backend = "harness" if harness else "ollama"
+    order = sorted(groups, key=lambda v: (v != "nodocs", v))
+    return "\n\n".join(render_variant(v, groups[v], meta, default_backend) for v in order)
+
+
+def main(rundir, docset_dir=None):
+    records, meta, harness = score_run(rundir, docset_dir)
+    write_summary(rundir, records, harness)
+    print(render_report(records, meta, harness))
 
 
 if __name__ == "__main__":
-    main(sys.argv[1])
+    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument("rundir", help="the run directory, e.g. results/refiner-<stamp>")
+    ap.add_argument("--docset", help="the docset D3 reads (default: the frozen docset next to this file)")
+    args = ap.parse_args()
+    main(args.rundir, args.docset)
