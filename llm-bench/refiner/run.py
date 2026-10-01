@@ -26,6 +26,12 @@ Two backends send the conversations, with one conversation flow (converse) for b
   a message that names a provider) or "probe-fout <status>". Then, for each model that runs, a plan row
   {"turn": "plan", "model", "variant", "conversations": [[case, seed], ...]} with every conversation it is going to have, so that
   score.py counts a conversation that never ran. Then the conversations, model after model.
+  The conversations of each model are --cases x --seeds. --extra-cases and --extra-seeds add the pairs extra case x extra seed
+  to them in the same invocation, run directory and plan row, so that one sieve judges all of them: the nodocs scope of the spec
+  (the ten cases once, R01, R02 and R04 twice more: 16 conversations a model) is
+  `--seeds 1 --extra-cases R01,R02,R04 --extra-seeds 2 3`. The two go together, every extra case has to be a case of the
+  variant, and a pair that --cases x --seeds has already is refused. So is a value that --models, --seeds, --cases or an extra
+  flag names twice (the backend ollama takes it).
   A harness run that does not complete ends the attempt as error and earns one second attempt of the whole conversation: the same
   seed and blind id, maxOutputTokens and maxWallSeconds doubled, rows with poging 2. transcripts/<blind id>.md is the attempt
   that counts, <blind id>-p1.md the first one. A conversation that ends no_final gets none.
@@ -42,7 +48,7 @@ Two backends send the conversations, with one conversation flow (converse) for b
 Stdlib only. Usage:
   ./run.py --models qwen3.8-gsq-rco:27b-iq3_s-text qwen3.6:35b-a3b-coding --seeds 1
   ./run.py --backend harness --harness "node /path/to/agent-harness/dist/cli.js" --variant nodocs \\
-      --models gsq-lokaal qwen3.6-openrouter --seeds 1 2 3 --max-cost-usd 1
+      --models gsq-lokaal qwen3.6-openrouter --seeds 1 --extra-cases R01,R02,R04 --extra-seeds 2 3 --max-cost-usd 1.5
   (name the harness by its full path: a ~ is not expanded inside the quotes)
 """
 import argparse
@@ -60,6 +66,7 @@ import urllib.request
 from collections import namedtuple
 from datetime import datetime, timezone
 from pathlib import Path
+from urllib.parse import urlsplit
 
 HERE = Path(__file__).resolve().parent
 PROMPT = HERE.parent / "prompts" / "promptverfijner-systeem.txt"
@@ -80,7 +87,8 @@ KEY_STATUSES = (401, 402, 403)                  # the key, the credit (402: the 
 NO_PROVIDER_STATUSES = (404, 503)               # what OpenRouter answers when no provider of the model fits the provider block
 HTTP_ERROR = re.compile(r"model HTTP (\d{3})\b")      # the start of the message of the harness's ModelError (model-client.ts)
 OLLAMA_ONLY = ("num_ctx", "think", "host")     # the options the backend harness does not have
-HARNESS_ONLY = ("models_file", "variant", "harness", "docset", "max_output_tokens", "max_wall_seconds", "max_cost_usd")
+HARNESS_ONLY = ("models_file", "variant", "harness", "docset", "max_output_tokens", "max_wall_seconds", "max_cost_usd",
+                "extra_cases", "extra_seeds")
 
 
 class RunError(Exception):
@@ -242,9 +250,69 @@ def select_cases(ids, variant):
     return cases
 
 
+def refuse_repeats(args):
+    """RunError for a value that --models, --seeds, --cases, --extra-cases or --extra-seeds names more than once: it would plan
+    the same conversation twice, and score.py knows a conversation by its model, case and seed only. Only the backend harness
+    asks for this; the backend ollama takes what it is given."""
+    given = {"--models": args.models, "--seeds": args.seeds,
+             "--cases": args.cases.split(",") if args.cases else [],
+             "--extra-cases": args.extra_cases.split(",") if args.extra_cases is not None else [],
+             "--extra-seeds": args.extra_seeds or []}
+    for flag, values in given.items():
+        repeated = list(dict.fromkeys(v for v in values if values.count(v) > 1))
+        if repeated:
+            raise RunError(f"{flag} names {', '.join(map(str, repeated))} more than once")
+
+
+def conversation_pairs(cases, seeds, extra_ids, extra_seeds, variant):
+    """[(case, seed), ...]: the conversations of each model, in the order they run and the plan row lists them. First the base
+    set, the cases of --cases and the seeds of --seeds (case by case); then the extra set, the cases of --extra-cases, in the
+    order of cases.jsonl as --cases has it, with each of the seeds of --extra-seeds. That is how one invocation, one run
+    directory and one sieve hold the spec's scope: the ten cases once, and R01, R02 and R04 twice more.
+    The two flags go together. Unlike --cases, which leaves out an id that is no case of the variant, every id of
+    --extra-cases has to be one (a typo would otherwise shrink the run unseen), and a pair the base set holds already is
+    refused. RunError otherwise."""
+    pairs = [(case, seed) for case in cases for seed in seeds]
+    if extra_ids is None and extra_seeds is None:
+        return pairs
+    if extra_ids is None or extra_seeds is None:
+        raise RunError("--extra-cases and --extra-seeds go together: give both or neither")
+    known = select_cases(None, variant)
+    wanted = extra_ids.split(",")
+    unknown = [cid for cid in wanted if cid not in {case["id"] for case in known}]
+    if unknown:
+        raise RunError(f"--extra-cases: the variant {variant} has no case {', '.join(map(repr, unknown))} "
+                       f"(it has {', '.join(case['id'] for case in known)})")
+    held = {(case["id"], seed) for case, seed in pairs}
+    extra = [(case, seed) for case in known if case["id"] in wanted for seed in extra_seeds]
+    twice = [f"{case['id']} seed {seed}" for case, seed in extra if (case["id"], seed) in held]
+    if twice:
+        raise RunError(f"--extra-cases and --extra-seeds name {', '.join(twice)}, which --cases and --seeds run already")
+    return pairs + extra
+
+
+def on_openrouter(base_url):
+    """Whether the host of base_url is openrouter.ai (or a subdomain of it): the host decides, not the text of the URL."""
+    try:
+        host = (urlsplit(base_url).hostname or "").rstrip(".")
+    except ValueError:      # not a URL at all: nothing there to be OpenRouter
+        return False
+    return host == "openrouter.ai" or host.endswith(".openrouter.ai")
+
+
+def keeps_privacy(provider):
+    """Whether an OpenRouter provider block refuses data collection (data_collection "deny") and routes only to providers that
+    support every parameter of the request (require_parameters true). More keys are fine."""
+    return (isinstance(provider, dict) and provider.get("data_collection") == "deny"
+            and provider.get("require_parameters") is True)
+
+
 def load_models(path, labels):
     """{label: settings} for the labels from the models file. Per label: base_url, name, optionally api_key_env (the NAME
-    of the environment variable that holds the key), and a block per variant (nodocs, docs, probe) with an extraBody."""
+    of the environment variable that holds the key), and a block per variant (nodocs, docs, probe) with an extraBody.
+    Privacy guard: on an OpenRouter endpoint every one of those three extraBody objects has to carry provider with
+    data_collection "deny" and require_parameters true, so that a block that lost it cannot send the prompts to a provider
+    that keeps them; RunError naming the label and the block otherwise."""
     try:
         models = json.loads(Path(path).read_text(encoding="utf-8"))
     except (OSError, ValueError) as e:
@@ -270,6 +338,9 @@ def load_models(path, labels):
                 raise RunError(f"label {label} has no {variant} block in {path}")
             if not isinstance(block.get("extraBody"), dict):
                 raise RunError(f"label {label}: the {variant} block has no extraBody object in {path}")
+            if on_openrouter(cfg["base_url"]) and not keeps_privacy(block["extraBody"].get("provider")):
+                raise RunError(f"label {label}: the {variant} block of an OpenRouter endpoint must carry extraBody.provider "
+                               f'with data_collection "deny" and require_parameters true in {path}')
     return {label: models[label] for label in labels}
 
 
@@ -584,9 +655,10 @@ class Invocation:
     runs, its plan row (every conversation it is going to have); then the conversations, model after model. The plan rows
     come before the first conversation, so that score.py counts a conversation that never ran, of any model, as not finished."""
 
-    def __init__(self, backend, labels, cases, seeds, limits, out, ids, cap=None):
-        """cap: --max-cost-usd (None: no cap)."""
-        self.backend, self.labels, self.cases, self.seeds, self.limits = backend, list(labels), cases, seeds, limits
+    def __init__(self, backend, labels, pairs, limits, out, ids, cap=None):
+        """pairs: the (case, seed) of every conversation of a model, in order (conversation_pairs): the plan row lists them and
+        the model runs them, so the two cannot differ. cap: --max-cost-usd (None: no cap)."""
+        self.backend, self.labels, self.pairs, self.limits = backend, list(labels), list(pairs), limits
         self.out, self.ids, self.cap = Path(out), ids, cap
         self.key = {}                       # blind id -> the conversation; blind-key.json
         self.costs = []                     # the cost_usd of each turn row written so far; a missing amount counts as 0
@@ -628,7 +700,7 @@ class Invocation:
         return running
 
     def plans(self, running):
-        conversations = [[case["id"], seed] for case in self.cases for seed in self.seeds]
+        conversations = [[case["id"], seed] for case, seed in self.pairs]
         for label in running:
             self.write({"turn": "plan", "model": label, "variant": self.backend.variant, "conversations": conversations})
 
@@ -672,11 +744,10 @@ class Invocation:
 
     def model(self, label):
         """All the conversations of one model, up to a call that left no result."""
-        for case in self.cases:
-            for seed in self.seeds:
-                if not self.conversation(label, case, seed):
-                    print(f"{label}: no more conversations after a run call without a usable result", flush=True)
-                    return
+        for case, seed in self.pairs:
+            if not self.conversation(label, case, seed):
+                print(f"{label}: no more conversations after a run call without a usable result", flush=True)
+                return
 
     def run(self, raw):
         """Run the invocation. Returns whether it must end with a failure status: it was stopped, or a run call left no
@@ -762,11 +833,13 @@ def run_harness(args):
         raise RunError(f"--harness is not a command: {e}") from None
     if not command:
         raise RunError("--harness is empty")
+    refuse_repeats(args)
     variant = args.variant
     cases = select_cases(args.cases, variant)
     if not cases:
         raise RunError(f"no case to run: the variant {variant} has no case "
                        f"{'among ' + args.cases if args.cases else 'in cases.jsonl'}")
+    pairs = conversation_pairs(cases, args.seeds, args.extra_cases, args.extra_seeds, variant)
     models = load_models(args.models_file or MODELS, args.models)
     # the key variables are checked before anything runs; only their names are ever shown
     names = {cfg["api_key_env"] for cfg in models.values() if cfg.get("api_key_env")}
@@ -789,7 +862,7 @@ def run_harness(args):
     limits = {"maxTurns": MAX_TURNS, "maxOutputTokens": args.max_output_tokens or MAX_OUTPUT_TOKENS,
               "maxWallSeconds": args.max_wall_seconds or MAX_WALL_SECONDS, "maxToolErrors": MAX_TOOL_ERRORS,
               "contextTokens": CONTEXT_TOKENS}      # both options are positive, so `or` only supplies the default
-    invocation = Invocation(backend, args.models, cases, args.seeds, limits, out, blind_ids(stamp), args.max_cost_usd)
+    invocation = Invocation(backend, args.models, pairs, limits, out, blind_ids(stamp), args.max_cost_usd)
     try:
         with open(out / "raw.jsonl", "a", encoding="utf-8") as raw:
             failed = invocation.run(raw)
@@ -844,6 +917,12 @@ def build_parser():
                                      "docset next to this file)")
     ap.add_argument("--max-output-tokens", type=positive_int, help=f"backend harness (default {MAX_OUTPUT_TOKENS})")
     ap.add_argument("--max-wall-seconds", type=positive_int, help=f"backend harness (default {MAX_WALL_SECONDS})")
+    ap.add_argument("--extra-cases", help="backend harness: comma-separated case ids of the variant that also run with each of "
+                                          "--extra-seeds, on top of --cases x --seeds in the same run directory (needs "
+                                          "--extra-seeds), e.g. R01,R02,R04")
+    ap.add_argument("--extra-seeds", nargs="+", type=int,
+                    help="backend harness: the seeds of --extra-cases (needs --extra-cases); a pair that --cases and --seeds "
+                         "run already is refused")
     ap.add_argument("--max-cost-usd", type=positive_amount,
                     help="backend harness: no attempt starts once the cost_usd of the turns written so far, a missing amount "
                          "counted as 0, has reached this amount (default: no cap)")

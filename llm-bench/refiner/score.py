@@ -161,13 +161,15 @@ def question_lines(turns):
 
 def path_hits(text):
     """The path-like strings in text, each once: the matches of PATH_ABS, PATH_REL and DOC_REF, in that order, without
-    one trailing '.', ',', ';' or ':' (a PATH_ABS match can end in the full stop of the sentence) and without a
-    leading './' (./src/cli.ts is src/cli.ts written differently)."""
+    one trailing '.', ',', ';' or ':' (a PATH_ABS match can end in the full stop of the sentence), then without one
+    trailing '/' (a directory written with a slash and closed by that full stop reads "dir/.": the hit is the directory,
+    and "dir/" occurs in no text), and without a leading './' (./src/cli.ts is src/cli.ts written differently)."""
     hits = []
     for pattern in (PATH_ABS, PATH_REL, DOC_REF):
         for m in pattern.finditer(text):
             hit = m.group(0)
             hit = hit[:-1] if hit[-1] in ".,;:" else hit
+            hit = hit[:-1] if hit.endswith("/") else hit
             hit = hit[2:] if hit.startswith("./") else hit
             if hit not in hits:
                 hits.append(hit)
