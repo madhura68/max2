@@ -1,0 +1,23 @@
+{
+  "runId": "m5-task7-docs-first-run",
+  "status": "completed",
+  "answer": "\n\nIn de sectie **Aanpak** van het ontwerp van de probe worde…",
+  "model": {
+    "name": "qwen/qwen3.6-35b-a3b",
+    "baseUrl": "https://openrouter.ai/api/v1",
+    "reported": "qwen/qwen3.6-35b-a3b"
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 5319,
+    "outputTokens": 388,
+    "turns": 3,
+    "toolCalls": 2,
+    "toolErrors": 0,
+    "cachedTokens": 1728,
+    "costUsd": 0.0007947,
+    "reasoningTokens": 169
+  },
+  "durationMs": 4727,
+  "toolSnapshotHash": "5c7a14897cad18935ec4ac26784bef41358c786598590d383065f747b0561d0e"
+}
