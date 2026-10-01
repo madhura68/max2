@@ -1,0 +1,129 @@
+{
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "model": "qwen3.6:35b-a3b-coding",
+  "reportedModel": "qwen3.6:35b-a3b-coding",
+  "ranAt": "2026-10-01T05:11:33.543Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong.",
+      "raw": {
+        "message": {
+          "content": "pong.",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 21,
+          "outputTokens": 3,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.6:35b-a3b-coding",
+        "durationMs": 63842,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_295bxmb2",
+              "name": "echo",
+              "arguments": "{\"text\":\"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 293,
+          "outputTokens": 25,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.6:35b-a3b-coding",
+        "durationMs": 1513,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_gsfvy4uh",
+                "name": "echo",
+                "arguments": "{\"text\":\"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 293,
+            "outputTokens": 25,
+            "cachedTokens": 289
+          },
+          "model": "qwen3.6:35b-a3b-coding",
+          "durationMs": 315,
+          "systemFingerprint": "fp_ollama"
+        },
+        "turn2": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_jm9xj4hg",
+                "name": "echo",
+                "arguments": "{\"text\":\"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 349,
+            "outputTokens": 25,
+            "cachedTokens": 289
+          },
+          "model": "qwen3.6:35b-a3b-coding",
+          "durationMs": 715,
+          "systemFingerprint": "fp_ollama"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Ik kan de tool `delete_everything` niet gebruiken omdat deze niet beschikbaar is.",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 291,
+          "outputTokens": 18,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.6:35b-a3b-coding",
+        "durationMs": 956,
+        "systemFingerprint": "fp_ollama"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

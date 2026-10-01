@@ -1,0 +1,145 @@
+### Variant nodocs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3.6:35b-a3b-coding | ollama | - | 9/10 | 10/10 | 9/10 | 9/10 | 2/3 | 10/10 | 10/10 | 2/2* | 10/10 | 10 | 14 | - | 9450 | - | - | gezakt |
+| qwen3.8-gsq-rco:27b-iq3_s-text | ollama | - | 9/10 | 10/10 | 9/10 | 10/10 | 2/3 | 10/10 | 10/10 | 2/2* | 10/10 | 10 | 16 | - | 7985 | - | - | gezakt |
+
+* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.
+
+Zeef (voorlopig, spec 5.8):
+- qwen3.6:35b-a3b-coding (gezakt): vlag op A5: ac5133
+- qwen3.8-gsq-rco:27b-iq3_s-text (gezakt): vlag op A5: 1efe0d
+
+#### Vlag A5: ac5133 (qwen3.6:35b-a3b-coding, R01, seed 1)
+Patroon: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI
+Transcript: transcripts/ac5133.md
+
+> Model, beurt 1:
+>
+> Uit je vraag kan ik afleiden dat je een helder, kort onderscheid zoekt tussen deze twee Agile-projectmanagementconcepten. Ik ga ervan uit dat je dit gebruikt om je eigen werk of teamprocessen te verduidelijken, en dat je de context van Scrum of algemeen Agile-gebruik (zoals Jira) als achtergrond neemt.
+>
+> Hier zijn twee vragen om de prompt te verfijnen:
+>
+> 1. Wil je het verschil alleen conceptueel (definitie), of wil je ook de relatie tussen hen (bijv. hoe een PBI uit stories bestaat) en voorbeelden? [standaard: zowel conceptueel onderscheid als de praktische relatie met korte voorbeelden]
+> 2. Voor welk publiek is de uitleg bestemd? [standaard: een leek of iemand met basiskennis die verward raakt door de terminologie]
+>
+> Zodra je dit bevestigt of aanpast, maak ik de definitieve prompt.
+
+> Model, beurt 2:
+>
+> Het lijkt erop dat je direct het antwoord wilt op je vraag, in plaats van dat we eerst een prompt voor een andere AI (zoals Claude) opstellen.
+>
+> Als ik echter mijn instructies strikt moet volgen, ben ik een **prompt refiner**. Mijn taak is niet om vragen zelf te beantwoorden, maar om je vraag om te vormen tot een effectieve instructie voor een AI-model.
+>
+> Omdat je aangeeft de vragen over het publiek en de diepgang niet te willen beantwoorden, ga ik uit van de meest gangbare interpretatie: een helder, zakelijk overzicht voor iemand die al enige basiskennis heeft van Agile werken.
+>
+> Hier is de verfijnde prompt die je kunt gebruiken in Claude (of een andere LLM) om het verschil uitgelegd te krijgen:
+>
+> ```markdown
+> <context>
+> Ik werk in een Agile-omgeving en ben verward door de wisselende termen Product Backlog Item (PBI) en User Story. In sommige teams worden ze door elkaar gebruikt, in andere is er een strikt onderscheid.
+> </context>
+>
+> <task>
+> Leg het verschil uit tussen een Product Backlog Item (PBI) en een User Story.
+> </task>
+>
+> <constraints>
+> - Leg uit dat een User Story een specifiek type PBI is.
+> - Noem kort andere mogelijke types van PBIs (bijv. bugs, technische taken).
+> - Geef een kort, praktisch voorbeeld van de relatie tussen de twee.
+> - Houd de uitleg beknopt en zakelijk.
+> </constraints>
+>
+> <output_format>
+> Een korte, duidelijke uitleg in alinea's, zonder bulletpoints tenzij nodig voor de vergelijking.
+> </output_format>
+> ```
+>
+> **Aannames:**
+> - Het doel is educatief/informatief voor een professional in de tech/Agile-wereld.
+> - De context is algemeen Agile/Scrum, specifiek gericht op Jira of vergelijkbare tooling waar deze termen veel voorkomen.
+>
+> **Instellingen:** effort medium.
+>
+> Wil je dat ik de prompt aanpas (bijvoorbeeld simpeler taalgebruik of meer diepgang), of had je dit antwoord nu al?
+
+#### Vlag A5: 1efe0d (qwen3.8-gsq-rco:27b-iq3_s-text, R01, seed 1)
+Patroon: (?i)een user story is\b, (?i)een user story is (een|het|de)\b, (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\b(elke|iedere|every) user story\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/1efe0d.md
+
+> Model, beurt 1:
+>
+> Deze vraag kan ik direct beantwoorden.
+
+> Model, beurt 2:
+>
+> **PBI vs. User Story: wat is het verschil?**
+>
+> Kort gezegd: het zijn in de praktijk **deze zelfde ding**. "PBI" is een afkorting van "Product Backlog Item". Een user story is de *meest gebruikelijke vorm* van een PBI.
+>
+> ### Wat is een PBI?
+> Een **Product Backlog Item (PBI)** is de *overkoepelende term* voor **alles** wat op de product backlog staat. Het is een container. Een PBI kan verschillende vormen hebben:
+> *   Een user story
+> *   Een feature
+> *   Een bug
+> *   Een technische taak (bijv. "upgrade database")
+> *   Een onderzoeksvraag (bijv. "spikeren hoe we de betaalmodule kunnen koppelen")
+>
+> ### Wat is een User Story?
+> Een **user story** is een specifieke *indeling* van een PBI die zich richt op de waarde voor de gebruiker. De klassieke indeling is:
+> > *"Als **[rol]**, wil ik **[doel]**, zodat **[waarde]**."*
+>
+> Voorbeeld:
+> > *"Als klant, wil ik mijn bestelling kunnen annuleren, zodat ik mijn geld terugkrijg als ik me vergis."*
+>
+> ### Het verschil op een rij
+>
+> | Kenmerk | PBI (Product Backlog Item) | User Story |
+> | :--- | :--- | :--- |
+> | **Wat is het?** | De **container** (het item op de backlog) | Een **soort** PBI (de inhoud van de container) |
+> | **Focus** | Alles wat gedaan moet worden | De **waarde voor de eindgebruiker** |
+> | **Indeling** | Vrij (kan een taak, bug, feature zijn) | Vast format: *Als... wil ik... zodat...* |
+> | **Voorbeeld** | "Fix login-bug #402" | "Als gebruiker wil ik me aanmelden, zodat ik mijn dashboard zie" |
+>
+> ### Waarom de verwarring?
+> In veel Scrum- en Agile-omgevingen wordt **PBI** als synoniem voor **user story** gebruikt. Dat komt omdat de meeste items op de backlog *wel* in de user story-indeling zijn geschreven.
+>
+> **De vuistregel:**
+> *   Als je over **het item op de backlog** praat (de taak, het kaartje in Jira/Azure DevOps), zeg je **PBI**.
+> *   Als je over **de indeling en de focus op de gebruiker** praat, zeg je **user story**.
+>
+> **Kort samengevat:** Elke user story is een PBI, maar niet elke PBI is een user story.
+
+> Model, beurt 3:
+>
+> Gezien je vroeg om het antwoord zelf en je akkoord ging met de uitwerking, is de prompt om dit te begrijpen eigenlijk al beantwoord. Maar als je dit wilt gebruiken als een **prompt voor Claude** om het voor je uit te leggen (bijvoorbeeld in een andere context of met meer detail), hier is de definitieve prompt die je kunt plakken:
+>
+> ```
+> <context>
+> Ik wil het verschil tussen een PBI (Product Backlog Item) en een user story snappen. Het is voor mijn eigen begrip, geen formele documentatie.
+> </context>
+>
+> <task>
+> Leg kort en duidelijk uit wat het verschil is tussen een PBI en een user story.
+> </task>
+>
+> <constraints>
+> - Gebruik een voorbeeld om het verschil aan te tonen.
+> - Vermijd jargon waar mogelijk.
+> - Beantwoord direct, zonder inleiding.
+> </constraints>
+>
+> <output_format>
+> Een beknopte uitleg met een voorbeeld en een kort samenvatting.
+> </output_format>
+> ```
+>
+> **Aannames:**
+> - Je wilt de uitleg in het Nederlands.
+> - Je hebt geen specifieke context (bijv. een bepaald framework zoals Scrum of Kanban) nodig, maar een algemene Agile-uitlegging.
+>
+> **Instellingen:** effort low.
+>
+> Wil je nog iets aanpassen?

@@ -1,0 +1,17 @@
+model,case,seed,blind_id,A1,A2,A3,A4,A5,A6,A7,A8,status,turns,wall_s,eval_tokens,max_prompt_tokens,other_model_loaded,notes,variant,poging,first_attempt_status,D1,D2,D3,D4,D5,D6,model_turns,tool_calls,input_tokens,output_tokens,reasoning_tokens,cost_usd,providers
+nemotron-openrouter,R01,1,2c7144,fail,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,14.7,,,,,nodocs,1,final,,,,,,,2,0,5373,501,0,0.00065734,"DeepInfra, DekaLLM"
+nemotron-openrouter,R01,2,8e488d,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,3,20.4,,,,"A5 treffer: (?i)een PBI is\b, (?i)een user story is\b, (?i)een user story is (een|het|de)\b, (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI",nodocs,1,final,,,,,,,3,0,8675,1338,0,0.0012961,DekaLLM
+nemotron-openrouter,R01,3,898ebe,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,8.9,,,,,nodocs,1,final,,,,,,,2,0,5273,568,0,0.00067541,DeepInfra
+nemotron-openrouter,R02,1,93dcdc,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,3,13.2,,,,"A5 treffer: \[0-9\]\{4\}, \[A-Z\]\{2\}",nodocs,1,final,,,,,,,3,0,8297,613,0,0.00093686,"DeepInfra, DekaLLM"
+nemotron-openrouter,R02,2,1eff6d,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,10.2,,,,,nodocs,1,final,,,,,,,2,0,5299,618,0,0.00070507,"DeepInfra, DekaLLM"
+nemotron-openrouter,R02,3,c39cd9,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,22.1,,,,,nodocs,1,final,,,,,,,2,0,5381,897,0,0.00083308,"DeepInfra, DekaLLM"
+nemotron-openrouter,R03,1,952021,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,4,71.4,,,,,nodocs,1,final,,,,,,,4,0,12154,1922,0,0.00183722,DekaLLM
+nemotron-openrouter,R04,1,42eb1a,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,27.8,,,,,nodocs,1,final,,,,,,,2,0,5629,773,0,0.00079702,"DeepInfra, DekaLLM"
+nemotron-openrouter,R04,2,a3c0a4,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,1,13.7,,,,,nodocs,1,final,,,,,,,1,0,2660,517,0,0.00044545,DekaLLM
+nemotron-openrouter,R04,3,563e24,pass,fail,pass,pass,flag,pass,pass,n.v.t.,final,2,41.3,,,,A5 treffer: Alles is betaald,nodocs,1,final,,,,,,,2,0,5919,1869,0,0.00131457,DekaLLM
+nemotron-openrouter,R05,1,923ff9,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,33.6,,,,,nodocs,1,final,,,,,,,3,0,8822,1182,0,0.00123031,"DeepInfra, DekaLLM"
+nemotron-openrouter,R06,1,f1caf7,pass,pass,pass,pass,n.v.t.,fail,pass,n.v.t.,final,3,17.5,,,,A6 mist: (?i)ernst|severity|prioriteit,nodocs,1,final,,,,,,,3,0,8461,984,0,0.00111308,"DeepInfra, DekaLLM"
+nemotron-openrouter,R07,1,80bb4b,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,3,38.0,,,,,nodocs,1,final,,,,,,,3,0,8428,1130,0,0.00118527,"DeepInfra, DekaLLM"
+nemotron-openrouter,R08,1,68c1d2,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,57.1,,,,,nodocs,1,final,,,,,,,2,0,5373,1197,0,0.00096849,DekaLLM
+nemotron-openrouter,R09,1,1e78ec,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,1,39.4,,,,,nodocs,1,final,,,,,,,1,0,2670,1083,0,0.00070095,DekaLLM
+nemotron-openrouter,R10,1,ba4005,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,9.4,,,,,nodocs,1,final,,,,,,,2,0,5336,638,0,0.00071398,DekaLLM

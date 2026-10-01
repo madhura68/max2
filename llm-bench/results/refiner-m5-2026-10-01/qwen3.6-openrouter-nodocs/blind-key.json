@@ -1,0 +1,82 @@
+{
+ "4fff42": {
+  "model": "qwen3.6-openrouter",
+  "case": "R01",
+  "seed": 1
+ },
+ "1d6b6a": {
+  "model": "qwen3.6-openrouter",
+  "case": "R02",
+  "seed": 1
+ },
+ "db1200": {
+  "model": "qwen3.6-openrouter",
+  "case": "R03",
+  "seed": 1
+ },
+ "faf4ab": {
+  "model": "qwen3.6-openrouter",
+  "case": "R04",
+  "seed": 1
+ },
+ "66c4de": {
+  "model": "qwen3.6-openrouter",
+  "case": "R05",
+  "seed": 1
+ },
+ "06c44a": {
+  "model": "qwen3.6-openrouter",
+  "case": "R06",
+  "seed": 1
+ },
+ "166d4c": {
+  "model": "qwen3.6-openrouter",
+  "case": "R07",
+  "seed": 1
+ },
+ "489324": {
+  "model": "qwen3.6-openrouter",
+  "case": "R08",
+  "seed": 1
+ },
+ "40c6ce": {
+  "model": "qwen3.6-openrouter",
+  "case": "R09",
+  "seed": 1
+ },
+ "7924f6": {
+  "model": "qwen3.6-openrouter",
+  "case": "R10",
+  "seed": 1
+ },
+ "595a25": {
+  "model": "qwen3.6-openrouter",
+  "case": "R01",
+  "seed": 2
+ },
+ "d6ddd5": {
+  "model": "qwen3.6-openrouter",
+  "case": "R01",
+  "seed": 3
+ },
+ "94ef55": {
+  "model": "qwen3.6-openrouter",
+  "case": "R02",
+  "seed": 2
+ },
+ "891174": {
+  "model": "qwen3.6-openrouter",
+  "case": "R02",
+  "seed": 3
+ },
+ "9d312d": {
+  "model": "qwen3.6-openrouter",
+  "case": "R04",
+  "seed": 2
+ },
+ "69a120": {
+  "model": "qwen3.6-openrouter",
+  "case": "R04",
+  "seed": 3
+ }
+}

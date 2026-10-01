@@ -1,0 +1,38 @@
+gsq-lokaal probe: reliable
+qwen3.6-lokaal probe: reliable
+gsq-lokaal D01 seed 1: final in 102.4s
+gsq-lokaal D01 seed 2: final in 66.9s
+gsq-lokaal D01 seed 3: error in 36.3s
+gsq-lokaal D01 seed 3 (poging 2): error in 38.9s
+gsq-lokaal D02 seed 1: error in 116.3s
+gsq-lokaal D02 seed 1 (poging 2): error in 115.5s
+gsq-lokaal D02 seed 2: final in 66.4s
+gsq-lokaal D02 seed 3: final in 118.5s
+gsq-lokaal D03 seed 1: final in 67.0s
+gsq-lokaal D03 seed 2: final in 79.2s
+gsq-lokaal D03 seed 3: final in 143.7s
+gsq-lokaal D04 seed 1: final in 76.7s
+gsq-lokaal D04 seed 2: final in 107.8s
+gsq-lokaal D04 seed 3: final in 74.5s
+gsq-lokaal D05 seed 1: final in 102.9s
+gsq-lokaal D05 seed 2: final in 94.4s
+gsq-lokaal D05 seed 3: final in 44.8s
+qwen3.6-lokaal D01 seed 1: final in 216.3s
+qwen3.6-lokaal D01 seed 2: final in 36.3s
+qwen3.6-lokaal D01 seed 3: final in 54.6s
+qwen3.6-lokaal D02 seed 1: error in 195.8s
+qwen3.6-lokaal D02 seed 1 (poging 2): error in 357.2s
+qwen3.6-lokaal D02 seed 2: error in 292.8s
+qwen3.6-lokaal D02 seed 2 (poging 2): error in 437.5s
+qwen3.6-lokaal D02 seed 3: final in 29.0s
+qwen3.6-lokaal D03 seed 1: final in 42.8s
+qwen3.6-lokaal D03 seed 2: final in 41.1s
+qwen3.6-lokaal D03 seed 3: final in 83.9s
+qwen3.6-lokaal D04 seed 1: error in 36.0s
+qwen3.6-lokaal D04 seed 1 (poging 2): error in 35.0s
+qwen3.6-lokaal D04 seed 2: final in 94.1s
+qwen3.6-lokaal D04 seed 3: final in 93.9s
+qwen3.6-lokaal D05 seed 1: final in 33.7s
+qwen3.6-lokaal D05 seed 2: final in 12.2s
+qwen3.6-lokaal D05 seed 3: final in 13.1s
+done: /Users/janpetervisser/Development/m5-first-contact/task13/runs/baseline-docs

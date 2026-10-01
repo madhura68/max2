@@ -1,0 +1,3 @@
+check_key OPENROUTER_API_KEY /Users/janpetervisser/Development/m5-first-contact: files_scanned=3082 unreadable=0 with_key=0
+check_key OPENROUTER_API_KEY /Users/janpetervisser/Development/agent-harness-m5-code: files_scanned=7309 unreadable=0 with_key=0
+check_key OPENROUTER_API_KEY /Users/janpetervisser/Development/max2-m5: files_scanned=335 unreadable=0 with_key=0

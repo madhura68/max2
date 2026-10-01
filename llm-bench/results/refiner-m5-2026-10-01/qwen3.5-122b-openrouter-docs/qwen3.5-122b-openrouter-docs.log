@@ -1,0 +1,22 @@
+qwen3.5-122b-openrouter probe: reliable
+qwen3.5-122b-openrouter D01 seed 1: error in 15.5s
+qwen3.5-122b-openrouter D01 seed 1 (poging 2): error in 16.7s
+qwen3.5-122b-openrouter D01 seed 2: final in 23.5s
+qwen3.5-122b-openrouter D01 seed 3: final in 18.9s
+qwen3.5-122b-openrouter D02 seed 1: error in 22.0s
+qwen3.5-122b-openrouter D02 seed 1 (poging 2): final in 11.6s
+qwen3.5-122b-openrouter D02 seed 2: final in 19.2s
+qwen3.5-122b-openrouter D02 seed 3: final in 19.9s
+qwen3.5-122b-openrouter D03 seed 1: error in 14.6s
+qwen3.5-122b-openrouter D03 seed 1 (poging 2): final in 20.2s
+qwen3.5-122b-openrouter D03 seed 2: final in 15.7s
+qwen3.5-122b-openrouter D03 seed 3: final in 21.8s
+qwen3.5-122b-openrouter D04 seed 1: error in 11.4s
+qwen3.5-122b-openrouter D04 seed 1 (poging 2): error in 12.0s
+qwen3.5-122b-openrouter D04 seed 2: final in 20.1s
+qwen3.5-122b-openrouter D04 seed 3: final in 16.0s
+qwen3.5-122b-openrouter D05 seed 1: final in 17.6s
+qwen3.5-122b-openrouter D05 seed 2: final in 24.1s
+qwen3.5-122b-openrouter D05 seed 3: final in 14.6s
+check_key OPENROUTER_API_KEY /Users/janpetervisser/Development/m5-first-contact/task14/runs/qwen3.5-122b-openrouter-docs: files_scanned=219 unreadable=0 with_key=0
+done: /Users/janpetervisser/Development/m5-first-contact/task14/runs/qwen3.5-122b-openrouter-docs

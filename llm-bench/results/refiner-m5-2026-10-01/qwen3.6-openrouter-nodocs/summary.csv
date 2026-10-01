@@ -1,0 +1,17 @@
+model,case,seed,blind_id,A1,A2,A3,A4,A5,A6,A7,A8,status,turns,wall_s,eval_tokens,max_prompt_tokens,other_model_loaded,notes,variant,poging,first_attempt_status,D1,D2,D3,D4,D5,D6,model_turns,tool_calls,input_tokens,output_tokens,reasoning_tokens,cost_usd,providers
+qwen3.6-openrouter,R01,1,4fff42,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,7.0,,,,"A5 treffer: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)",nodocs,1,final,,,,,,,2,0,5404,545,0,0.0009096,"Darkbloom, Reka"
+qwen3.6-openrouter,R01,2,595a25,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,8.2,,,,"A5 treffer: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI",nodocs,1,final,,,,,,,2,0,5664,841,0,0.0012438,"Parasail, Reka"
+qwen3.6-openrouter,R01,3,d6ddd5,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,4.5,,,,,nodocs,1,final,,,,,,,2,0,5408,293,0,0.0006818,Parasail
+qwen3.6-openrouter,R02,1,1d6b6a,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,10.4,,,,,nodocs,1,final,,,,,,,2,0,5786,753,0,0.0020352,"AtlasCloud, Phala"
+qwen3.6-openrouter,R02,2,94ef55,pass,pass,pass,fail,pass,pass,pass,n.v.t.,final,2,4.1,,,,,nodocs,1,final,,,,,,,2,0,5445,588,0,0.0008177,AkashML
+qwen3.6-openrouter,R02,3,891174,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,6.7,,,,,nodocs,1,final,,,,,,,2,0,5438,590,0,0.0008188,AkashML
+qwen3.6-openrouter,R03,1,db1200,pass,fail,pass,pass,n.v.t.,fail,pass,pass,final,3,20.4,,,,A6 mist: tokens per seconde,nodocs,1,final,,,,,,,3,0,9473,2102,0,0.00267025,"AkashML, Darkbloom, Parasail"
+qwen3.6-openrouter,R04,1,faf4ab,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,1,2.5,,,,,nodocs,1,final,,,,,,,1,0,2732,511,0,0.0007331,AkashML
+qwen3.6-openrouter,R04,2,9d312d,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,3.9,,,,,nodocs,1,final,,,,,,,2,0,5575,536,0,0.0007839,AkashML
+qwen3.6-openrouter,R04,3,69a120,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,1,2.3,,,,,nodocs,1,final,,,,,,,1,0,2732,467,0,0.0005655,AkashML
+qwen3.6-openrouter,R05,1,66c4de,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,4,17.3,,,,,nodocs,1,final,,,,,,,4,0,11716,1000,0,0.0020281,"Darkbloom, Parasail"
+qwen3.6-openrouter,R06,1,06c44a,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,3,6.1,,,,,nodocs,1,final,,,,,,,3,0,8422,619,0,0.0014001,"AkashML, DeepInfra"
+qwen3.6-openrouter,R07,1,166d4c,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,8.5,,,,,nodocs,1,final,,,,,,,2,0,5485,719,0,0.00091405,"Darkbloom, DeepInfra"
+qwen3.6-openrouter,R08,1,489324,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.4,,,,,nodocs,1,final,,,,,,,2,0,5610,966,0,0.00123,"Darkbloom, Parasail"
+qwen3.6-openrouter,R09,1,40c6ce,pass,pass,fail,fail,n.v.t.,pass,pass,n.v.t.,final,2,10.4,,,,,nodocs,1,final,,,,,,,2,0,5758,1120,0,0.0017474,"AkashML, AtlasCloud"
+qwen3.6-openrouter,R10,1,7924f6,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,6.6,,,,,nodocs,1,final,,,,,,,2,0,5485,628,0,0.0008148,"AkashML, Darkbloom"

@@ -1,0 +1,17 @@
+model,case,seed,blind_id,A1,A2,A3,A4,A5,A6,A7,A8,status,turns,wall_s,eval_tokens,max_prompt_tokens,other_model_loaded,notes,variant,poging,first_attempt_status,D1,D2,D3,D4,D5,D6,model_turns,tool_calls,input_tokens,output_tokens,reasoning_tokens,cost_usd,providers
+qwen3.8-openrouter,R01,1,f260a7,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,5.6,,,,,nodocs,1,final,,,,,,,2,0,5399,267,0,0.0014924,"Mancer 2, Wafer"
+qwen3.8-openrouter,R01,2,88e09c,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,14.5,,,,,nodocs,1,final,,,,,,,2,0,5509,495,0,0.00151323,"AkashML, DeepInfra"
+qwen3.8-openrouter,R01,3,3a46d1,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,6.3,,,,,nodocs,1,final,,,,,,,2,0,5303,284,0,0.00120951,AkashML
+qwen3.8-openrouter,R02,1,eb27af,pass,pass,pass,fail,flag,pass,pass,n.v.t.,final,2,6.0,,,,"A5 treffer: \\d\{4\}, \[A-Z\]\{2\}",nodocs,1,final,,,,,,,2,0,5357,249,0,0.00127042,"DeepInfra, Phala"
+qwen3.8-openrouter,R02,2,31903d,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,8.0,,,,,nodocs,1,final,,,,,,,2,0,5517,344,0,0.00135695,Ionstream
+qwen3.8-openrouter,R02,3,e0ea07,fail,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,5.8,,,,,nodocs,1,final,,,,,,,2,0,5388,282,0,0.00117815,Ionstream
+qwen3.8-openrouter,R03,1,e60e54,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,35.0,,,,,nodocs,1,final,,,,,,,3,0,8834,1380,0,0.0049281,"Darkbloom, Reka, Wafer"
+qwen3.8-openrouter,R04,1,dc6c0f,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,10.1,,,,A5 treffer: Alles is betaald,nodocs,1,final,,,,,,,2,0,5541,514,0,0.00194156,"Darkbloom, Parasail"
+qwen3.8-openrouter,R04,2,a78d7a,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,1,6.2,,,,,nodocs,1,final,,,,,,,1,0,2732,375,0,0.00118916,Ionstream
+qwen3.8-openrouter,R04,3,08ee11,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,1,6.8,,,,,nodocs,1,final,,,,,,,1,0,2732,380,0,0.0012014,Ionstream
+qwen3.8-openrouter,R05,1,9be01d,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,24.6,,,,,nodocs,1,final,,,,,,,3,0,8732,999,0,0.00461397,"Alibaba, Ionstream, Parasail"
+qwen3.8-openrouter,R06,1,accf7e,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,22.9,,,,,nodocs,1,final,,,,,,,2,0,5453,924,0,0.0035422,Alibaba
+qwen3.8-openrouter,R07,1,612278,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,34.1,,,,,nodocs,1,final,,,,,,,2,0,5426,704,0,0.00225579,"AkashML, DeepInfra"
+qwen3.8-openrouter,R08,1,0d183a,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,24.9,,,,,nodocs,1,final,,,,,,,2,0,5439,793,0,0.00251359,"Chutes, Darkbloom"
+qwen3.8-openrouter,R09,1,cb48f5,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,1,7.9,,,,,nodocs,1,final,,,,,,,1,0,2737,481,0,0.00104094,AkashML
+qwen3.8-openrouter,R10,1,c0f4b5,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,6.7,,,,,nodocs,1,final,,,,,,,2,0,5427,498,0,0.00208345,"DekaLLM, Mancer 2"

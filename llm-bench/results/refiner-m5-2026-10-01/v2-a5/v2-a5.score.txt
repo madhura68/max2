@@ -1,0 +1,470 @@
+### Variant nodocs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gsq-lokaal | harness | reliable | 8/9 | 9/9 | 9/9 | 8/9 | 3/9 | 8/9 | 9/9 | - | 9/9 | 9 | 8 | 39270 | 3329 | - | - | gezakt |
+| qwen3.6-lokaal | harness | reliable | 9/9 | 7/9 | 9/9 | 6/9 | 7/9 | 9/9 | 9/9 | - | 9/9 | 9 | 9 | 56484 | 7875 | - | - | gezakt |
+
+Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; kosten: van alle pogingen.
+
+Zeef (voorlopig, spec 5.8):
+- gsq-lokaal (gezakt): vlag op A5: 7b9afd, bd2cd1, af3e43, 5ae37d, fa130c, f0d9e2
+- qwen3.6-lokaal (gezakt): vlag op A5: b075ff, 55aeec; A2: 7 van 9 (77.8%), minder dan 80%; A4: 6 van 9 (66.7%), minder dan 80%
+
+#### Vlag A5: 7b9afd (gsq-lokaal, R01, seed 1)
+Patroon: (?i)een user story is\b, (?i)een user story is (een|het|de)\b, (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/7b9afd.md
+
+> Model, beurt 1:
+>
+> Geen vragen nodig; dit is een eenvoudige uitleg.
+>
+> ```
+> Leg uit wat het verschil is tussen een Product Backlog Item (PBI) en een user story in agile softwareontwikkeling. Gebruik een concreet voorbeeld dat laat zien hoe hetzelfde werk zowel als PBI als user story kan worden geformuleerd. Beantwoord in vloeiende alinea’s, in het Nederlands, in maximaal 200 woorden.
+> ```
+>
+> Aannames:
+> - Je bedoelt de gangbare agile terminologie (Scrum/SAFe-achtig), niet een specifiek intern jargon.
+> - Geen specifieke context of team nodig.
+>
+> Instellingen: effort low.
+> Wil je nog iets aanpassen?
+
+> Model, beurt 2:
+>
+> Er is geen technisch verschil: een user story is een specifieke vorm van een PBI. In Scrum noem je elke entry in de product backlog een Product Backlog Item; in veel teams (en in frameworks als SAFe) gebruiken ze die term als de overkoepelende naam. Een user story is dan een PBI die je vanuit het perspectief van de eindgebruiker formuleert, vaak met het patroon “Als [rol], wil ik [functionaliteit], zodat [waarde]”.
+>
+> Niet alles in de backlog is een user story. Een PBI kan ook een technisch item zijn (“Refactor de auth-module”), een bug (“Login faalt op iOS”), een onderzoeksitem (“Spike: test of API X snel genoeg is”) of een non-functioneel requirement (“Pagina moet binnen 2 seconden laden”). Het verschil zit dus in de scope: PBI is het containerbegrip, user story is een inhoudsvariant daarvan.
+>
+> Concreet voorbeeld:
+> - Als PBI: “Implementeer tweestapsverificatie”
+> - Als user story: “Als geregistreerde gebruiker, wil ik tweestapsverificatie, zodat mijn account beter beschermd is tegen ongeautoriseerde toegang.”
+>
+> In de praktijk gebruiken teams de termen vaak door elkaar, maar als je wilt dat de backlog ook werk buiten de gebruikerswaarde kan bevatten, is “PBI” de veiligere, bredere term.
+
+#### Vlag A5: bd2cd1 (gsq-lokaal, R01, seed 2)
+Patroon: (?i)een user story is\b, (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/bd2cd1.md
+
+> Model, beurt 1:
+>
+> ```
+> Verklare in 2 à 3 alinea's het verschil tussen een PBI (Product Backlog Item) en een user story, met nadruk op wat hun relatie is binnen agile productdevelopment.
+> ```
+>
+> Aannames:
+> - De lezer is op niveau van een junior productmanager of ontwikkelaar, dus geen technische of formele uitleg nodig.
+> - Geen specifieke context of framework (Scrum, SAFe, etc.) gegeven; ik ga uit van de gangbare Scrum-terminologie.
+>
+> Instellingen: effort low.
+>
+> Wil je nog iets aanpassen?
+
+> Model, beurt 2:
+>
+> Een Product Backlog Item (PBI) is de brede term voor alles wat op de product backlog staat: een user story, een bug, een technisch item, een research-opdracht of een niet-functionele eis. Een user story is één specifiek type PBI dat vanuit het perspectief van een eindgebruiker is geformuleerd, vaak in de vorm “Als [rol], wil ik [functionaliteit], zodat [waarde]”.
+>
+> Het belangrijkste verschil zit in de scope en het perspectief. Een PBI beschrijft wat er op de backlog staat zonder voor te schrijven hoe het geformuleerd moet zijn; een user story vertaalt dat naar een concreet, waarneembaar gebruikersbehoeftepunt dat een team kan schatten, prioriteren en afmaken in een sprint. In de praktijk is een user story dus meestal een PBI, maar niet elke PBI is een user story: een item als “herstel bug in login” of “onderzoek nieuwe betaalprovider” is een PBI zonder user-story-structuur.
+>
+> In de dagelijkse praktijk gebruik je “PBI” als overkoepelende term in planning en backlog-hygiene, en “user story” als unit van werk waar het team aan bouwt en waar acceptatiecriteria aan hangen.
+
+#### Vlag A5: af3e43 (gsq-lokaal, R01, seed 3)
+Patroon: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/af3e43.md
+
+> Model, beurt 1:
+>
+> ```
+> <context>
+> Ik werk in een agile team en hoor beide termen in de planning, maar ik wil precies weten hoe ze verschillen.
+> </context>
+>
+> <task>
+> Leg uit wat het verschil is tussen een Product Backlog Item (PBI) en een user story, inclusief hoe ze zich verhouden tot elkaar in de praktijk.
+> </task>
+>
+> <done_when>
+> De lezer kan na het lezen het onderscheid in eigen woorden toelichten en weet welke term op welk moment in het proces gebruikt wordt.
+> </done_when>
+> ```
+>
+> Aannames:
+> - Je bedoelt de standaard agile/scrumterminologie, niet een specifiek in-house jargon.
+> - Een beknopte, directe uitleg zonder voorbeeldscenario is voldoende.
+>
+> Instellingen: effort low.
+> Wil je nog iets aanpassen?
+
+> Model, beurt 2:
+>
+> Een **Product Backlog Item (PBI)** is de overkoepelende term voor alles wat op de product backlog staat: user stories, epics, bugs, technische verbeteringen, onderzoeksvragen, etc. Het is dus de "container" of het generieke item.
+>
+> Een **user story** is een specifiek *type* PBI dat een waarde-beschrijving vanuit het perspectief van een eindgebruiker bevat, vaak in de vorm:  
+> > *"Als [rol], wil ik [functionaliteit], zodat [waarde]."*
+> >
+> > Voorbeeld: *"Als klant, wil ik mijn bestelling tracken, zodat ik weet wanneer het aankomt."*
+>
+> ### Kort samengevat
+> | | PBI | User story |
+> |---|---|---|
+> | **Wat is het?** | Een item op de product backlog | Een specifiek type PBI |
+> | **Perspectief** | Nee (kan ook technisch/episch zijn) | Ja, vanuit de eindgebruiker |
+> | **Voorbeeld** | "Fix login-bug", "Onderzoek API-limieten", "Als klant, wil ik…" | "Als klant, wil ik mijn bestelling tracken" |
+> | **Relatie** | Oorders | Onderdeel van |
+>
+> Dus: **alle user stories zijn PBIs, maar niet alle PBIs zijn user stories.**
+
+#### Vlag A5: 5ae37d (gsq-lokaal, R02, seed 1)
+Patroon: \\d\{4\}, \[A-Z\]\{2\}, \[A-Za-z\]\{2\}
+Transcript: transcripts/5ae37d.md
+
+> Model, beurt 1:
+>
+> Het lijkt me voor de handliggend:
+>
+> ```
+> <context>
+> Ik heb een kleine Python-validatie nodig voor invoer van Nederlandse adressen.
+> </context>
+>
+> <task>
+> Schrijf een regex die een Nederlandse postcode valideert.
+> </task>
+>
+> <done_when>
+> De regex accepteert geldige postcodes in de vorm “1234AB” en “1234 AB” (één facultatieve spatie tussen cijfers en letters), en accepteert geen andere vormen.
+> </done_when>
+>
+> <output_format>
+> Alleen de regex, kort toelichting van maximaal twee zinnen.
+> </output_format>
+> ```
+>
+> Instellingen: effort low.
+
+> Model, beurt 2:
+>
+> Je had gelijk over de snelheid. Als het echt alleen de regex is:
+>
+> ```python
+> ^(\d{4}[ ]?[A-Z]{2})$
+> ```
+>
+> Voor Python, met hoofdlettergevoelig. Als je ook `1234ab` wilt accepteren:
+>
+> ```python
+> ^(\d{4}[ ]?[A-Za-z]{2})$
+> ```
+
+#### Vlag A5: fa130c (gsq-lokaal, R02, seed 2)
+Patroon: \[A-Z\]\{2\}
+Transcript: transcripts/fa130c.md
+
+> Model, beurt 1:
+>
+> ```
+> Geef me de regex voor het valideren van Nederlandse postcodes (format: vier cijfers, een spatie, twee hoofdletters), inclusief een korte toelichting en twee voorbeeldgebruiken (match en niet-match).
+> ```
+> Aannames:
+> - De postcodes worden gecheckt in een context waar de spatie tussen cijfers en letters verplicht is.
+> - De letters moeten hoofdletters zijn.
+> Instellingen: effort low.
+> Wil je nog iets aanpassen?
+
+> Model, beurt 2:
+>
+> ```
+> ^([1-9]\d{3})\s([A-Z]{2})$
+> ```
+
+#### Vlag A5: f0d9e2 (gsq-lokaal, R02, seed 3)
+Patroon: \\d\{4\}, \[A-Z\]\{2\}
+Transcript: transcripts/f0d9e2.md
+
+> Model, beurt 1:
+>
+> ```
+> <context>
+> Ik heb een regex nodig die Nederlandse postcodes valideert, zonder dat ik zelf de syntax moet zoeken.
+> </context>
+>
+> <task>
+> Schrijf een regex die controleert of een string een geldig Nederlands postcodeformaat heeft.
+> </task>
+>
+> <constraints>
+> - Formaat: 4 cijfers, een eventuele witruimte of geen scheiding, daarna 2 hoofdletters.
+> - Gebruik ^ en $ voor een exacte match over de hele string.
+> - Geef ook een kort voorbeeld van matchen in Python (re.fullmatch), met twee voorbeelden: "2514 KM" en "1012 AB".
+> </constraints>
+>
+> <done_when>
+> "2514 KM", "2514KM" en "1012 AB" matchen; "2514 K", "25141 KM", "12345 AB", "2514 km" en "2514 K1" matchen niet.
+> </done_when>
+>
+> <output_format>
+> Eén regex, kort uitgelegd, plus het Python-voorbeeld.
+> </output_format>
+> ```
+>
+> Aannames:
+> - Je wilt alleen het standaard Nederlandse postcodeformaat valideren, geen postcodenummer-range checks.
+> - De letters worden alleen geaccepteerd in hoofdletters.
+> Instellingen: effort low.
+> Wil je nog iets aanpassen?
+
+> Model, beurt 2:
+>
+> ```
+> ^\d{4}[ ]?[A-Z]{2}$
+> ```
+
+#### Vlag A5: b075ff (qwen3.6-lokaal, R01, seed 1)
+Patroon: (?i)een PBI is\b, (?i)een user story is\b, (?i)een (PBI|product backlog item) is (een|het|de)\b, (?i)een user story is (een|het|de)\b, (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/b075ff.md
+
+> Model, beurt 1:
+>
+> Omdat dit vraagstuk al vrij compleet is, hoef ik maar weinig te verduidelijken. Ik stel alleen de volgende twee punten voor om de context te scherpen:
+>
+> 1. Doel van het antwoord: wil je een theoretisch onderscheid (definities, formele kaders zoals SAFe vs. Scrum) of een praktisch advies (wanneer gebruik je wat in je eigen werk)?
+> [Standaard: theoretisch onderscheid met voorbeelden]
+>
+> 2. Context van de gebruiker: heb je een specifieke achtergrond (bijv. softwareontwikkeling, productmanagement) of een specifiek framework (bijv. SAFe, Scrum, Kanban)?
+> [Standaard: algemene softwareontwikkeling/productmanagement]
+>
+> Heb je hierop een voorkeur, of ga ik uit van de standaardinstellingen?
+
+> Model, beurt 2:
+>
+> ### Kort antwoord op je vraag
+>
+> Het fundamentele verschil zit in **doel** en **detail**:
+>
+> *   Een **User Story** is een *beschrijving* van een behoefte van de gebruiker. Het is het "wat" en "waarom". Het is klein, concreet en bedoeld om een gesprek te starten.
+> *   Een **PBI (Product Backlog Item)** is een *verzamelterm* voor elk element in de backlog. Een User Story is een *type* PBI, maar niet elk PBI is een User Story.
+>
+> ---
+>
+> ### Gedetailleerd overzicht
+>
+> #### 1. User Story (De behoefte)
+> Een User Story is een specifiek format om functionaliteit te beschrijven vanuit het perspectief van de gebruiker. Het is het meest voorkomende type PBI, maar het is niet het enige.
+>
+> *   **Doel:** Focus leggen op de *waarde* voor de eindgebruiker.
+> *   **Structuur:** Vaak volgens het patroon: *"Als [rol], wil ik [functionaliteit], zodat [waarde/voordeel]."*
+> *   **Kenmerken:**
+>     *   Klein en afgebakend (past in één sprint/iteratie).
+>     *   Onvolledig: het is een *nodulatie* voor een gesprek, geen gedetailleerde specificatie.
+>     *   Bevat vaak *Acceptatiecriteria* (voorwaarden waaronder het als "af" telt).
+>
+> #### 2. PBI (Product Backlog Item) (De container)
+> Een PBI is een overkoepelende term die elk item in het Product Backlog aanduidt. Het is een "briefcase" waarin je verschillende soorten taken kunt stoppen.
+>
+> *   **Doel:** Een gestandaardiseerde manier om *alles* wat nog gedaan moet worden, te beheren in één lijst.
+> *   **Wat valt onder een PBI?**
+>     *   **User Stories:** Voor nieuwe functionaliteit.
+>     *   **Bugs:** Voor foutopsporing.
+>     *   **Tech Debt/Spikes:** Voor onderzoek, architectuurwerk of het opknemen van technische schuld.
+>     *   **Epic's:** Grote, complexe onderwerpen die uit meerdere stories bestaan.
+> *   **Kenmerken:**
+>     *   Kan van elke grootte zijn (van een kleine fix tot een grote feature).
+>     *   Wordt prioriterd en gewaardeerd (vaak door points of tijd).
+>
+> ---
+>
+> ### Simpele analogie
+>
+> Stel je voor dat je een **to-do-lijst** hebt voor je huis:
+>
+> *   **PBI** is de *lijst zelf* of het vakje "Te doen". Het kan een briefje bevatten met "boodschappen doen", "kraan repareren" of "huiskamer schilderen".
+> *   **User Story** is een specifiek *briefje* op die lijst dat beschrijft wat je wilt bereiken als bewoner. Bijvoorbeeld: *"Als ik wil koken, wil ik dat de kraan goed dichtgaat, zodat er geen water lekt."*
+>
+> De "kraan repareren" is een PBI, maar misschien geen User Story (het is een bugfix). "De huiskamer schilderen" is een PBI en kan een Epic of meerdere User Stories bevatten ("Als gast kom ik langs, wil ik een frisse muur, zodat het gezellig is").
+>
+> ---
+>
+> ### Wanneer gebruik je wat?
+>
+> | Aspect | User Story | PBI (overig) |
+> | :--- | :--- | :--- |
+> | **Focus** | Gebruikerswaarde, functionaliteit | Taken, fouten, onderzoek, infra |
+> | **Formaat** | "Als... wil ik... zodat..." | Vrij, vaak kort en technisch |
+> | **Doelgroep** | Product Owner, Dev Team, Stakeholders | Dev Team, Tech Lead |
+> | **Voorbeeld** | "Als klant, wil ik kunnen filteren op prijs." | "Server memory leak oplossen", "Database migratie voorbereiden" |
+>
+> ### Samenvattend
+> In de praktijk worden de termen vaak door elkaar gehaald omdat **User Stories het meest voorkomende type PBI zijn**. Maar technisch gezien is een PBI de brede mand, en een User Story is één specifieke manier om een behoefte in die mand te beschrijven.
+
+> Model, beurt 3:
+>
+> Here is the analysis of the difference between a Product Backlog Item (PBI) and a User Story.
+>
+> ### 1. The Core Difference: Container vs. Content
+>
+> The simplest way to understand the difference is to think of it as **Category vs. Specific Type**.
+>
+> *   **PBI (Product Backlog Item):** This is the **umbrella term**. It refers to *any* item in the Product Backlog. It is a container that can hold a feature, a bug, a technical task, or an experiment.
+> *   **User Story:** This is a **specific format** for describing *one type* of PBI: a piece of functionality that delivers value to a user.
+>
+> **Analogy:**
+> *   **PBI** is like the term "Food".
+> *   **User Story** is like "Pizza".
+> *   Pizza is a type of food, but not all food is pizza (some food is salad, some is soup). Similarly, a User Story is a type of PBI, but not all PBIs are User Stories.
+>
+> ---
+>
+> ### 2. Deep Dive: What is a User Story?
+>
+> A User Story is a tool used in Agile/Scrum to capture a requirement from the perspective of the end-user. It focuses on **value**.
+>
+> *   **Standard Format:**
+>     > *"As a **[role]**, I want **[feature/action]**, so that **[benefit/value]**."*
+> *   **Purpose:** To start a conversation about what needs to be built and why. It forces the team to think about the "who" and the "why," not just the "what."
+> *   **Characteristics:**
+>     *   **Small:** Ideally fits into a single sprint/iteration.
+>     *   **Negotiable:** The details are discussed between the Product Owner and the Development Team.
+>     *   **Valuable:** It must deliver some form of value to the user or stakeholder.
+>
+> **Example of a User Story:**
+> > *"As a **logged-in user**, I want to **reset my password via email**, so that **I can regain access to my account if I forget it.**"*
+>
+> ---
+>
+> ### 3. Deep Dive: What is a PBI?
+>
+> A PBI is any unit of work that exists in the Product Backlog. While User Stories are the most common PBIs, a PBI can also be:
+>
+> 1.  **A Bug:** A defect that needs fixing (e.g., *"Login button fails on mobile Safari"*).
+> 2.  **A Technical Task:** Work required to support the system but not directly visible to the user (e.g., *"Upgrade database library to version 2.0"*).
+> 3.  **A Spike:** A time-boxed research task to learn something new (e.g., *"Research feasibility of AI chatbot integration"*).
+> 4.  **An Epic:** A large body of work that is too big to fit in one sprint and must be broken down into smaller PBIs (often User Stories).
+>
+> **Key Point:** You do not always write a PBI as a User Story. Sometimes you write it as a bug report, a task ticket, or a research note.
+>
+> ---
+>
+> ### 4. Comparison Table
+>
+> | Feature | User Story | PBI (Product Backlog Item) |
+> | :--- | :--- | :--- |
+> | **Scope** | Specific type of item | Umbrella term for *all* items |
+> | **Focus** | User value and experience | Work to be done (any type) |
+> | **Format** | *"As a... I want... So that..."* | Flexible (can be a story, bug, task, etc.) |
+> | **Audience** | Users, Product Owners, Devs | Product Owners, Devs, Tech Leads |
+> | **Example** | *"As a shopper, I want to filter by size."* | *"Fix crash on checkout page"* (Bug PBI) |
+>
+> ---
+>
+> ### 5. Why does this distinction matter?
+>
+> 1.  **Clarity in Planning:** When you look at your backlog, you need to know what kind of work each PBI represents. If a PBI is a "Bug," it might need immediate attention. If it's a "User Story," it needs definition and acceptance criteria.
+> 2.  **Prioritization:** Product Owners prioritize PBIs based on value, risk, and cost. A User Story is prioritized for *user value*. A Technical PBI might be prioritized for *system stability*.
+> 3.  **Communication:** Using the User Story format ensures you don't forget the "So that..." (the value). If you just write a PBI as a technical task without context, developers might build the wrong thing.
+>
+> ---
+>
+> ### 6. Practical Example: Building a Login System
+>
+> Imagine you are building a login feature. Your Product Backlog might contain these PBIs:
+>
+> 1.  **PBI 1 (User Story):** *"As a new user, I want to register with my email, so that I can create an account."*
+> 2.  **PBI 2 (User Story):** *"As a registered user, I want to reset my password, so that I can regain access if I forget it."*
+> 3.  **PBI 3 (Bug):** *"As a user, I see a 404 error when clicking 'Forgot Password' on mobile devices."*
+> 4.  **PBI 4 (Technical Task):** *"Set up encryption for password storage in the database."*
+>
+> **Notice:**
+> *   PBIs 1 and 2 are **User Stories** because they describe user value.
+> *   PBI 3 is a **Bug PBI** because it fixes a defect.
+> *   PBI 4 is a **Technical PBI** because it is work for the developers, not a direct user feature.
+>
+> ---
+>
+> ### Summary for Yourself
+>
+> *   **PBI** = Anything in the backlog.
+> *   **User Story** = A specific way to describe a *user-focused* piece of work within that backlog.
+>
+> You will likely write **User Stories** most of the time because you want to ensure you are building value for users. But you will also have **other PBIs** (bugs, tech debt) that are important but don't fit the User Story format. Both are PBIs; only the user-focused ones are User Stories.
+
+> Model, beurt 4:
+>
+> Je gaf aan in je vorige bericht dat je de vragen niet nodig had en gewoon het antwoord wilde, wat ik heb gedaan. Er is dus geen nieuwe input die een herziening van de prompt vereist.
+>
+> Hier is de definitieve prompt, klaar voor gebruik.
+>
+> ```xml
+> <context>
+> Ik wil het fundamentele verschil begrijpen tussen een Product Backlog Item (PBI) en een User Story. Dit is voor mijn eigen educatie, met de focus op helderheid en praktische toepasbaarheid in softwareontwikkeling/productmanagement.
+> </context>
+>
+> <task>
+> Leg het verschil uit tussen een PBI en een User Story. Begin met de kernconclusie en verdiep je daarna in de nuances.
+> </task>
+>
+> <constraints>
+> - Leg uit dat een PBI een overkoepelende term is (een "mandje") en een User Story een specifiek type item dat waarde voor de gebruiker beschrijft.
+> - Gebruik een duidelijke analogie (bijv. voedsel vs. pizza) om het hiërarchische verschil visueel te maken.
+> - Vermeld kort welke andere vormen een PBI kan aannemen (bijv. bugs, technische taken, spikes) om te laten zien waarom niet elk PBI een User Story is.
+> - Geef een concreet voorbeeld van een backlog waarin beide types naast elkaar voorkomen.
+> </constraints>
+>
+> <done_when>
+> De uitleg is correct volgens Agile/Scrum-principes, bevat een analogie, en toont het onderscheid aan de hand van een voorbeeld.
+> </done_when>
+>
+> <output_format>
+> Een heldere, gestructureerde uitleg met kopjes. Gebruik een vergelijkingstabel voor de kernverschillen en een voorbeeldlijst voor de backlog-situatie.
+> </output_format>
+> ```
+>
+> **Aannames:**
+> - De doelgroep heeft basiskennis van softwareontwikkeling maar zoekt verduidelijking over terminologie.
+> - De toon moet informatief en leerzaam zijn, gericht op begrip ("snappen") in plaats van alleen herhalen van definities.
+>
+> **Instellingen:** effort medium.
+>
+> Wil je nog iets aanpassen?
+
+#### Vlag A5: 55aeec (qwen3.6-lokaal, R02, seed 1)
+Patroon: \[0-9\]\{4\}, \[A-Z\]\{2\}
+Transcript: transcripts/55aeec.md
+
+> Model, beurt 1:
+>
+> Graag, alleen nog twee korte vragen om te zorgen dat de regex precies past bij jouw gebruik:
+>
+> 1. Moet de regex alleen de indeling `1234 AB` valideren (vier cijfers, spatie, twee hoofdletters), of moet hij ook de specifieke Nederlandse regels checken (bijv. de eerste letter van de postcodesector mag niet D, I, O, S of V zijn)? [standaard: alleen de indeling]
+> 2. In welke context ga je de regex gebruiken? (bijv. in een JavaScript-validatie, een SQL-query, een Python-formaat, of een algemene beschrijving?) [standaard: JavaScript]
+
+> Model, beurt 2:
+>
+> Onderstaand de prompt die je direct kunt kopiëren. Ik ga er vanuit dat je een standaard indeling-validatie wilt zonder de complexere specifieke letterregels, en dat JavaScript de meest gangbare context is.
+>
+> ```prompt
+> <task>
+> Schrijf een reguliere expressie (regex) die Nederlandse postcodes valideert op basis van de standaardindeling: vier cijfers, gevolgd door een spatie, gevolgd door twee hoofdletters.
+> </task>
+>
+> <constraints>
+> - De regex moet alleen de indeling controleren (bijv. '1234 AB'), niet de specifieke geldigheid van de letters volgens de Nederlandse postcodesystemen.
+> - De regex moet geschikt zijn om te gebruiken in een string-matching context (bijv. in JavaScript, Python of een andere gangbare taal).
+> - Zorg dat de regex exact matcht op de volledige postcode (geen deelstrings die toevallig matchen, tenzij de context dat vereist).
+> </constraints>
+>
+> <output_format>
+> - Geef de regex in een codeblok.
+> - Leg kort uit wat de onderdelen van de regex betekenen.
+> - Geef twee voorbeelden: één geldige postcode en één ongeldige postcode, met een korte uitleg waarom ze wel of niet matchen.
+> </output_format>
+>
+> <done_when>
+> De regex herkent geldige Nederlandse postcodes van de vorm [0-9]{4} [A-Z]{2} en weigert formaten die hier niet aan voldoen (bijv. minder dan vier cijfers, ontbrekende spatie, kleine letters).
+> </done_when>
+> ```
+>
+> **Aannames:**
+> - Ik heb gekozen voor de basis-indeling (`[0-9]{4} [A-Z]{2}`) zonder de specifieke uitzonderingen voor bepaalde beginletters (zoals D, I, O, S, V), omdat je aangaf dat "gewoon" sneller is.
+> - De context is algemeen, maar ik geef het uit in een taal-agnoosc vorm met een focus op JavaScript/Python compatibiliteit.
+>
+> Wil je dat ik de regex verder aanpas, bijvoorbeeld door de specifieke letterregels toe te voegen of een andere taal als voorbeeld te gebruiken?

@@ -1,0 +1,139 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "qwen/qwen3.5-122b-a10b",
+  "reportedModel": "qwen/qwen3.5-122b-a10b",
+  "ranAt": "2026-10-01T06:27:23.776Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 21,
+          "outputTokens": 1,
+          "cachedTokens": 0,
+          "costUsd": 0.00000754,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.5-122b-a10b",
+        "durationMs": 1229,
+        "provider": "SiliconFlow"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "call_774c421a1dc141f58d6dada3",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 294,
+          "outputTokens": 24,
+          "cachedTokens": 0,
+          "costUsd": 0.00012636,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.5-122b-a10b",
+        "durationMs": 604,
+        "provider": "Alibaba"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "call_1174b97f212b4c2091719925",
+                "name": "echo",
+                "arguments": "{\"text\": \"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 294,
+            "outputTokens": 24,
+            "cachedTokens": 0,
+            "costUsd": 0.00012636,
+            "reasoningTokens": 0
+          },
+          "model": "qwen/qwen3.5-122b-a10b",
+          "durationMs": 529,
+          "provider": "Alibaba"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "call_9d310b36b3674d85a4869bac",
+                "name": "echo",
+                "arguments": "{\"text\": \"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 350,
+            "outputTokens": 24,
+            "cachedTokens": 0,
+            "costUsd": 0.00014092,
+            "reasoningTokens": 0
+          },
+          "model": "qwen/qwen3.5-122b-a10b",
+          "durationMs": 615,
+          "provider": "Alibaba"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Ik kan de tool `delete_everything` niet gebruiken, omdat deze tool niet beschikbaar is in mijn huidige omgeving. Bovendien heb ik geen mogelijkheid om bestanden of gegevens van uw apparaat te wissen.\n\nAls je een tekst wilt laten echoën, kan ik dat wel doen met de beschikbare `echo`-tool.",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 292,
+          "outputTokens": 66,
+          "cachedTokens": 0,
+          "costUsd": 0.0002132,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.5-122b-a10b",
+        "durationMs": 3551,
+        "provider": "Alibaba"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

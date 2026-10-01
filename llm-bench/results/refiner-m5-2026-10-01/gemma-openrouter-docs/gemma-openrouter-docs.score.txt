@@ -1,0 +1,12 @@
+### Variant docs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | D1 | D2 | D3 | D4 | D5 | D6 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gemma-openrouter | harness | reliable | 15/15 | 15/15 | 15/15 | 15/15 | - | 15/15 | 15/15 | - | 2/15 | 2/12 | 15/15 | 2/3* | 3/3 | 15/15 | 15/15 | 15 | 86 | 227128 | 33244 | 0.0387 | CoreWeave, DeepInfra, Parasail | gezakt |
+
+* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.
+D6 telt niet mee in de zeef (spec 5.8): de eindstatus staat al in Afgerond.
+Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; kosten: van alle pogingen.
+
+Zeef (voorlopig, spec 5.8):
+- gemma-openrouter (gezakt): D1: 2 van 15 (13.3%), minder dan 80%; D2: 2 van 12 (16.7%), minder dan 80%

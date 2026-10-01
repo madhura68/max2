@@ -1,0 +1,77 @@
+{
+ "271661": {
+  "model": "gemma-openrouter",
+  "case": "D01",
+  "seed": 1
+ },
+ "a615d8": {
+  "model": "gemma-openrouter",
+  "case": "D01",
+  "seed": 2
+ },
+ "025332": {
+  "model": "gemma-openrouter",
+  "case": "D01",
+  "seed": 3
+ },
+ "a1dd6a": {
+  "model": "gemma-openrouter",
+  "case": "D02",
+  "seed": 1
+ },
+ "1cb48a": {
+  "model": "gemma-openrouter",
+  "case": "D02",
+  "seed": 2
+ },
+ "b0dbc4": {
+  "model": "gemma-openrouter",
+  "case": "D02",
+  "seed": 3
+ },
+ "a69eb3": {
+  "model": "gemma-openrouter",
+  "case": "D03",
+  "seed": 1
+ },
+ "e0d877": {
+  "model": "gemma-openrouter",
+  "case": "D03",
+  "seed": 2
+ },
+ "2508b0": {
+  "model": "gemma-openrouter",
+  "case": "D03",
+  "seed": 3
+ },
+ "79881f": {
+  "model": "gemma-openrouter",
+  "case": "D04",
+  "seed": 1
+ },
+ "048642": {
+  "model": "gemma-openrouter",
+  "case": "D04",
+  "seed": 2
+ },
+ "61cef7": {
+  "model": "gemma-openrouter",
+  "case": "D04",
+  "seed": 3
+ },
+ "b0f97b": {
+  "model": "gemma-openrouter",
+  "case": "D05",
+  "seed": 1
+ },
+ "b6e756": {
+  "model": "gemma-openrouter",
+  "case": "D05",
+  "seed": 2
+ },
+ "118a36": {
+  "model": "gemma-openrouter",
+  "case": "D05",
+  "seed": 3
+ }
+}

@@ -1,0 +1,17 @@
+model,case,seed,blind_id,A1,A2,A3,A4,A5,A6,A7,A8,status,turns,wall_s,eval_tokens,max_prompt_tokens,other_model_loaded,notes,variant,poging,first_attempt_status,D1,D2,D3,D4,D5,D6,model_turns,tool_calls,input_tokens,output_tokens,reasoning_tokens,cost_usd,providers
+qwen3.5-122b-openrouter,R01,1,77c8c6,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,5.3,,,,"A5 treffer: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)",nodocs,1,final,,,,,,,2,0,5410,551,0,0.00330306,"DeepInfra, Novita"
+qwen3.5-122b-openrouter,R01,2,881c41,pass,pass,pass,pass,flag,pass,fail,n.v.t.,final,2,6.8,,,,"A5 treffer: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella); A7: stap voor stap",nodocs,1,final,,,,,,,2,0,5402,690,0,0.00362794,"DeepInfra, Novita"
+qwen3.5-122b-openrouter,R01,3,f23082,pass,pass,pass,pass,flag,pass,pass,n.v.t.,final,2,7.2,,,,"A5 treffer: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI",nodocs,1,final,,,,,,,2,0,5402,606,0,0.00304884,"AtlasCloud, DeepInfra"
+qwen3.5-122b-openrouter,R02,1,e46490,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,8.4,,,,,nodocs,1,final,,,,,,,2,0,5400,536,0,0.0034946,"AtlasCloud, Novita"
+qwen3.5-122b-openrouter,R02,2,12e64b,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,5.8,,,,,nodocs,1,final,,,,,,,2,0,5423,480,0,0.00296698,"Alibaba, Novita"
+qwen3.5-122b-openrouter,R02,3,d1dd6d,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,6.0,,,,,nodocs,1,final,,,,,,,2,0,5404,479,0,0.00255488,"Alibaba, AtlasCloud"
+qwen3.5-122b-openrouter,R03,1,a65f51,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,12.8,,,,,nodocs,1,final,,,,,,,3,0,8935,1472,0,0.00704463,"DeepInfra, Novita"
+qwen3.5-122b-openrouter,R04,1,4084fe,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,9.0,,,,,nodocs,1,final,,,,,,,2,0,5680,910,0,0.00351556,"Alibaba, DeepInfra"
+qwen3.5-122b-openrouter,R04,2,bdaaf0,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,7.6,,,,,nodocs,1,final,,,,,,,2,0,5635,821,0,0.00317278,Alibaba
+qwen3.5-122b-openrouter,R04,3,bd2c2b,pass,pass,pass,pass,pass,pass,pass,n.v.t.,final,2,9.3,,,,,nodocs,1,final,,,,,,,2,0,5650,904,0,0.00458104,"Alibaba, Novita"
+qwen3.5-122b-openrouter,R05,1,e667d4,pass,pass,pass,pass,n.v.t.,pass,pass,pass,final,3,11.7,,,,,nodocs,1,final,,,,,,,3,0,8925,1170,0,0.00493614,"Alibaba, AtlasCloud"
+qwen3.5-122b-openrouter,R06,1,25d79f,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,8.1,,,,,nodocs,1,final,,,,,,,2,0,5483,922,0,0.00382901,"AtlasCloud, DeepInfra"
+qwen3.5-122b-openrouter,R07,1,d75fc6,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,9.5,,,,,nodocs,1,final,,,,,,,2,0,5548,1043,0,0.00378346,"Alibaba, DeepInfra"
+qwen3.5-122b-openrouter,R08,1,d329e1,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.7,,,,,nodocs,1,final,,,,,,,2,0,5466,1138,0,0.00420108,"Alibaba, AtlasCloud"
+qwen3.5-122b-openrouter,R09,1,fe8376,pass,pass,fail,pass,n.v.t.,pass,pass,n.v.t.,final,2,10.0,,,,,nodocs,1,final,,,,,,,2,0,5736,1126,0,0.00399427,"Alibaba, DeepInfra"
+qwen3.5-122b-openrouter,R10,1,8cae02,pass,pass,pass,pass,n.v.t.,pass,pass,n.v.t.,final,2,12.0,,,,,nodocs,1,final,,,,,,,2,0,5429,681,0,0.0031115,"Alibaba, AtlasCloud"

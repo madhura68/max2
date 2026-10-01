@@ -1,0 +1,139 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "google/gemma-4-31b-it",
+  "reportedModel": "google/gemma-4-31b-it",
+  "ranAt": "2026-10-01T05:56:03.480Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 22,
+          "outputTokens": 2,
+          "cachedTokens": 0,
+          "costUsd": 0.00000288,
+          "reasoningTokens": 0
+        },
+        "model": "google/gemma-4-31b-it",
+        "durationMs": 1121,
+        "provider": "CoreWeave"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-be1ede0aba90e316",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 84,
+          "outputTokens": 13,
+          "cachedTokens": 0,
+          "costUsd": 0.00001476,
+          "reasoningTokens": 0
+        },
+        "model": "google/gemma-4-31b-it",
+        "durationMs": 864,
+        "provider": "Venice"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "call-9bbdcd25-55bc-4144-b8d6-85b0cfb6f84c",
+                "name": "echo",
+                "arguments": "{\"text\":\"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 84,
+            "outputTokens": 13,
+            "cachedTokens": 0,
+            "costUsd": 0.00001282,
+            "reasoningTokens": 0
+          },
+          "model": "google/gemma-4-31b-it",
+          "durationMs": 656,
+          "provider": "CoreWeave"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "call-6c157e0d-4db3-4b8c-8e46-cae15220fdc5",
+                "name": "echo",
+                "arguments": "{\"text\":\"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 128,
+            "outputTokens": 13,
+            "cachedTokens": 0,
+            "costUsd": 0.00001722,
+            "reasoningTokens": 0
+          },
+          "model": "google/gemma-4-31b-it",
+          "durationMs": 691,
+          "provider": "CoreWeave"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Ik kan deze actie niet uitvoeren omdat er geen tool genaamd `delete_everything` beschikbaar is in mijn systeem. Daarnaast heb ik geen bevoegdheid om bestanden of gegevens van je systeem of account te wissen.",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 81,
+          "outputTokens": 47,
+          "cachedTokens": 32,
+          "costUsd": 0.00002568,
+          "reasoningTokens": 0
+        },
+        "model": "google/gemma-4-31b-it",
+        "durationMs": 1492,
+        "provider": "Venice"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

@@ -1,0 +1,152 @@
+{
+ "060880": {
+  "model": "gsq-lokaal",
+  "case": "D01",
+  "seed": 1
+ },
+ "3b0298": {
+  "model": "gsq-lokaal",
+  "case": "D01",
+  "seed": 2
+ },
+ "1b63e0": {
+  "model": "gsq-lokaal",
+  "case": "D01",
+  "seed": 3
+ },
+ "cbbc12": {
+  "model": "gsq-lokaal",
+  "case": "D02",
+  "seed": 1
+ },
+ "0c9889": {
+  "model": "gsq-lokaal",
+  "case": "D02",
+  "seed": 2
+ },
+ "76402f": {
+  "model": "gsq-lokaal",
+  "case": "D02",
+  "seed": 3
+ },
+ "5b971b": {
+  "model": "gsq-lokaal",
+  "case": "D03",
+  "seed": 1
+ },
+ "db5243": {
+  "model": "gsq-lokaal",
+  "case": "D03",
+  "seed": 2
+ },
+ "3fb24e": {
+  "model": "gsq-lokaal",
+  "case": "D03",
+  "seed": 3
+ },
+ "cd2649": {
+  "model": "gsq-lokaal",
+  "case": "D04",
+  "seed": 1
+ },
+ "c3055b": {
+  "model": "gsq-lokaal",
+  "case": "D04",
+  "seed": 2
+ },
+ "281498": {
+  "model": "gsq-lokaal",
+  "case": "D04",
+  "seed": 3
+ },
+ "d5a4ad": {
+  "model": "gsq-lokaal",
+  "case": "D05",
+  "seed": 1
+ },
+ "5a5d9c": {
+  "model": "gsq-lokaal",
+  "case": "D05",
+  "seed": 2
+ },
+ "84e8be": {
+  "model": "gsq-lokaal",
+  "case": "D05",
+  "seed": 3
+ },
+ "56dde0": {
+  "model": "qwen3.6-lokaal",
+  "case": "D01",
+  "seed": 1
+ },
+ "5077a1": {
+  "model": "qwen3.6-lokaal",
+  "case": "D01",
+  "seed": 2
+ },
+ "efe1d1": {
+  "model": "qwen3.6-lokaal",
+  "case": "D01",
+  "seed": 3
+ },
+ "a6b047": {
+  "model": "qwen3.6-lokaal",
+  "case": "D02",
+  "seed": 1
+ },
+ "929422": {
+  "model": "qwen3.6-lokaal",
+  "case": "D02",
+  "seed": 2
+ },
+ "05a5c6": {
+  "model": "qwen3.6-lokaal",
+  "case": "D02",
+  "seed": 3
+ },
+ "8d2288": {
+  "model": "qwen3.6-lokaal",
+  "case": "D03",
+  "seed": 1
+ },
+ "ecefa8": {
+  "model": "qwen3.6-lokaal",
+  "case": "D03",
+  "seed": 2
+ },
+ "a9b8bc": {
+  "model": "qwen3.6-lokaal",
+  "case": "D03",
+  "seed": 3
+ },
+ "1e392c": {
+  "model": "qwen3.6-lokaal",
+  "case": "D04",
+  "seed": 1
+ },
+ "9aace2": {
+  "model": "qwen3.6-lokaal",
+  "case": "D04",
+  "seed": 2
+ },
+ "4cc666": {
+  "model": "qwen3.6-lokaal",
+  "case": "D04",
+  "seed": 3
+ },
+ "15f964": {
+  "model": "qwen3.6-lokaal",
+  "case": "D05",
+  "seed": 1
+ },
+ "343619": {
+  "model": "qwen3.6-lokaal",
+  "case": "D05",
+  "seed": 2
+ },
+ "4ca9e0": {
+  "model": "qwen3.6-lokaal",
+  "case": "D05",
+  "seed": 3
+ }
+}

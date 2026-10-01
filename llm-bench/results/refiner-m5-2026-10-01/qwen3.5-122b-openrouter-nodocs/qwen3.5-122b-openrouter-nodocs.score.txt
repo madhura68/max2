@@ -1,0 +1,166 @@
+### Variant nodocs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3.5-122b-openrouter | harness | reliable | 16/16 | 16/16 | 15/16 | 16/16 | 6/9 | 16/16 | 15/16 | 2/2* | 16/16 | 16 | 9 | 94928 | 13529 | 0.0612 | Alibaba, AtlasCloud, DeepInfra, Novita | gezakt |
+
+* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.
+Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; kosten: van alle pogingen.
+
+Zeef (voorlopig, spec 5.8):
+- qwen3.5-122b-openrouter (gezakt): vlag op A5: 77c8c6, 881c41, f23082
+
+#### Vlag A5: 77c8c6 (qwen3.5-122b-openrouter, R01, seed 1)
+Patroon: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/77c8c6.md
+
+> Model, beurt 1:
+>
+> Om de juiste prompt te maken voor Claude Opus 5.5, heb ik nog een paar details nodig:
+>
+> 1. Voor welk doel wil je dit verschil weten? [standaard: om het concept zelf beter te begrijpen]
+> 2. Wie is de beoogde lezer van het antwoord dat Opus gaat genereren? [standaard: jijzelf, als kennisvergroting]
+> 3. Moet het antwoord zich beperken tot Scrum/Agile context, of ook andere frameworks meenemen? [standaard: puur binnen Scrum-context]
+> 4. In welke vorm wil je het antwoord? [standaard: korte, duidelijke uitleg met een vergelijkingstabel]
+
+> Model, beurt 2:
+>
+> Ik geef alleen prompts en geen antwoorden zelf; hier is de prompt die je direct aan Claude Opus 5.5 kunt geven:
+>
+> ```xml
+> <context>
+> De gebruiker wil het fundamentele verschil begrijpen tussen een Product Backlog Item (PBI) en een User Story binnen de Agile/Scrum context. De uitleg is bedoeld voor eigen kennisvergroting.
+> </context>
+>
+> <task>
+> Leg duidelijk en beknopt uit wat een Product Backlog Item (PBI) is en wat een User Story is, en beschrijf vervolgens het specifieke verschil en de relatie tussen beide.
+> </task>
+>
+> <constraints>
+> - Gebruik geen jargon zonder uitleg.
+> - Leg uit dat een PBI een overkoepelend begrip is, terwijl een User Story een specifieke type PBI is.
+> - Vermeld andere voorbeelden van PBIs die geen User Story zijn (zoals bugs, technische taken of epics).
+> - Geef een concreet voorbeeld van een PBI dat geen User Story is.
+> </constraints>
+>
+> <done_when>
+> Het antwoord definieert beide termen, benoemt de hiërarchische relatie (PBI als container, User Story als type), en geeft ten minste één voorbeeld van een PBI dat geen User Story is.
+> </done_when>
+>
+> <output_format>
+> Een korte, heldere uitleg in lopende tekst, gevolgd door een beknopte vergelijkingstabel met de hoofdpunten.
+> </output_format>
+> ```
+>
+> Aannames:
+> - De context is puur Agile/Scrum.
+> - De lezer is de gebruiker zelf.
+> - Er wordt geen diepgaande historische analyse gevraagd, alleen het functionele verschil.
+>
+> Instellingen: effort low.
+> Wil je nog iets aanpassen?
+
+#### Vlag A5: 881c41 (qwen3.5-122b-openrouter, R01, seed 2)
+Patroon: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/881c41.md
+
+> Model, beurt 1:
+>
+> Om de meest bruikbare uitleg voor je te genereren, heb ik drie korte vragen:
+>
+> 1. Voor wie is deze uitleg bedoeld? [standaard: jou zelf, om het concept voor jezelf helder te krijgen]
+> 2. Moet de focus liggen op de theoretische definitie binnen Scrum, of vooral op het praktische verschil in een dagelijkse werkomgeving? [standaard: een mix van beide, met nadruk op praktijk]
+> 3. Zie je hier een specifieke verwarring over (bijvoorbeeld bij planning of prioritering) die ik moet meenemen? [standaard: geen specifieke context, algemene verduidelijking]
+
+> Model, beurt 2:
+>
+> Ik geef zelf geen antwoorden op inhoudelijke vragen; mijn taak is om een scherpe prompt voor je te schrijven zodat Claude Opus 5.5 het antwoord voor je genereert.
+>
+> Hier is de prompt die je direct kunt gebruiken:
+>
+> ```xml
+> <context>
+> De gebruiker vraagt naar het verschil tussen een Product Backlog Item (PBI) en een User Story in de context van Agile en Scrum. Er is enige verwarring over of dit twee verschillende concepten zijn of dat een User Story een type PBI is. De uitleg is bedoeld voor de gebruiker zelf om dit conceptueel en praktisch helder te krijgen.
+> </context>
+>
+> <task>
+> Leg duidelijk uit wat het verschil is tussen een Product Backlog Item (PBI) en een User Story. Definieer beide begrippen, verduidelijk hun relatie (is de een een subset van de ander?) en geef concrete voorbeelden van wanneer je de term PBI gebruikt versus wanneer je User Story gebruikt in een Scrum-team.
+> </task>
+>
+> <constraints>
+> - Vermijd vaag taalgebruik; wees specifiek over de hiërarchie en het gebruik in de praktijk.
+> - Gebruik geen "bedenk stap voor stap" instructies in je antwoord, maar lever direct een heldere uitleg.
+> - Als er nuances zijn afhankelijk van de specifieke Scrum-implementatie, noem deze kort.
+> - Houd de toon professioneel maar toegankelijk.
+> </constraints>
+>
+> <done_when>
+> De gebruiker begrijpt na het lezen van het antwoord precies:
+> 1. Dat een PBI een overkoepelende term is.
+> 2. Dat een User Story een specifiek type PBI is.
+> 3. Hoe deze termen in de dagelijkse Scrum-praktijk worden gebruikt.
+> </done_when>
+>
+> <output_format>
+> Een korte, gestructureerde tekst in het Nederlands. Gebruik een korte introductie, een verhelderende vergelijking (bijvoorbeeld in een tabel of met duidelijke kopjes), en een afsluitende samenvatting in één zin.
+> </output_format>
+> ```
+>
+> **Aannames:**
+> - De context is de standaard Scrum-framework (geen specifieke variant zoals SAFe of LeSS tenzij anders vermeld).
+> - De uitleg moet in het Nederlands zijn.
+> - De focus ligt op helderheid en praktijktoepasbaarheid.
+>
+> **Instellingen:** effort medium.
+>
+> Wil je nog iets aan de prompt aanpassen?
+
+#### Vlag A5: f23082 (qwen3.5-122b-openrouter, R01, seed 3)
+Patroon: (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI
+Transcript: transcripts/f23082.md
+
+> Model, beurt 1:
+>
+> Om de beste prompt voor Claude Opus te kunnen schrijven, heb ik nog drie korte vragen:
+>
+> 1. Voor wie is dit uitleg bedoeld (bijv. een nieuw teamlid, een klant, of voor een presentatie)? [standaard: een nieuw teamlid dat Scrum leert]
+> 2. Moet de focus liggen op de formele definitie, de praktische toepassing, of beide? [standaard: beide, met nadruk op de praktische toepassing]
+> 3. In welke context wordt dit gebruikt (bijv. alleen Scrum, of ook in een bredere Agile omgeving met Kanban)? [standaard: een standaard Scrum-omgeving]
+
+> Model, beurt 2:
+>
+> Ik geef alleen prompts voor Claude Opus en beantwoord de vraag niet zelf; hier is de prompt die je kunt gebruiken om dat antwoord te genereren:
+>
+> ```xml
+> <context>
+> De gebruiker wil een duidelijk onderscheid begrijpen tussen een Product Backlog Item (PBI) en een User Story in een Agile/Scrum context. Dit is bedoeld als educatief materiaal voor iemand die de terminologie en toepassing wil doorgronden.
+> </context>
+>
+> <task>
+> Leg het fundamentele verschil uit tussen een Product Backlog Item (PBI) en een User Story, inclusief hun relatie tot elkaar, wanneer welke term wordt gebruikt en wat de specifieke kenmerken zijn van elk concept binnen Scrum.
+> </task>
+>
+> <constraints>
+> - Gebruik geen jargon zonder uitleg.
+> - Vermijd vage vergelijkingen; wees concreet over de aard van beide items (bijv. grootte, detailniveau, rol in planning).
+> - Laat zien dat een User Story een specifiek type PBI is, maar niet alle PBIs User Stories zijn.
+> - Gebruik een duidelijke, toegankelijke toon alsof je het uitlegt aan een nieuw teamlid.
+> </constraints>
+>
+> <done_when>
+> De uitleg bevat een definitie van beide termen, een beschrijving van hun relatie, ten minste twee concrete voorbeelden van PBIs die géén User Story zijn, en een korte samenvatting van waarom dit onderscheid belangrijk is voor de productplanning.
+> </done_when>
+>
+> <output_format>
+> Een kort artikel in vloeiende alinea's, max 300 woorden, in het Nederlands. Geen bulletpoints tenzij noodzakelijk voor een voorbeeldlijst.
+> </output_format>
+> ```
+>
+> **Aannames:**
+> - De context is standaard Scrum binnen een softwareontwikkelteam.
+> - De lezer heeft basiskennis van Agile maar verwart deze specifieke termen.
+> - Het doel is begrip en niet alleen definities uit het hoofd leren.
+>
+> **Instellingen:** effort medium.
+>
+> Wil je nog iets aanpassen?

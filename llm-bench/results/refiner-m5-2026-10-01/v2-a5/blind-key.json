@@ -1,0 +1,92 @@
+{
+ "7b9afd": {
+  "model": "gsq-lokaal",
+  "case": "R01",
+  "seed": 1
+ },
+ "bd2cd1": {
+  "model": "gsq-lokaal",
+  "case": "R01",
+  "seed": 2
+ },
+ "af3e43": {
+  "model": "gsq-lokaal",
+  "case": "R01",
+  "seed": 3
+ },
+ "5ae37d": {
+  "model": "gsq-lokaal",
+  "case": "R02",
+  "seed": 1
+ },
+ "fa130c": {
+  "model": "gsq-lokaal",
+  "case": "R02",
+  "seed": 2
+ },
+ "f0d9e2": {
+  "model": "gsq-lokaal",
+  "case": "R02",
+  "seed": 3
+ },
+ "0c47dd": {
+  "model": "gsq-lokaal",
+  "case": "R04",
+  "seed": 1
+ },
+ "10e641": {
+  "model": "gsq-lokaal",
+  "case": "R04",
+  "seed": 2
+ },
+ "4953c9": {
+  "model": "gsq-lokaal",
+  "case": "R04",
+  "seed": 3
+ },
+ "b075ff": {
+  "model": "qwen3.6-lokaal",
+  "case": "R01",
+  "seed": 1
+ },
+ "ee3920": {
+  "model": "qwen3.6-lokaal",
+  "case": "R01",
+  "seed": 2
+ },
+ "d08729": {
+  "model": "qwen3.6-lokaal",
+  "case": "R01",
+  "seed": 3
+ },
+ "55aeec": {
+  "model": "qwen3.6-lokaal",
+  "case": "R02",
+  "seed": 1
+ },
+ "e01c86": {
+  "model": "qwen3.6-lokaal",
+  "case": "R02",
+  "seed": 2
+ },
+ "d930b4": {
+  "model": "qwen3.6-lokaal",
+  "case": "R02",
+  "seed": 3
+ },
+ "c9730e": {
+  "model": "qwen3.6-lokaal",
+  "case": "R04",
+  "seed": 1
+ },
+ "bbf15f": {
+  "model": "qwen3.6-lokaal",
+  "case": "R04",
+  "seed": 2
+ },
+ "ea4eee": {
+  "model": "qwen3.6-lokaal",
+  "case": "R04",
+  "seed": 3
+ }
+}

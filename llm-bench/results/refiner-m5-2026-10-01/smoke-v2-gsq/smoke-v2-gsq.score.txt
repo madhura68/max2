@@ -1,0 +1,84 @@
+### Variant nodocs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| gsq-lokaal | harness | reliable | 10/10 | 10/10 | 9/10 | 10/10 | 1/3 | 10/10 | 10/10 | 2/2* | 10/10 | 10 | 14 | 59338 | 7573 | - | - | gezakt |
+
+* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.
+Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; kosten: van alle pogingen.
+
+Zeef (voorlopig, spec 5.8):
+- gsq-lokaal (gezakt): vlag op A5: 401ec5, 9f3af0
+
+#### Vlag A5: 401ec5 (gsq-lokaal, R01, seed 1)
+Patroon: (?i)een user story is\b, (?i)een user story is (een|het|de)\b, (?i)user stor(y|ies)\b[^.\n]{0,40}\b(type|soort|vorm|indeling)\b[^.\n]{0,20}\bPBI, (?i)\bPBI\b[^.\n]{0,40}\b(overkoepelend|container|umbrella)
+Transcript: transcripts/401ec5.md
+
+> Model, beurt 1:
+>
+> Geen vragen nodig; dit is een eenvoudige uitleg.
+>
+> ```
+> Leg uit wat het verschil is tussen een Product Backlog Item (PBI) en een user story in agile softwareontwikkeling. Gebruik een concreet voorbeeld dat laat zien hoe hetzelfde werk zowel als PBI als user story kan worden geformuleerd. Beantwoord in vloeiende alinea’s, in het Nederlands, in maximaal 200 woorden.
+> ```
+>
+> Aannames:
+> - Je bedoelt de gangbare agile terminologie (Scrum/SAFe-achtig), niet een specifiek intern jargon.
+> - Geen specifieke context of team nodig.
+>
+> Instellingen: effort low.
+> Wil je nog iets aanpassen?
+
+> Model, beurt 2:
+>
+> Er is geen technisch verschil: een user story is een specifieke vorm van een PBI. In Scrum noem je elke entry in de product backlog een Product Backlog Item; in veel teams (en in frameworks als SAFe) gebruiken ze die term als de overkoepelende naam. Een user story is dan een PBI die je vanuit het perspectief van de eindgebruiker formuleert, vaak met het patroon “Als [rol], wil ik [functionaliteit], zodat [waarde]”.
+>
+> Niet alles in de backlog is een user story. Een PBI kan ook een technisch item zijn (“Refactor de auth-module”), een bug (“Login faalt op iOS”), een onderzoeksitem (“Spike: test of API X snel genoeg is”) of een non-functioneel requirement (“Pagina moet binnen 2 seconden laden”). Het verschil zit dus in de scope: PBI is het containerbegrip, user story is een inhoudsvariant daarvan.
+>
+> Concreet voorbeeld:
+> - Als PBI: “Implementeer tweestapsverificatie”
+> - Als user story: “Als geregistreerde gebruiker, wil ik tweestapsverificatie, zodat mijn account beter beschermd is tegen ongeautoriseerde toegang.”
+>
+> In de praktijk gebruiken teams de termen vaak door elkaar, maar als je wilt dat de backlog ook werk buiten de gebruikerswaarde kan bevatten, is “PBI” de veiligere, bredere term.
+
+#### Vlag A5: 9f3af0 (gsq-lokaal, R02, seed 1)
+Patroon: \\d\{4\}, \[A-Z\]\{2\}, \[A-Za-z\]\{2\}
+Transcript: transcripts/9f3af0.md
+
+> Model, beurt 1:
+>
+> Het lijkt me voor de handliggend:
+>
+> ```
+> <context>
+> Ik heb een kleine Python-validatie nodig voor invoer van Nederlandse adressen.
+> </context>
+>
+> <task>
+> Schrijf een regex die een Nederlandse postcode valideert.
+> </task>
+>
+> <done_when>
+> De regex accepteert geldige postcodes in de vorm “1234AB” en “1234 AB” (één facultatieve spatie tussen cijfers en letters), en accepteert geen andere vormen.
+> </done_when>
+>
+> <output_format>
+> Alleen de regex, kort toelichting van maximaal twee zinnen.
+> </output_format>
+> ```
+>
+> Instellingen: effort low.
+
+> Model, beurt 2:
+>
+> Je had gelijk over de snelheid. Als het echt alleen de regex is:
+>
+> ```python
+> ^(\d{4}[ ]?[A-Z]{2})$
+> ```
+>
+> Voor Python, met hoofdlettergevoelig. Als je ook `1234ab` wilt accepteren:
+>
+> ```python
+> ^(\d{4}[ ]?[A-Za-z]{2})$
+> ```
