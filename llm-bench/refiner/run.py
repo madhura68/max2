@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Promptverfijner eval: multi-turn conversations with scripted user replies (PBI-8, T-2; M5, T-11a).
+"""Promptverfijner eval: multi-turn conversations with scripted user replies (PBI-8, T-2; M5, T-11a, T-11b).
 
 Per model x case x seed the model gets the promptverfijner system prompt and the case input.
 Until it answers with a fenced prompt it gets the case's scripted replies (max 4 user turns);
@@ -21,15 +21,34 @@ Two backends send the conversations, with one conversation flow (converse) for b
   The key of a model is never a value here: a label names the environment variable (api_key_env) and only that name goes
   to the harness (--api-key-env).
 
+  An invocation runs in three steps. First the probes of all the models, a row each. A model whose probe failed completely
+  (every step an HTTP error, `model HTTP <status>`) runs nothing: its probe row has the label "geen aanbieder" (404 or 503 and
+  a message that names a provider) or "probe-fout <status>". Then, for each model that runs, a plan row
+  {"turn": "plan", "model", "variant", "conversations": [[case, seed], ...]} with every conversation it is going to have, so that
+  score.py counts a conversation that never ran. Then the conversations, model after model.
+  A harness run that does not complete ends the attempt as error and earns one second attempt of the whole conversation: the same
+  seed and blind id, maxOutputTokens and maxWallSeconds doubled, rows with poging 2. transcripts/<blind id>.md is the attempt
+  that counts, <blind id>-p1.md the first one. A conversation that ends no_final gets none.
+  Three things end more than an attempt, each with a failing exit status:
+    a model HTTP 401, 402 or 403 (the key, the credit or the rights, not the model) in a probe or a run: the whole invocation
+      stops, a row {"turn": "stop", "model", "reason": "http_<status>"} follows the rows of that probe or attempt;
+    --max-cost-usd: before every attempt, a second one too, the cost_usd of the turn rows so far (a missing amount is 0) is
+      added up; from the cap on a row {"turn": "stop", "model", "reason": "max_cost"} ends the invocation;
+    a run call that leaves no result.json (a manifest the harness refused, a crash): the conversation ends as
+      {"turn": "end", "status": "invocation_error"}, that model stops, the other models go on. What the harness said goes to
+      stderr, masked, and into no row.
+  After the run, check_key.py counts the files of the run directory that hold the key, once for each key variable of the models.
+
 Stdlib only. Usage:
   ./run.py --models qwen3.8-gsq-rco:27b-iq3_s-text qwen3.6:35b-a3b-coding --seeds 1
   ./run.py --backend harness --harness "node /path/to/agent-harness/dist/cli.js" --variant nodocs \\
-      --models gsq-lokaal qwen3.6-openrouter --seeds 1 2 3
+      --models gsq-lokaal qwen3.6-openrouter --seeds 1 2 3 --max-cost-usd 1
   (name the harness by its full path: a ~ is not expanded inside the quotes)
 """
 import argparse
 import hashlib
 import json
+import math
 import os
 import random
 import re
@@ -38,6 +57,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from collections import namedtuple
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -47,6 +67,7 @@ ADDENDUM = HERE.parent / "prompts" / "promptverfijner-docs-addendum.txt"
 CASES = HERE / "cases.jsonl"
 MODELS = HERE / "models.json"
 DOCSET = HERE / "docset"
+CHECK_KEY = HERE / "check_key.py"
 MAX_USER_TURNS = 4
 # the harness limits that do not vary; --max-output-tokens and --max-wall-seconds set the other two (Task 13 settles them)
 MAX_TURNS, MAX_TOOL_ERRORS, CONTEXT_TOKENS = 8, 2, 65536
@@ -55,8 +76,11 @@ DOC_TOOLS = ["search_product_docs", "get_product_doc", "list_product_docs", "rel
 MASK, MIN_MASKED_LENGTH = "<redacted>", 8     # as in the harness (model-client.ts): a shorter value is a placeholder
 RUN_STATUSES = ("completed", "failed", "budget_exceeded", "timed_out")
 VERDICTS = ("reliable", "unreliable", "none")
+KEY_STATUSES = (401, 402, 403)                  # the key, the credit (402: the limit is used up) or the rights, not the model
+NO_PROVIDER_STATUSES = (404, 503)               # what OpenRouter answers when no provider of the model fits the provider block
+HTTP_ERROR = re.compile(r"model HTTP (\d{3})\b")      # the start of the message of the harness's ModelError (model-client.ts)
 OLLAMA_ONLY = ("num_ctx", "think", "host")     # the options the backend harness does not have
-HARNESS_ONLY = ("models_file", "variant", "harness", "docset", "max_output_tokens", "max_wall_seconds")
+HARNESS_ONLY = ("models_file", "variant", "harness", "docset", "max_output_tokens", "max_wall_seconds", "max_cost_usd")
 
 
 class RunError(Exception):
@@ -65,6 +89,34 @@ class RunError(Exception):
 
 class HarnessError(RunError):
     """The harness did not deliver what run.py needs: no result.json, trace.jsonl or probe.json, or one it cannot read."""
+
+
+class NoResult(HarnessError):
+    """The harness wrote no result.json after a run call: a manifest it refused, PROBE_REQUIRED, a run directory that was there
+    already, a crash. That is a fault of the call and not of the model (spec 5.7): it gets an invocation_error and no second
+    attempt. A result.json that is there and cannot be read stays a plain HarnessError."""
+
+
+class Stop(Exception):
+    """The invocation ends here, for every model: the stop row names the model that was about to be asked (reason http_<status>
+    or max_cost), run.py says why on stderr and exits with a failure status. Nothing more is sent to any model."""
+
+    def __init__(self, model, reason, why):
+        super().__init__(why)
+        self.model, self.reason = model, reason
+
+
+def key_stop(label, reason):
+    """The Stop for a model HTTP 401, 402 or 403 (reason is key_problem's http_<status>)."""
+    status = reason.split("_", 1)[1]
+    return Stop(label, reason, f"{label}: model HTTP {status}, a problem with the key, the credit (402: the limit is used up) "
+                               f"or the rights and not with the model; no model is asked anything more")
+
+
+# One attempt at a conversation: status (final, no_final, error, or invocation_error when a run call left no result.json), the
+# messages of the conversation, its wall time, `stop` (http_<status>, when a model call got a 401, 402 or 403; else None) and
+# `problem` (for an invocation_error what the harness said, with the key masked; else None)
+Attempt = namedtuple("Attempt", "status messages wall stop problem")
 
 
 def has_fence(text):
@@ -265,7 +317,7 @@ def read_result(run_dir):
     try:
         result = json.loads(path.read_text(encoding="utf-8"))
     except OSError:
-        raise HarnessError(f"{run_dir}: the harness wrote no result.json") from None
+        raise NoResult(f"{run_dir}: the harness wrote no result.json") from None
     except ValueError:
         raise HarnessError(f"{path} is not JSON") from None
     if not isinstance(result, dict) or result.get("status") not in RUN_STATUSES:
@@ -343,15 +395,47 @@ def turn_row(result, events, turn, run_id, prompt_sha, limits):
             "prompt_sha256": prompt_sha, "limits": limits}
 
 
-def probe_row(label, variant, probe):
-    """The row of a probe: its verdict (tool_calling of probe.json) and, per step that did not pass, the reason, which
-    score.py prints. label (the second of the labels score.py knows for a model that did not run) is None here."""
+def http_status(message):
+    """The status at the start of a message of the harness that reads `model HTTP <status>`: what the ModelError of a model
+    call says. run.ts quotes it as the error of a run (code MODEL_ERROR) and probe.ts as the reason of a probe step. None for
+    any other text (a failed connection is `model request failed`, not an HTTP status)."""
+    found = HTTP_ERROR.match(message) if isinstance(message, str) else None
+    return int(found.group(1)) if found else None
+
+
+def key_problem(messages):
+    """`http_<status>` for the first of messages that is a model HTTP 401, 402 or 403: a problem with the key, the credit or
+    the rights, and none with the model, so no other request of this key will do better. None when no message is."""
+    return next((f"http_{status}" for status in map(http_status, messages) if status in KEY_STATUSES), None)
+
+
+def probe_label(steps):
+    """The label of a probe that failed completely: every step ended in an HTTP error (a reason that starts with
+    `model HTTP `), so there is no verdict to speak of. `geen aanbieder` when every step has status 404 or 503 and a message
+    that names a provider, case-insensitive (OpenRouter's answer when no provider of the model fits the provider block;
+    runbook model-comparison.md, Taak 2); else `probe-fout <status of the first step>`. None for any other probe."""
+    results = list(steps.values())
+    statuses = [http_status(result.get("reason")) for result in results]
+    if not results or any(result.get("pass") or status is None for result, status in zip(results, statuses)):
+        return None
+    if all(status in NO_PROVIDER_STATUSES and "provider" in result["reason"].lower()
+           for result, status in zip(results, statuses)):
+        return "geen aanbieder"
+    return f"probe-fout {statuses[0]}"
+
+
+def probe_row(label, variant, probe, secrets=()):
+    """The row of a probe: its verdict (tool_calling of probe.json), the label of a probe that failed completely (probe_label;
+    None otherwise) and, per step that did not pass, the reason, which score.py prints. The reasons pass through
+    mask_secrets: the harness masks the key in its messages already, and this is a second line."""
     verdict = probe.get("tool_calling")
     if verdict not in VERDICTS:
         raise HarnessError(f"probe.json of {label} has no tool_calling verdict ({', '.join(VERDICTS)})")
-    reasons = {step: result.get("reason") for step, result in (probe.get("steps") or {}).items() if not result.get("pass")}
-    return {"turn": "probe", "model": label, "backend": "harness", "variant": variant, "verdict": verdict, "label": None,
-            "reasons": reasons}
+    steps = probe.get("steps") or {}
+    reasons = {step: mask_secrets(result["reason"], secrets) if isinstance(result.get("reason"), str) else result.get("reason")
+               for step, result in steps.items() if not result.get("pass")}
+    return {"turn": "probe", "model": label, "backend": "harness", "variant": variant, "verdict": verdict,
+            "label": probe_label(steps), "reasons": reasons}
 
 
 def file_name(label):
@@ -398,7 +482,7 @@ class Harness:
         try:
             result = read_result(run_dir)
         except HarnessError as e:
-            raise HarnessError(f"{e} (harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})") from None
+            raise type(e)(f"{e} (harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})") from None
         return result, read_trace(run_dir)
 
 
@@ -418,7 +502,7 @@ class HarnessBackend:
         cfg = self.models[label]
         body = self.manifests / f"probe-{file_name(label)}.extra-body.json"
         body.write_text(json.dumps(cfg["probe"]["extraBody"], indent=2) + "\n", encoding="utf-8")
-        return probe_row(label, self.variant, self.harness.probe(cfg, body))
+        return probe_row(label, self.variant, self.harness.probe(cfg, body), self.harness.secrets)
 
     def manifest(self, cfg, bid, poging, turn, messages, seed, limits):
         """The manifest of one turn. messages is the conversation so far with the new user message last: the system prompt
@@ -441,29 +525,40 @@ class HarnessBackend:
         """One attempt at a conversation, every turn one harness run. write(row) gets the row of each turn and then the
         closing row (status final, no_final or error; conversation_wall_s; cost_usd, the sum of the known costs of the turns,
         None when no turn named one). A turn that does not end completed has its row, with content '', and ends the attempt.
-        Returns (status, messages, wall_s)."""
+        Returns an Attempt (status, messages, wall_s, stop, problem). stop is http_<status> when the model call of the turn that
+        ended the attempt got a 401, 402 or 403. A run call that leaves no result.json (NoResult) has no row of its turn: the
+        closing row says invocation_error, and problem is what the harness said; that text is not written to any row."""
         cfg = self.models[label]
         base = {"model": label, "case": case["id"], "seed": seed, "blind_id": bid, "backend": "harness",
                 "variant": self.variant, "poging": poging}
-        costs = []
+        costs, stop, problem = [], None, None
 
         def ask(messages, turn):
+            nonlocal stop, problem
             manifest = self.manifest(cfg, bid, poging, turn, messages, seed, limits)
             path = self.manifests / f"{manifest['id']}.json"
             path.write_text(json.dumps(manifest, indent=2, ensure_ascii=False) + "\n", encoding="utf-8")
-            result, events = self.harness.run(path, manifest["id"], cfg)
+            try:
+                result, events = self.harness.run(path, manifest["id"], cfg)
+            except NoResult as e:
+                problem = str(e)
+                return None
             row = turn_row(result, events, turn, manifest["id"], self.prompt_sha, limits)
             write({**base, **row})
             costs.append(row["cost_usd"])
-            return row["content"] if result["status"] == "completed" else None
+            if result["status"] == "completed":
+                return row["content"]
+            stop = key_problem([(result.get("error") or {}).get("message")])
+            return None
 
         t0 = time.perf_counter()
         status, messages = converse(self.system, case, ask)
         wall = round(time.perf_counter() - t0, 1)
         known = [c for c in costs if c is not None]
+        status = "invocation_error" if problem else status
         write({**base, "turn": "end", "status": status, "conversation_wall_s": wall,
                "cost_usd": round(sum(known), 8) if known else None})
-        return status, messages, wall
+        return Attempt(status, messages, wall, stop, problem)
 
 
 def blind_ids(stamp):
@@ -475,6 +570,142 @@ def blind_ids(stamp):
             bid = f"{rng.randrange(16**6):06x}"
         used.add(bid)
         yield bid
+
+
+class Invocation:
+    """One invocation of the backend harness, in three phases: the probes of all the models; then, for each model that
+    runs, its plan row (every conversation it is going to have); then the conversations, model after model. The plan rows
+    come before the first conversation, so that score.py counts a conversation that never ran, of any model, as not finished."""
+
+    def __init__(self, backend, labels, cases, seeds, limits, out, ids, cap=None):
+        """cap: --max-cost-usd (None: no cap)."""
+        self.backend, self.labels, self.cases, self.seeds, self.limits = backend, list(labels), cases, seeds, limits
+        self.out, self.ids, self.cap = Path(out), ids, cap
+        self.key = {}                       # blind id -> the conversation; blind-key.json
+        self.costs = []                     # the cost_usd of each turn row written so far; a missing amount counts as 0
+        self.failed = False                 # a call left no result, or the invocation was stopped: the exit status is not 0
+        self.raw = None
+
+    def write(self, row):
+        self.raw.write(json.dumps(row, ensure_ascii=False) + "\n")
+        self.raw.flush()
+        if isinstance(row.get("turn"), int):      # not the closing row: it repeats the cost of its turns
+            self.costs.append(row.get("cost_usd") or 0)
+
+    def capped(self):
+        """Whether the cost of the turns so far has reached --max-cost-usd: nothing new may start."""
+        return self.cap is not None and math.fsum(self.costs) >= self.cap
+
+    def cap_stop(self, label):
+        return Stop(label, "max_cost", f"{label}: the cost of the turns so far, ${math.fsum(self.costs):.4f}, has reached "
+                                       f"--max-cost-usd {self.cap}; no new attempt starts")
+
+    def probes(self):
+        """The probe of each model, in order. Returns the labels of the models that go on to conversations: not one whose
+        probe failed completely (it ran nothing: it has its probe row and nothing else), and with docs only one whose probe
+        is reliable."""
+        running = []
+        for label in self.labels:
+            probe = self.backend.probe(label)
+            self.write(probe)
+            print(f"{label} probe: {probe['label'] or probe['verdict']}", flush=True)
+            problem = key_problem(probe["reasons"].values())
+            if problem:
+                raise key_stop(label, problem)
+            if probe["label"]:
+                print(f"{label}: no conversations after a probe in which every step ended in an HTTP error", flush=True)
+            elif self.backend.variant == "docs" and probe["verdict"] != "reliable":
+                print(f"{label}: no docs conversations after a probe that is not reliable", flush=True)
+            else:
+                running.append(label)
+        return running
+
+    def plans(self, running):
+        conversations = [[case["id"], seed] for case in self.cases for seed in self.seeds]
+        for label in running:
+            self.write({"turn": "plan", "model": label, "variant": self.backend.variant, "conversations": conversations})
+
+    def attempt(self, label, case, seed, bid, poging, limits):
+        done = self.backend.attempt(label, case, seed, bid, poging, limits, self.write)
+        print(f"{label} {case['id']} seed {seed}{' (poging 2)' if poging == 2 else ''}: {done.status} in {done.wall}s",
+              flush=True)
+        if done.problem:      # the message is already masked; it goes to stderr and into no row
+            print(f"run.py: {label} {case['id']} seed {seed}: {done.problem}", file=sys.stderr, flush=True)
+            self.failed = True
+        return done
+
+    def save_transcript(self, bid, case, messages, suffix=""):
+        (self.out / "transcripts" / f"{bid}{suffix}.md").write_text(
+            f"# Transcript {bid} ({case['id']}: {case['titel']})\n\n{transcript(messages)}", encoding="utf-8")
+
+    def conversation(self, label, case, seed):
+        """The first attempt at a conversation and, when a harness run in it did not complete (status error), one second
+        attempt: the whole conversation again, with the same seed and blind id and with maxOutputTokens and maxWallSeconds
+        doubled. The transcript of the attempt that counts is <blind id>.md, that of the first <blind id>-p1.md. A key problem
+        raises the Stop. Returns False when a run call left no result.json: the model stops, and there is no second attempt.
+        Before every attempt the cost is checked against the cap, the second attempt included."""
+        if self.capped():
+            raise self.cap_stop(label)
+        bid = next(self.ids)
+        self.key[bid] = {"model": label, "case": case["id"], "seed": seed}      # before the rows, so a crash keeps it
+        (self.out / "blind-key.json").write_text(json.dumps(self.key, indent=1))
+        counting = self.attempt(label, case, seed, bid, 1, self.limits)
+        if counting.status == "error" and not counting.stop:
+            if self.capped():      # the second attempt would start over the cap: the first one is the attempt that counts
+                self.save_transcript(bid, case, counting.messages)
+                raise self.cap_stop(label)
+            self.save_transcript(bid, case, counting.messages, "-p1")
+            doubled = {**self.limits, "maxOutputTokens": 2 * self.limits["maxOutputTokens"],
+                       "maxWallSeconds": 2 * self.limits["maxWallSeconds"]}
+            counting = self.attempt(label, case, seed, bid, 2, doubled)
+        self.save_transcript(bid, case, counting.messages)
+        if counting.stop:      # a problem with the key, the credit or the rights: the turn and the closing row are written
+            raise key_stop(label, counting.stop)
+        return counting.status != "invocation_error"
+
+    def model(self, label):
+        """All the conversations of one model, up to a call that left no result."""
+        for case in self.cases:
+            for seed in self.seeds:
+                if not self.conversation(label, case, seed):
+                    print(f"{label}: no more conversations after a run call without result", flush=True)
+                    return
+
+    def run(self, raw):
+        """Run the invocation. Returns whether it must end with a failure status: it was stopped, or a run call left no
+        result."""
+        self.raw = raw
+        try:
+            running = self.probes()
+            self.plans(running)
+            for label in running:
+                self.model(label)
+        except Stop as stop:
+            self.write({"turn": "stop", "model": stop.model, "reason": stop.reason})
+            print(f"run.py: stopped: {stop}", file=sys.stderr, flush=True)
+            self.failed = True
+        return self.failed
+
+
+def check_keys(names, run_dir, secrets):
+    """check_key.py over run_dir, once for each key variable in names, with the value in the environment it inherits and only
+    the name in argv. What it prints (counts and the name of the variable, never a value) is passed on, masked all the same.
+    Returns whether a check found the key or could not be made."""
+    failed = False
+    for name in sorted(names):
+        try:
+            done = subprocess.run([sys.executable, str(CHECK_KEY), "--env", name, str(run_dir)], capture_output=True, text=True,
+                                  encoding="utf-8", errors="replace", stdin=subprocess.DEVNULL)
+        except OSError as e:
+            print(f"run.py: cannot run check_key.py for {name}: {e.strerror}", file=sys.stderr, flush=True)
+            failed = True
+            continue
+        sys.stdout.write(mask_secrets(done.stdout, secrets))
+        sys.stdout.flush()
+        sys.stderr.write(mask_secrets(done.stderr, secrets))
+        sys.stderr.flush()
+        failed = failed or done.returncode != 0
+    return failed
 
 
 def run_ollama(args):
@@ -551,37 +782,37 @@ def run_harness(args):
     limits = {"maxTurns": MAX_TURNS, "maxOutputTokens": args.max_output_tokens or MAX_OUTPUT_TOKENS,
               "maxWallSeconds": args.max_wall_seconds or MAX_WALL_SECONDS, "maxToolErrors": MAX_TOOL_ERRORS,
               "contextTokens": CONTEXT_TOKENS}      # both options are positive, so `or` only supplies the default
-    ids, key = blind_ids(stamp), {}
-
-    with open(out / "raw.jsonl", "a", encoding="utf-8") as raw:
-        def write(row):
-            raw.write(json.dumps(row, ensure_ascii=False) + "\n")
-            raw.flush()
-
-        for label in args.models:
-            probe = backend.probe(label)
-            write(probe)
-            print(f"{label} probe: {probe['verdict']}", flush=True)
-            if variant == "docs" and probe["verdict"] != "reliable":
-                print(f"{label}: no docs conversations after a probe that is not reliable", flush=True)
-                continue
-            for case in cases:
-                for seed in args.seeds:
-                    bid = next(ids)
-                    key[bid] = {"model": label, "case": case["id"], "seed": seed}     # before the rows, so a crash keeps it
-                    (out / "blind-key.json").write_text(json.dumps(key, indent=1))
-                    status, messages, wall = backend.attempt(label, case, seed, bid, 1, limits, write)
-                    (out / "transcripts" / f"{bid}.md").write_text(
-                        f"# Transcript {bid} ({case['id']}: {case['titel']})\n\n{transcript(messages)}", encoding="utf-8")
-                    print(f"{label} {case['id']} seed {seed}: {status} in {wall}s", flush=True)
-    (out / "blind-key.json").write_text(json.dumps(key, indent=1))
+    invocation = Invocation(backend, args.models, cases, args.seeds, limits, out, blind_ids(stamp), args.max_cost_usd)
+    try:
+        with open(out / "raw.jsonl", "a", encoding="utf-8") as raw:
+            failed = invocation.run(raw)
+    except BaseException:
+        check_keys(names, out, secrets)         # a run that broke off may have left the key behind as well
+        raise
+    (out / "blind-key.json").write_text(json.dumps(invocation.key, indent=1))
+    leaked = check_keys(names, out, secrets)
+    if leaked:
+        print(f"run.py: check_key.py found the key in the run directory or could not check it (see above): "
+              f"do not keep or share {out}", file=sys.stderr, flush=True)
     print(f"done: {out}")
+    return 1 if failed or leaked else 0
 
 
 def positive_int(text):
     number = int(text)
     if number < 1:
         raise argparse.ArgumentTypeError(f"{text} is not a positive number")
+    return number
+
+
+def positive_amount(text):
+    """An amount of money above zero (a finite number: nan and inf are no cap)."""
+    try:
+        number = float(text)
+    except ValueError:
+        number = math.nan
+    if not (math.isfinite(number) and number > 0):
+        raise argparse.ArgumentTypeError(f"{text!r} is not a positive amount")
     return number
 
 
@@ -606,6 +837,9 @@ def build_parser():
                                      "docset next to this file)")
     ap.add_argument("--max-output-tokens", type=positive_int, help=f"backend harness (default {MAX_OUTPUT_TOKENS})")
     ap.add_argument("--max-wall-seconds", type=positive_int, help=f"backend harness (default {MAX_WALL_SECONDS})")
+    ap.add_argument("--max-cost-usd", type=positive_amount,
+                    help="backend harness: no attempt starts once the cost_usd of the turns written so far, a missing amount "
+                         "counted as 0, has reached this amount (default: no cap)")
     return ap
 
 
@@ -620,9 +854,10 @@ def main():
     if missing:
         ap.error(f"the backend harness needs {' and '.join(missing)}")
     try:
-        (run_harness if args.backend == "harness" else run_ollama)(args)
+        status = (run_harness if args.backend == "harness" else run_ollama)(args)
     except RunError as e:
         sys.exit(f"run.py: {e}")
+    sys.exit(status)
 
 
 if __name__ == "__main__":

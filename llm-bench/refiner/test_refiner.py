@@ -2945,6 +2945,19 @@ def probe_fails(model, **fail):
     return {"when": {"model": model}, "response": {"fail": fail}}
 
 
+def probe_http(model, status, message):
+    """A fake-harness rule: every step of the probe of model ends in an HTTP error, as when the endpoint answers every
+    request with status. The reason of a step is the message of the harness's ModelError (src/model-client.ts:
+    `model HTTP <status>: ...`)."""
+    return probe_fails(model, **{step: f"model HTTP {status}: {message}" for step in PROBE_STEPS})
+
+
+def http_failure(status, message="upstream said so", **extra):
+    """A fake-harness response: the model call of a turn got an HTTP error, as run.ts records it (status failed, error code
+    MODEL_ERROR, the message of the ModelError)."""
+    return {"status": "failed", "error": {"code": "MODEL_ERROR", "message": f"model HTTP {status}: {message}"}, **extra}
+
+
 class HarnessRunBase(unittest.TestCase):
     """run.py --backend harness with fake_harness.py as the harness. It holds no test, so a subclass does not repeat any."""
 
@@ -2987,6 +3000,13 @@ class HarnessRunBase(unittest.TestCase):
     def invocations(self):
         """The argv of every call run.py made to the fake harness."""
         return [json.loads(line)["argv"] for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+    def score(self):
+        """score.py over the run directory: what it printed and the rows of summary.csv."""
+        done = subprocess.run([sys.executable, str(HERE / "score.py"), str(self.out)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with (self.out / "summary.csv").open(newline="", encoding="utf-8") as f:
+            return done.stdout, list(csv.DictReader(f))
 
 
 class BlindIdsTest(unittest.TestCase):
@@ -3291,6 +3311,32 @@ class HarnessFilesTest(unittest.TestCase):
         with self.assertRaisesRegex(run.HarnessError, r"a1b2c3-p1-t1.*result\.json"):
             run.read_result(self.dir)
 
+    def test_only_a_result_json_that_is_not_there_is_no_result_and_one_that_is_unusable_stays_a_plain_harness_error(self):
+        # no file is a fault of the call (a manifest the harness refused, PROBE_REQUIRED, a run dir that was there already):
+        # run.py records an invocation error and goes on. A file that is there and cannot be read is the harness breaking its
+        # own contract: that stops run.py, as before.
+        with self.assertRaises(run.NoResult):
+            run.read_result(self.dir)
+        self.assertTrue(issubclass(run.NoResult, run.HarnessError))
+        (self.dir / "result.json").write_text("{not json")
+        with self.assertRaises(run.HarnessError) as unusable:
+            run.read_result(self.dir)
+        self.assertNotIsInstance(unusable.exception, run.NoResult)
+
+    def test_harness_run_adds_what_the_harness_said_and_keeps_the_kind_of_error(self):
+        out = self.dir.parent                                   # --out: the run directory of a run is <out>/<run id>
+        harness = run.Harness([sys.executable, "-c", "pass"], out, [DUMMY_KEY])       # a command that writes nothing
+        with self.assertRaises(run.NoResult) as raised:
+            harness.run(out / "manifest.json", "missing-p1-t1", {})
+        self.assertIn("missing-p1-t1", str(raised.exception))
+        self.assertIn("harness exit status 0", str(raised.exception))
+        (out / "unusable-p1-t1").mkdir()
+        (out / "unusable-p1-t1" / "result.json").write_text("{not json")
+        with self.assertRaises(run.HarnessError) as raised:
+            harness.run(out / "manifest.json", "unusable-p1-t1", {})
+        self.assertNotIsInstance(raised.exception, run.NoResult)
+        self.assertIn("harness exit status 0", str(raised.exception))
+
     def test_a_result_json_that_is_no_result_is_refused(self):
         for text in ("", "{not json", "[]", '{"status": "unknown"}', "{}"):
             with self.subTest(text):
@@ -3365,6 +3411,97 @@ class ProbeRowTest(unittest.TestCase):
                             ("nvidia/nemotron-3-super-120b-a12b", "probe-nvidia-nemotron-3-super-120b-a12b"),
                             ("Google/Gemma-4-31B-IT", "probe-google-gemma-4-31b-it")):
             self.assertEqual(run.probe_dir_name(model), name)
+
+
+# Taak 11b: what the harness says about an HTTP error. run.ts records it as the error of a run (status failed, code MODEL_ERROR)
+# and probe.ts as the reason of a probe step; both are the message of a ModelError, `model HTTP <status>: ...`.
+# The answer OpenRouter gave in the first contact (docs/runbooks/model-comparison.md, "Geen aanbieder") to a request with a
+# provider that does not exist: HTTP 404; the harness keeps the first 200 characters of the body.
+REAL_404 = ('model HTTP 404: {"error":{"message":"No allowed providers are available for the selected model. '
+            'Providers serving')
+
+
+class HttpStatusTest(unittest.TestCase):
+    def test_the_status_is_the_one_at_the_start_of_a_model_error(self):
+        for text, status in (('model HTTP 402: {"error":{"message":"Insufficient credits"}}', 402), ("model HTTP 503", 503),
+                             ("model HTTP 200: invalid JSON: <html>", 200), ("model HTTP 200: no choices: {}", 200),
+                             (REAL_404, 404)):
+            with self.subTest(text):
+                self.assertEqual(run.http_status(text), status)
+
+    def test_any_other_text_has_no_status(self):
+        for text in ("model request failed: fetch failed", "turn 2: model HTTP 402: x", " model HTTP 402", "HTTP 402",
+                     "model HTTP 40: x", "model HTTP 4020: x", "", None, 402):
+            with self.subTest(text):
+                self.assertIsNone(run.http_status(text))
+
+    def test_only_401_402_and_403_are_a_problem_with_the_key(self):
+        def message(status):
+            return f"model HTTP {status}: x"
+        for status in (401, 402, 403):
+            self.assertEqual(run.key_problem([message(status)]), f"http_{status}")
+        for status in (200, 400, 404, 408, 429, 500, 502, 503):
+            self.assertIsNone(run.key_problem([message(status)]), status)
+        self.assertEqual(run.key_problem([message(429), message(403), message(401)]), "http_403")      # the first counts
+        self.assertIsNone(run.key_problem([]))
+        self.assertIsNone(run.key_problem([None, "model request failed: x"]))
+
+
+class ProbeLabelTest(unittest.TestCase):
+    """The label of a probe row (spec 5.7, plan Task 11): set only when every step ended in an HTTP error."""
+
+    def label_of(self, reasons, passing=()):
+        steps = {step: {"pass": step in passing, "reason": reason, "raw": None} for step, reason in reasons.items()}
+        return run.probe_row(REMOTE, "nodocs", {"tool_calling": "none", "steps": steps})["label"]
+
+    def four(self, reason):
+        return dict.fromkeys(PROBE_STEPS, reason)
+
+    def test_every_step_a_404_or_503_that_names_a_provider_is_geen_aanbieder(self):
+        for reason in ("model HTTP 503: no available model provider", REAL_404,
+                       'model HTTP 404: {"error":{"message":"No PROVIDER routes this model"}}'):
+            with self.subTest(reason):
+                self.assertEqual(self.label_of(self.four(reason)), "geen aanbieder")
+        mixed = dict(zip(PROBE_STEPS, ("model HTTP 404: no provider", "model HTTP 503: no available model provider",
+                                       "model HTTP 404: Provider returned nothing", "model HTTP 503: providers: none")))
+        self.assertEqual(self.label_of(mixed), "geen aanbieder")
+
+    def test_any_other_probe_that_failed_completely_is_a_probe_fout_with_the_status_of_the_first_step(self):
+        for reason, label in (("model HTTP 429: slow down", "probe-fout 429"),
+                              ("model HTTP 429: the provider is rate limited", "probe-fout 429"),   # right word, wrong status
+                              ("model HTTP 404: no such model", "probe-fout 404"),                  # right status, no provider
+                              ("model HTTP 503: the service is overloaded", "probe-fout 503"),
+                              ("model HTTP 401: user not found", "probe-fout 401"),
+                              ("model HTTP 200: error body: provider returned error", "probe-fout 200")):
+            with self.subTest(reason):
+                self.assertEqual(self.label_of(self.four(reason)), label)
+        first = dict(zip(PROBE_STEPS, ("model HTTP 404: no provider", "model HTTP 503: no provider",
+                                       "model HTTP 429: x", "model HTTP 503: no provider")))
+        self.assertEqual(self.label_of(first), "probe-fout 404")           # one step differs: not geen aanbieder
+        second = dict(zip(PROBE_STEPS, ("model HTTP 503: x", "model HTTP 404: no provider", "model HTTP 404: no provider",
+                                        "model HTTP 404: no provider")))
+        self.assertEqual(self.label_of(second), "probe-fout 503")          # the first step names the status
+
+    def test_a_probe_in_which_a_step_passed_or_failed_without_an_http_status_has_no_label(self):
+        reasons = self.four("model HTTP 429: slow down")
+        self.assertIsNone(self.label_of({**reasons, "a_plain": "content: pong"}, passing=["a_plain"]))
+        self.assertIsNone(self.label_of({**reasons, "d_nonexistent_tool": "called: delete_everything"}))
+        self.assertIsNone(self.label_of({**reasons, "c_two_tools": "model request failed: fetch failed"}))
+        self.assertIsNone(self.label_of({**reasons, "b_single_tool": "turn 1: model HTTP 429: x"}))
+        self.assertIsNone(self.label_of(self.four("model request failed: fetch failed")))
+        self.assertIsNone(self.label_of({}))                                # no steps: nothing failed
+
+    def test_the_reasons_of_the_row_are_masked_with_the_secrets_it_is_given(self):
+        steps = {"a_plain": {"pass": True, "reason": "content: pong", "raw": {}},
+                 "b_single_tool": {"pass": True, "reason": 'echo("ping")', "raw": {}},
+                 "c_two_tools": {"pass": False, "reason": f"model HTTP 429: key {DUMMY_KEY} is rate limited", "raw": None},
+                 "d_nonexistent_tool": {"pass": False, "reason": f"model HTTP 429: {DUMMY_KEY.strip()}", "raw": None}}
+        probe = {"tool_calling": "unreliable", "steps": steps}
+        row = run.probe_row(REMOTE, "nodocs", probe, [f" {DUMMY_KEY}\n"])
+        self.assertEqual(row["reasons"], {"c_two_tools": "model HTTP 429: key <redacted> is rate limited",
+                                          "d_nonexistent_tool": "model HTTP 429: <redacted>"})
+        self.assertEqual(run.probe_row(REMOTE, "nodocs", probe)["reasons"]["c_two_tools"],
+                         f"model HTTP 429: key {DUMMY_KEY} is rate limited")       # without secrets the text is as it was
 
 
 # Fix round 1: the parser contract on REAL output. fixtures/real-harness/ is a sanitized copy of what the harness itself wrote
@@ -3480,7 +3617,7 @@ class HarnessConversationTest(HarnessRunBase):
             self.assertEqual(list(manifest), ["id", "profile", "system", *(["history"] if history else []), "prompt",
                                               "model", "limits"])
             history = history + [{"role": "user", "content": prompts[n]}, {"role": "assistant", "content": QUESTIONS}]
-        self.assertEqual([r["turn"] for r in self.rows()], ["probe", 1, 2, 3, 4, "end"])
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", "plan", 1, 2, 3, 4, "end"])
         self.assertEqual(self.end_rows()[0]["status"], "no_final")
 
     def test_the_pressure_turn_follows_the_first_answer_without_a_prompt(self):
@@ -3556,10 +3693,11 @@ class HarnessConversationTest(HarnessRunBase):
         usage = {"inputTokens": 1200, "outputTokens": 300, "cachedTokens": 64, "costUsd": 0.0004, "reasoningTokens": 120}
         config = script(FENCE_REPLY, usage=usage, providers=["Novita"], duration_ms=2500)
         self.run_py("--models", REMOTE, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY})
-        probe, turn, end = self.rows()
+        probe, plan, turn, end = self.rows()
         bid = turn["blind_id"]
         self.assertRegex(bid, r"^[0-9a-f]{6}$")
         self.assertEqual(probe, probe_row(REMOTE, "reliable", None, {}, "nodocs"))
+        self.assertEqual(plan, plan_row(REMOTE, [("R09", 1)], "nodocs"))
         expected = {"model": REMOTE, "case": "R09", "seed": 1, "blind_id": bid, "backend": "harness", "variant": "nodocs",
                     "poging": 1, "turn": 1, "content": FENCE_REPLY, "status": "completed", "error_code": None,
                     "model_turns": 1, "tool_calls": [], "input_tokens": 1200, "output_tokens": 300, "cached_tokens": 64,
@@ -3822,7 +3960,7 @@ class HarnessProbeTest(HarnessRunBase):
     def test_without_docs_a_model_whose_probe_is_not_reliable_still_has_its_conversations(self):
         config = {**DIRECT, "probe": [probe_fails(LOCAL_MODELS[LOCAL], d_nonexistent_tool="called: delete_everything")]}
         self.run_py("--models", LOCAL, "--cases", "R09", config=config)
-        self.assertEqual([r["turn"] for r in self.rows()], ["probe", 1, "end"])
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", "plan", 1, "end"])
         self.assertEqual(self.rows()[0]["verdict"], "unreliable")
         self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "run"])
 
@@ -3858,6 +3996,149 @@ class HarnessProbeTest(HarnessRunBase):
         self.assertIn("ECONNREFUSED", done.stderr)                  # what the harness said is passed on
         self.assertEqual([r for r in self.rows() if r["turn"] != "probe"], [])
         self.assertEqual([argv[0] for argv in self.invocations()], ["probe"])
+
+    def test_all_probes_come_first_in_the_order_of_the_models(self):
+        self.run_py("--models", LOCAL, REMOTE, "qwen3.8-openrouter", "--cases", "R09", config=DIRECT,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "probe", "run", "run", "run"])
+        self.assertEqual([r["model"] for r in self.rows()[:3]], [LOCAL, REMOTE, "qwen3.8-openrouter"])
+        self.assertEqual({r["turn"] for r in self.rows()[:3]}, {"probe"})
+
+    def test_the_reasons_of_a_probe_are_masked_before_they_reach_raw_jsonl(self):
+        # the harness masks the key in its messages (maskKey); here a harness that did not: probe.json holds the value, raw.jsonl
+        # must not, and the key check after the run finds the one file that does
+        rule = probe_fails(OPENROUTER_MODELS[REMOTE], c_two_tools=f"model HTTP 429: key {DUMMY_KEY} is rate limited")
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config={**DIRECT, "probe": [rule]}, check=False,
+                           **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual(self.rows()[0]["reasons"], {"c_two_tools": "model HTTP 429: key <redacted> is rate limited"})
+        self.assertNotIn(DUMMY_KEY, (self.out / "raw.jsonl").read_text(encoding="utf-8"))
+        leaked = [p.name for p in self.out.rglob("*") if p.is_file() and DUMMY_KEY in p.read_text(encoding="utf-8")]
+        self.assertEqual(leaked, ["probe.json"])
+        self.assertEqual(done.returncode, 1)
+        self.assertRegex(done.stdout, r"with_key=1\n")
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
+
+
+class HarnessProbeFailureTest(HarnessRunBase):
+    """A probe in which every step ended in an HTTP error: the model runs nothing, and the report says why (spec 5.7)."""
+
+    STEPS = ", ".join(PROBE_STEPS)
+
+    def failed_probe_run(self, status, message, **kw):
+        """REMOTE, whose probe fails completely, and LOCAL, which is fine, in one invocation."""
+        config = {**DIRECT, "probe": [probe_http(OPENROUTER_MODELS[REMOTE], status, message)]}
+        return self.run_py("--models", REMOTE, LOCAL, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY}, **kw)
+
+    def test_a_503_about_no_provider_on_every_step_leaves_only_the_probe_row_and_scores_as_geen_aanbieder(self):
+        reason = "model HTTP 503: no available model provider"
+        self.failed_probe_run(503, "no available model provider")
+        rows = self.rows()
+        self.assertEqual([r for r in rows if r["model"] == REMOTE],                  # no plan row, no conversation
+                         [probe_row(REMOTE, "none", "geen aanbieder", dict.fromkeys(PROBE_STEPS, reason))])
+        self.assertEqual([r["turn"] for r in rows if r["model"] == LOCAL], ["probe", "plan", 1, "end"])    # the rest ran
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "run"])
+        self.assertEqual({m["model"]["name"] for m in self.manifests().values()}, {LOCAL_MODELS[LOCAL]})
+        self.assertEqual(len(json.loads((self.out / "blind-key.json").read_text())), 1)
+        output, summary = self.score()
+        table = parse_tables(output)["nodocs"][REMOTE]
+        self.assertEqual((table["Probe"], table["Zeef"], table["Afgerond"], table["Backend"]),
+                         ("geen aanbieder", "niet gedraaid", "-", "harness"))
+        self.assertIn(f"- {REMOTE} (niet gedraaid): geen aanbieder; {self.STEPS}: {reason}", output)
+        self.assertEqual([r["model"] for r in summary], [LOCAL])
+
+    def test_the_real_404_about_providers_is_geen_aanbieder_too(self):
+        self.failed_probe_run(404, REAL_404[len("model HTTP 404: "):])
+        (row,) = [r for r in self.rows() if r["model"] == REMOTE]
+        self.assertEqual((row["label"], row["verdict"], row["reasons"]), ("geen aanbieder", "none",
+                                                                       dict.fromkeys(PROBE_STEPS, REAL_404)))
+        self.assertIn(f"- {REMOTE} (niet gedraaid): geen aanbieder; {self.STEPS}: {REAL_404}", self.score()[0])
+
+    def test_four_times_429_is_a_probe_fout_and_not_geen_aanbieder(self):
+        reason = "model HTTP 429: rate limited by the provider"          # even with the word provider in it
+        self.failed_probe_run(429, "rate limited by the provider")
+        (row,) = [r for r in self.rows() if r["model"] == REMOTE]
+        self.assertEqual((row["label"], row["verdict"]), ("probe-fout 429", "none"))
+        self.assertEqual(row["reasons"], dict.fromkeys(PROBE_STEPS, reason))
+        self.assertEqual([r["turn"] for r in self.rows() if r["model"] == REMOTE], ["probe"])
+        output, _ = self.score()
+        table = parse_tables(output)["nodocs"][REMOTE]
+        self.assertEqual((table["Probe"], table["Zeef"]), ("probe-fout 429", "niet gedraaid"))
+        self.assertIn(f"- {REMOTE} (niet gedraaid): probe-fout 429; {self.STEPS}: {reason}", output)
+        self.assertNotIn("geen aanbieder", output)
+
+    def test_a_probe_that_failed_completely_runs_nothing_in_the_docs_variant_either(self):
+        config = {**DIRECT, "probe": [probe_http(OPENROUTER_MODELS[REMOTE], 429, "slow down")]}
+        self.run_py("--models", REMOTE, "qwen3.8-openrouter", "--variant", "docs", "--cases", "D01", config=config,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([r["turn"] for r in self.rows() if r["model"] == REMOTE], ["probe"])
+        self.assertEqual({r["model"] for r in self.rows() if r["turn"] == "plan"}, {"qwen3.8-openrouter"})
+
+    def test_a_probe_that_fails_for_another_reason_still_has_its_conversations_without_docs(self):
+        # not every step ended in an HTTP error: the model may still be able to answer
+        rule = probe_fails(OPENROUTER_MODELS[REMOTE], a_plain="model HTTP 429: slow down",
+                           b_single_tool="model request failed: fetch failed", c_two_tools="model HTTP 429: slow down",
+                           d_nonexistent_tool="model HTTP 429: slow down")
+        self.run_py("--models", REMOTE, "--cases", "R09", config={**DIRECT, "probe": [rule]}, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", "plan", 1, "end"])
+        self.assertIsNone(self.rows()[0]["label"])
+
+    def test_a_run_whose_models_all_failed_the_probe_is_a_finished_run_with_a_report(self):
+        config = {**DIRECT, "probe": [probe_http(OPENROUTER_MODELS[REMOTE], 503, "no available model provider")]}
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual(done.returncode, 0)                  # no conversation to run is a result, not a failure of the call
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe"])
+        self.assertEqual(json.loads((self.out / "blind-key.json").read_text()), {})
+        self.assertIn("geen aanbieder", done.stdout)
+        self.assertEqual(self.score()[1], [])
+
+
+class HarnessPlanTest(HarnessRunBase):
+    """The plan row: every conversation a model is going to have, written before the first conversation of the invocation."""
+
+    CONVERSATIONS = [("R08", 1), ("R08", 2), ("R09", 1), ("R09", 2)]
+
+    def test_all_probes_then_a_plan_row_per_model_that_runs_then_the_conversations(self):
+        self.run_py("--models", LOCAL, REMOTE, "--cases", "R08,R09", "--seeds", "1", "2", config=DIRECT,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        rows = self.rows()
+        self.assertEqual(rows[:4], [probe_row(LOCAL), probe_row(REMOTE), plan_row(LOCAL, self.CONVERSATIONS),
+                                    plan_row(REMOTE, self.CONVERSATIONS)])
+        self.assertTrue(all("case" in r for r in rows[4:]))             # from here on only conversations
+        self.assertEqual(list(rows[2]), ["turn", "model", "variant", "conversations"])
+        self.assertEqual(rows[2]["conversations"], [["R08", 1], ["R08", 2], ["R09", 1], ["R09", 2]])
+        self.assertEqual([argv[0] for argv in self.invocations()][:2], ["probe", "probe"])
+        # the conversations come in the order of the plan, model after model
+        for label in (LOCAL, REMOTE):
+            self.assertEqual([(r["case"], r["seed"]) for r in self.end_rows() if r["model"] == label], self.CONVERSATIONS)
+        self.assertEqual([r["model"] for r in self.end_rows()], [LOCAL] * 4 + [REMOTE] * 4)
+
+    def test_the_plan_row_of_a_docs_run_names_the_variant_and_the_doc_cases(self):
+        self.run_py("--models", REMOTE, "--variant", "docs", "--seeds", "1", "2", config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
+        (plan,) = [r for r in self.rows() if r["turn"] == "plan"]
+        self.assertEqual(plan, plan_row(REMOTE, [(f"D{n:02d}", seed) for n in range(1, 6) for seed in (1, 2)], "docs"))
+
+    def test_a_model_whose_docs_probe_is_not_reliable_has_no_plan_row(self):
+        config = {**DIRECT, "probe": [probe_fails(OPENROUTER_MODELS[REMOTE], c_two_tools="no second call")]}
+        self.run_py("--models", REMOTE, "qwen3.8-openrouter", "--variant", "docs", "--cases", "D01", config=config,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([r["model"] for r in self.rows() if r["turn"] == "plan"], ["qwen3.8-openrouter"])
+        self.assertEqual([r["turn"] for r in self.rows() if r["model"] == REMOTE], ["probe"])
+
+    def test_without_docs_a_model_whose_probe_is_not_reliable_has_its_plan_and_its_conversations(self):
+        config = {**DIRECT, "probe": [probe_fails(LOCAL_MODELS[LOCAL], d_nonexistent_tool="called: delete_everything")]}
+        self.run_py("--models", LOCAL, "--cases", "R09", config=config)
+        self.assertEqual(self.rows()[1], plan_row(LOCAL, [("R09", 1)]))
+
+    def test_the_plan_is_the_denominator_for_score_py(self):
+        # a conversation that was planned and never ran is not finished: the plan tells score.py there should be four
+        config = {"run": [{"response": {"answer": FENCE_REPLY}}]}
+        self.run_py("--models", LOCAL, "--cases", "R08,R09", "--seeds", "1", "2", config=config)
+        rows = self.rows()
+        raw = (self.out / "raw.jsonl")
+        raw.write_text("".join(json.dumps(r) + "\n" for r in rows if r.get("seed") != 2 and r.get("case") != "R09"),
+                       encoding="utf-8")                  # as if the invocation had broken off after the first conversation
+        table = parse_tables(self.score()[0])["nodocs"][LOCAL]
+        self.assertEqual(table["Afgerond"], "1/4")
 
 
 class HarnessKeyTest(HarnessRunBase):
@@ -3937,53 +4218,728 @@ class HarnessFailureTest(HarnessRunBase):
         return {"run": [{"response": {"answer": QUESTIONS}},
                         {"when": {"turn": 1}, "response": {"usage": {"costUsd": 0.001}}}, *extra]}
 
-    def test_a_turn_that_does_not_complete_gets_its_row_and_ends_the_conversation_with_status_error(self):
+    def test_a_turn_that_does_not_complete_gets_its_row_and_ends_the_attempt_with_status_error(self):
         config = self.rules({"when": {"turn": 2, "seed": 1}, "response": self.FAILED})
         done = self.run_py("--models", LOCAL, "--cases", "R07", "--seeds", "1", "2", config=config)
         by_seed = {}
-        for row in self.rows()[1:]:
+        for row in self.rows()[2:]:                                      # after the probe row and the plan row
             by_seed.setdefault(row["seed"], []).append(row)
         failing, fine = by_seed[1], by_seed[2]
-        self.assertEqual([(r["turn"], r["status"]) for r in failing], [(1, "completed"), (2, "failed"), ("end", "error")])
-        row = failing[1]
+        first = [r for r in failing if r["poging"] == 1]                 # the second attempt fails in the same way
+        self.assertEqual([(r["turn"], r["status"]) for r in first], [(1, "completed"), (2, "failed"), ("end", "error")])
+        row = first[1]
         self.assertEqual((row["content"], row["error_code"], row["cost_usd"], row["finish_reason"], row["providers"]),
                          ("", "MODEL_ERROR", 0.0005, None, []))
-        self.assertEqual(failing[2]["cost_usd"], 0.0015)                 # a failed turn is paid for too
+        self.assertEqual(first[2]["cost_usd"], 0.0015)                   # a failed turn is paid for too
+        self.assertEqual([(r["poging"], r["turn"], r["status"]) for r in failing if r["poging"] == 2],
+                         [(2, 1, "completed"), (2, 2, "failed"), (2, "end", "error")])
         self.assertEqual([(r["turn"], r["status"]) for r in fine],       # the next seed ran, all four turns
                          [(1, "completed"), (2, "completed"), (3, "completed"), (4, "completed"), ("end", "no_final")])
-        self.assertEqual(len(self.manifests()), 2 + 4)                   # no turn 3 and 4 after the failure
+        self.assertEqual(len(self.manifests()), 2 + 2 + 4)               # no turn 3 and 4 after the failure, twice
         self.assertIn("error", done.stdout)
-        transcript = (self.out / "transcripts" / f"{failing[0]['blind_id']}.md").read_text()
-        self.assertEqual(transcript.count("### Model"), 1)               # the failed turn has no text to show
+        bid = failing[0]["blind_id"]
+        for name in (f"{bid}.md", f"{bid}-p1.md"):                       # the attempt that counts, and the first
+            transcript = (self.out / "transcripts" / name).read_text()
+            self.assertEqual(transcript.count("### Model"), 1)           # the failed turn has no text to show
 
-    def test_every_status_that_is_not_completed_ends_the_conversation(self):
+    def test_every_status_that_is_not_completed_ends_the_attempt_and_earns_one_second_attempt(self):
         for status in ("failed", "budget_exceeded", "timed_out"):
             with self.subTest(status):
                 self.out = self.tmp / f"run-{status}"
                 self.run_py("--models", LOCAL, "--cases", "R07",
                             config=self.rules({"when": {"turn": 2}, "response": {"status": status}}))
-                rows = self.rows()[1:]
-                self.assertEqual([(r["turn"], r["status"]) for r in rows], [(1, "completed"), (2, status), ("end", "error")])
-                self.assertEqual(rows[1]["content"], "")
+                rows = self.rows()[2:]                                   # after the probe row and the plan row
+                self.assertEqual([(r["poging"], r["turn"], r["status"]) for r in rows],
+                                 [(poging, turn, st) for poging in (1, 2)
+                                  for turn, st in ((1, "completed"), (2, status), ("end", "error"))])
+                self.assertEqual([r["content"] for r in rows if r["turn"] == 2], ["", ""])
 
-    def test_a_run_without_result_json_is_an_error_that_names_the_manifest_and_stops_run_py(self):
-        config = self.rules({"when": {"turn": 2}, "response": {"no_result": True}})
-        done = self.run_py("--models", LOCAL, "--cases", "R07", "--seeds", "1", "2", config=config, check=False)
+
+class HarnessInvocationErrorTest(HarnessRunBase):
+    """A run call that leaves no result.json is a fault of the call (a manifest the harness refused, PROBE_REQUIRED, a run
+    directory that was there already, a crash) and not of the model: the conversation ends as invocation_error, there is no
+    second attempt, the measurement of that model stops, the other models go on, and run.py ends with a failure status."""
+
+    SECOND = "qwen3.8-openrouter"
+    SAID = f"fetch failed: Authorization: Bearer {DUMMY_KEY} rejected"
+    END_KEYS = ["model", "case", "seed", "blind_id", "backend", "variant", "poging", "turn", "status", "conversation_wall_s",
+                "cost_usd"]
+
+    def no_result(self, **when):
+        """REMOTE asks first and writes the prompt in turn 2; its run call in the turn named by when leaves no result."""
+        return {"run": [{"response": {"answer": FENCE_REPLY, "usage": {"costUsd": 0.001}}},
+                        {"when": {"turn": 1}, "response": {"answer": QUESTIONS}},
+                        {"when": {"model": OPENROUTER_MODELS[REMOTE], **when},
+                         "response": {"no_result": True, "stderr": self.SAID}}]}
+
+    def run_no_result(self, *extra, **when):
+        return self.run_py("--models", REMOTE, self.SECOND, "--cases", "R01", "--seeds", "1", "2", *extra, check=False,
+                           config=self.no_result(**{"turn": 2, **when}), **{KEY_VARIABLE: DUMMY_KEY})
+
+    def test_the_conversation_ends_as_invocation_error_with_its_keys_its_cost_and_no_message_of_the_harness(self):
+        done = self.run_no_result()
         self.assertNotEqual(done.returncode, 0)
-        manifest_id = sorted(self.manifests())[1]
-        self.assertTrue(manifest_id.endswith("-p1-t2"))
-        self.assertIn(manifest_id, done.stderr)
-        self.assertIn("result.json", done.stderr)
-        self.assertIn("exit status 1", done.stderr)
-        self.assertIn("stopped before result.json was written", done.stderr)      # what the harness said is passed on
-        self.assertNotIn("Traceback", done.stderr)                       # a message, not a stack trace
-        self.assertEqual(len(self.manifests()), 2)                       # the second seed never started
-        # what was written before stays: the probe row and the first turn, without a row for the missing one or an end row
+        rows = [r for r in self.rows() if r["model"] == REMOTE and "case" in r]
+        self.assertEqual([(r["poging"], r["turn"]) for r in rows], [(1, 1), (1, "end")])      # no row for the missing turn
+        end = rows[1]
+        self.assertEqual(list(end), self.END_KEYS)
+        self.assertEqual({k: end[k] for k in ("model", "case", "seed", "backend", "variant", "poging", "turn", "status",
+                                              "cost_usd")},
+                         {"model": REMOTE, "case": "R01", "seed": 1, "backend": "harness", "variant": "nodocs", "poging": 1,
+                          "turn": "end", "status": "invocation_error", "cost_usd": 0.001})   # what turn 1 cost
+        self.assertEqual(end["blind_id"], rows[0]["blind_id"])
+        self.assertIsInstance(end["conversation_wall_s"], float)
+        # nothing the harness said is in raw.jsonl: that file is free of unmasked text
+        text = (self.out / "raw.jsonl").read_text(encoding="utf-8")
+        for said in ("stopped before result.json", "fetch failed", "Bearer", "exit status", DUMMY_KEY):
+            self.assertNotIn(said, text)
+
+    def test_the_message_goes_to_stderr_with_the_key_masked(self):
+        done = self.run_no_result()
+        manifest_id = f"{self.end_rows()[0]['blind_id']}-p1-t2"          # the turn that left no result
+        for part in (manifest_id, "result.json", "exit status 1", "stopped before result.json was written",
+                     "fetch failed: Authorization: Bearer <redacted> rejected", REMOTE, "R01", "seed 1"):
+            self.assertIn(part, done.stderr)
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+
+    def test_that_model_stops_and_the_next_model_goes_on_and_there_is_no_second_attempt(self):
+        done = self.run_no_result()
+        self.assertEqual([(r["model"], r["seed"], r["status"]) for r in self.end_rows()],
+                         [(REMOTE, 1, "invocation_error"), (self.SECOND, 1, "final"), (self.SECOND, 2, "final")])
+        self.assertEqual(sorted({m["model"]["name"] for m in self.manifests().values()}),
+                         [OPENROUTER_MODELS[REMOTE], OPENROUTER_MODELS[self.SECOND]])
+        remote = [i for i in self.manifests() if self.manifests()[i]["model"]["name"] == OPENROUTER_MODELS[REMOTE]]
+        self.assertEqual([i[7:] for i in remote], ["p1-t1", "p1-t2"])           # no turn 3, no poging 2, no seed 2
+        self.assertNotIn(2, [r.get("poging") for r in self.rows()])
+        self.assertEqual({r["model"] for r in self.rows() if r["turn"] == "plan"}, {REMOTE, self.SECOND})
+        self.assertNotIn("stop", [r["turn"] for r in self.rows()])               # it is no stop of the invocation
+        self.assertIn("invocation_error", done.stdout)
+        key = json.loads((self.out / "blind-key.json").read_text())
+        bid = self.end_rows()[0]["blind_id"]
+        self.assertEqual(len(key), 3)
+        self.assertEqual(key[bid], {"model": REMOTE, "case": "R01", "seed": 1})    # the conversation under way keeps its place
+        self.assertEqual((self.out / "transcripts" / f"{bid}.md").read_text(encoding="utf-8").count("### Model"), 1)
+
+    def test_a_call_in_the_first_turn_that_leaves_no_result_has_no_cost(self):
+        self.run_no_result(turn=1)
+        rows = [r for r in self.rows() if r["model"] == REMOTE and "case" in r]
+        self.assertEqual([r["turn"] for r in rows], ["end"])
+        self.assertEqual((rows[0]["status"], rows[0]["cost_usd"]), ("invocation_error", None))
+
+    def test_a_call_that_leaves_no_result_in_the_second_attempt_ends_that_model_too(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"model": OPENROUTER_MODELS[REMOTE], "poging": 1}, "response": http_failure(503)},
+                          {"when": {"model": OPENROUTER_MODELS[REMOTE], "poging": 2}, "response": {"no_result": True}}]}
+        done = self.run_py("--models", REMOTE, self.SECOND, "--cases", "R09", "--seeds", "1", "2", config=config,
+                           check=False, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual([(r["model"], r["poging"], r["status"]) for r in self.end_rows()],
+                         [(REMOTE, 1, "error"), (REMOTE, 2, "invocation_error"), (self.SECOND, 1, "final"),
+                          (self.SECOND, 1, "final")])
+        self.assertEqual(len([r for r in self.end_rows() if r["model"] == REMOTE]), 2)      # seed 2 of REMOTE never started
+
+    def test_score_py_shows_the_conversation_as_invocation_error_and_the_rest_of_the_plan_as_missing(self):
+        self.run_no_result()
+        output, summary = self.score()
+        statuses = {(r["model"], r["seed"]): r["status"] for r in summary}
+        self.assertEqual(statuses, {(REMOTE, "1"): "invocation_error", (self.SECOND, "1"): "final", (self.SECOND, "2"): "final"})
+        table = parse_tables(output)["nodocs"]
+        self.assertEqual((table[REMOTE]["Afgerond"], table[self.SECOND]["Afgerond"]), ("0/2", "2/2"))
+        self.assertIn("invocation_error 1x (R01/1); ontbreekt 1x (R01/2)", output)
+
+    def test_a_manifest_the_harness_refuses_is_a_fault_of_the_call(self):
+        models = json.loads(MODELS_FILE.read_text())
+        models[LOCAL]["nodocs"]["extraBody"] = {"model": "other"}           # a reserved key: the harness refuses the manifest
+        path = self.tmp / "models.json"
+        path.write_text(json.dumps(models))
+        done = self.run_py("--models", LOCAL, "--cases", "R09", "--models-file", path, config=DIRECT, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("gereserveerde sleutels", done.stderr)                 # what the harness said, in the message
+        self.assertEqual([(r["turn"], r["status"]) for r in self.rows() if "case" in r], [("end", "invocation_error")])
+        self.assertNotIn("gereserveerde", (self.out / "raw.jsonl").read_text(encoding="utf-8"))
+
+
+class HarnessSecondAttemptTest(HarnessRunBase):
+    """A harness run that does not complete ends the conversation as error and earns one second attempt: the whole conversation
+    again, the same seed, maxOutputTokens and maxWallSeconds doubled (spec 5.8). The rows of the two attempts stay apart."""
+
+    DOUBLED = {**ROW_LIMITS, "maxOutputTokens": 8192, "maxWallSeconds": 480}
+    # R01: the model asks, gets the pressure turn and writes the prompt. Its first attempt runs out of budget in turn 2.
+    BUDGET_IN_TURN_2 = {"run": [{"response": {"answer": QUESTIONS, "usage": {"costUsd": 0.001}}},
+                                {"when": {"turn": 2}, "response": {"answer": FENCE_REPLY}},
+                                {"when": {"turn": 2, "poging": 1}, "response": {"status": "budget_exceeded"}}]}
+
+    def conversation_rows(self):
+        return [r for r in self.rows() if "case" in r]
+
+    def transcript(self, name):
+        return (self.out / "transcripts" / name).read_text(encoding="utf-8")
+
+    def test_a_run_that_runs_out_of_budget_in_turn_2_is_done_again_from_the_start_with_doubled_limits(self):
+        # Review Focus 3: the first turn completes and a later turn fails
+        self.run_py("--models", LOCAL, "--cases", "R01", config=self.BUDGET_IN_TURN_2)
+        rows = self.conversation_rows()
+        bid = rows[0]["blind_id"]
+        self.assertEqual({r["blind_id"] for r in rows}, {bid})                      # one conversation, one blind id
+        self.assertEqual({(r["model"], r["case"], r["seed"]) for r in rows}, {(LOCAL, "R01", 1)})     # the same seed
+        self.assertEqual([(r["poging"], r["turn"], r["status"]) for r in rows],
+                         [(1, 1, "completed"), (1, 2, "budget_exceeded"), (1, "end", "error"),
+                          (2, 1, "completed"), (2, 2, "completed"), (2, "end", "final")])
+        self.assertEqual([r["content"] for r in rows if isinstance(r["turn"], int)], [QUESTIONS, "", QUESTIONS, FENCE_REPLY])
+        self.assertEqual([r["limits"] for r in rows if isinstance(r["turn"], int)],
+                         [ROW_LIMITS, ROW_LIMITS, self.DOUBLED, self.DOUBLED])
+        self.assertEqual([r["harness_run"] for r in rows if isinstance(r["turn"], int)],
+                         [f"harness/{bid}-p{p}-t{t}" for p, t in ((1, 1), (1, 2), (2, 1), (2, 2))])
+        manifests = self.manifests()
+        self.assertEqual(list(manifests), [f"{bid}-p1-t1", f"{bid}-p1-t2", f"{bid}-p2-t1", f"{bid}-p2-t2"])
+        for manifest_id, manifest in manifests.items():
+            self.assertEqual(manifest["limits"], self.DOUBLED if "-p2-" in manifest_id else ROW_LIMITS, manifest_id)
+            self.assertEqual(manifest["model"]["extraBody"]["seed"], 1)
+        # the whole conversation again: the second attempt starts at the case input, without the history of the first
+        first, again = manifests[f"{bid}-p2-t1"], manifests[f"{bid}-p2-t2"]
+        self.assertEqual((first["prompt"], "history" in first), (case("R01")["input"], False))
+        self.assertEqual(again["history"], [{"role": "user", "content": case("R01")["input"]},
+                                            {"role": "assistant", "content": QUESTIONS}])
+        self.assertEqual(again["prompt"], case("R01")["pressure_reply"])
+        # the end row of the first attempt closes it as error; the cost of each attempt is its own
+        ends = self.end_rows()
+        self.assertEqual([(r["poging"], r["status"], r["cost_usd"]) for r in ends], [(1, "error", 0.002), (2, "final", 0.002)])
+        self.assertEqual(json.loads((self.out / "blind-key.json").read_text()), {bid: {"model": LOCAL, "case": "R01", "seed": 1}})
+        self.assertEqual(len([a for a in self.invocations() if a[0] == "run"]), 4)
+
+    def test_the_transcript_that_counts_is_the_blind_id_and_the_first_attempt_is_marked_p1(self):
+        self.run_py("--models", LOCAL, "--cases", "R01", config=self.BUDGET_IN_TURN_2)
+        bid = self.end_rows()[0]["blind_id"]
+        self.assertEqual(sorted(p.name for p in (self.out / "transcripts").iterdir()), sorted([f"{bid}.md", f"{bid}-p1.md"]))
+        self.assertEqual(self.transcript(f"{bid}-p1.md").count("### Model"), 1)     # one answer, then the turn that failed
+        self.assertEqual(self.transcript(f"{bid}.md").count("### Model"), 2)        # the second attempt, in full
+        self.assertIn(FENCE_REPLY, self.transcript(f"{bid}.md"))
+        self.assertNotIn(FENCE_REPLY, self.transcript(f"{bid}-p1.md"))
+        for name in (f"{bid}.md", f"{bid}-p1.md"):
+            self.assertTrue(self.transcript(name).startswith(f"# Transcript {bid} (R01: {case('R01')['titel']})\n"))
+            self.assertNotIn(LOCAL, self.transcript(name))                           # blind: no model name
+
+    def test_the_limits_that_are_doubled_are_those_of_the_options_and_the_others_stay(self):
+        self.run_py("--models", LOCAL, "--cases", "R01", "--max-output-tokens", "1000", "--max-wall-seconds", "50",
+                    config=self.BUDGET_IN_TURN_2)
+        first = {**ROW_LIMITS, "maxOutputTokens": 1000, "maxWallSeconds": 50}
+        second = {**ROW_LIMITS, "maxOutputTokens": 2000, "maxWallSeconds": 100}
+        self.assertEqual([m["limits"] for m in self.manifests().values()], [first, first, second, second])
+        self.assertEqual(second["maxTurns"], 8)
+
+    def test_a_second_attempt_that_fails_too_is_the_last_one(self):
+        config = {"run": [{"response": {"answer": QUESTIONS}},
+                          {"when": {"turn": 2}, "response": http_failure(503)}]}
+        done = self.run_py("--models", LOCAL, "--cases", "R01", config=config)            # exit status 0: a result, not a fault
+        rows = self.conversation_rows()
+        self.assertEqual([(r["poging"], r["turn"], r["status"]) for r in rows],
+                         [(1, 1, "completed"), (1, 2, "failed"), (1, "end", "error"),
+                          (2, 1, "completed"), (2, 2, "failed"), (2, "end", "error")])   # and no poging 3
+        self.assertEqual(len(self.manifests()), 4)
+        self.assertEqual(len([a for a in self.invocations() if a[0] == "run"]), 4)
+        self.assertIn("poging 2", done.stdout)
+        output, (summary,) = self.score()
+        self.assertEqual((summary["status"], summary["poging"], summary["first_attempt_status"]), ("error", "2", "error"))
+        table = parse_tables(output)["nodocs"][LOCAL]
+        self.assertEqual((table["Afgerond"], table["Eerste poging"], table["Zeef"]), ("0/1", "0", "gezakt"))
+
+    def test_a_conversation_that_ends_without_a_prompt_gets_no_second_attempt(self):
+        self.run_py("--models", LOCAL, "--cases", "R07", config=NEVER)           # four user turns and never a prompt
+        rows = self.conversation_rows()
+        self.assertEqual({r["poging"] for r in rows}, {1})
+        self.assertEqual([r["status"] for r in self.end_rows()], ["no_final"])
+        self.assertEqual(len(self.manifests()), 4)
+        bid = rows[0]["blind_id"]
+        self.assertEqual([p.name for p in (self.out / "transcripts").iterdir()], [f"{bid}.md"])      # no -p1: no second attempt
+
+    def test_a_conversation_that_ends_with_a_prompt_gets_no_second_attempt(self):
+        self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT)
+        self.assertEqual([(r["poging"], r["status"]) for r in self.end_rows()], [(1, "final")])
+        self.assertEqual(len(self.manifests()), 1)
+
+    def test_the_second_attempt_follows_at_once_and_the_next_conversation_after_it(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"turn": 1, "seed": 1, "poging": 1}, "response": {"status": "timed_out"}}]}
+        self.run_py("--models", LOCAL, "--cases", "R08,R09", "--seeds", "1", "2", config=config)
+        self.assertEqual([(r["case"], r["seed"], r["poging"], r["status"]) for r in self.end_rows()],
+                         [("R08", 1, 1, "error"), ("R08", 1, 2, "final"), ("R08", 2, 1, "final"),
+                          ("R09", 1, 1, "error"), ("R09", 1, 2, "final"), ("R09", 2, 1, "final")])
+        by_conversation = {}
+        for row in self.end_rows():
+            by_conversation.setdefault((row["case"], row["seed"]), set()).add(row["blind_id"])
+        self.assertEqual({len(ids) for ids in by_conversation.values()}, {1})        # both attempts share the blind id
+        self.assertEqual(len({next(iter(ids)) for ids in by_conversation.values()}), 4)
+
+    def test_a_docs_conversation_gets_its_second_attempt_with_the_tools(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"poging": 1}, "response": http_failure(503)}]}
+        self.run_py("--models", REMOTE, "--variant", "docs", "--cases", "D01", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        rows = self.conversation_rows()
+        self.assertEqual([(r["poging"], r["turn"], r["status"], r["variant"]) for r in rows],
+                         [(1, 1, "failed", "docs"), (1, "end", "error", "docs"), (2, 1, "completed", "docs"),
+                          (2, "end", "final", "docs")])
+        for manifest_id, manifest in self.manifests().items():
+            self.assertEqual((manifest["profile"], manifest["tools"]["allow"]), ("tools", DOC_TOOL_NAMES), manifest_id)
+
+    def test_score_py_counts_the_second_attempt_and_remembers_how_the_first_ended(self):
+        self.run_py("--models", LOCAL, "--cases", "R01", config=self.BUDGET_IN_TURN_2)
+        output, (summary,) = self.score()
+        # the cost is the spend of both attempts, the turns are those of the attempt that counts
+        self.assertEqual({k: summary[k] for k in ("status", "poging", "first_attempt_status", "turns", "cost_usd")},
+                         {"status": "final", "poging": "2", "first_attempt_status": "error", "turns": "2",
+                          "cost_usd": "0.004"})
+        table = parse_tables(output)["nodocs"][LOCAL]
+        self.assertEqual((table["Afgerond"], table["Eerste poging"]), ("1/1", "0"))
+        self.assertIn("poging 1 error (beurt 2 budget_exceeded, $0.0020) -> poging 2 final ($0.0020)", output)
+        conversation = score.load_run(self.out)[(LOCAL, "R01", 1)]
+        self.assertEqual((conversation["poging"], conversation["first_attempt_status"], conversation["status"]),
+                         (2, "error", "final"))
+        self.assertEqual({n: (a["status"], a["failed"]) for n, a in conversation["attempts"].items()},
+                         {1: ("error", (2, "budget_exceeded", None)), 2: ("final", None)})
+        meta = score.load_meta(self.out)[LOCAL]
+        self.assertEqual((meta["plan"]["conversations"], meta["probe"]["verdict"], meta["stop"]), ([["R01", 1]], "reliable", None))
+
+
+class HarnessKeyStopTest(HarnessRunBase):
+    """A model HTTP 401, 402 or 403 is about the key, the credit (402: the limit is used up) or the rights and not about
+    the model: it ends the whole invocation, so no model is asked anything more, and there is no second attempt (spec 5.7,
+    Taak 11)."""
+
+    BODY = '{"error":{"message":"Insufficient credits","code":402}}'
+    SECOND = "qwen3.8-openrouter"
+
+    def refused(self, status, **when):
+        """The first model call of every run gets status."""
+        return {"run": [{"response": {"answer": FENCE_REPLY}},
+                        {"when": when, "response": http_failure(status, self.BODY)}]}
+
+    def run_refused(self, status, **kw):
+        return self.run_py("--models", REMOTE, self.SECOND, "--cases", "R08,R09", "--seeds", "1", "2", check=False,
+                           config=self.refused(status, turn=1), **{KEY_VARIABLE: DUMMY_KEY}, **kw)
+
+    def test_an_http_402_in_a_run_writes_the_turn_the_closing_row_and_the_stop_and_asks_nothing_more(self):
+        done = self.run_refused(402)
+        self.assertNotEqual(done.returncode, 0)
         rows = self.rows()
-        self.assertEqual([r["turn"] for r in rows], ["probe", 1])
-        # the conversation that was under way keeps its place in the blind key, so its rows can still be read
-        self.assertEqual(json.loads((self.out / "blind-key.json").read_text()),
-                         {rows[1]["blind_id"]: {"model": LOCAL, "case": "R07", "seed": 1}})
+        self.assertEqual([r["turn"] for r in rows], ["probe", "probe", "plan", "plan", 1, "end", "stop"])
+        turn, end, stop = rows[4:]
+        self.assertEqual((turn["status"], turn["error_code"], turn["content"], turn["poging"]), ("failed", "MODEL_ERROR", "", 1))
+        self.assertEqual((end["status"], end["poging"], end["model"], end["case"], end["seed"]), ("error", 1, REMOTE, "R08", 1))
+        self.assertEqual(stop, stop_row(REMOTE, "http_402"))
+        self.assertEqual(list(stop), ["turn", "model", "reason"])
+        # the fake harness was called exactly once for the turn: no second attempt, no next conversation, no next model
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "run"])
+        self.assertEqual(list(self.manifests()), [f"{turn['blind_id']}-p1-t1"])
+        self.assertNotIn(2, [r.get("poging") for r in rows])
+        self.assertEqual([r["model"] for r in rows if r["turn"] == "plan"], [REMOTE, self.SECOND])    # the plan was written
+        self.assertEqual(list(json.loads((self.out / "blind-key.json").read_text())), [turn["blind_id"]])
+        self.assertEqual([p.name for p in (self.out / "transcripts").iterdir()], [f"{turn['blind_id']}.md"])
+        self.assertIn(REMOTE, done.stderr)
+        self.assertIn("402", done.stderr)
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
+
+    def test_a_401_and_a_403_stop_the_invocation_in_the_same_way(self):
+        for status in (401, 403):
+            with self.subTest(status):
+                self.out = self.tmp / f"run-{status}"
+                self.log.unlink(missing_ok=True)
+                done = self.run_refused(status)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertEqual(self.rows()[-1], stop_row(REMOTE, f"http_{status}"))
+                self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "run"])
+
+    def test_a_stop_in_a_run_shows_in_score_py_as_an_error_and_a_run_that_stopped(self):
+        self.run_refused(402)
+        output, (summary,) = self.score()
+        self.assertEqual((summary["model"], summary["status"], summary["poging"]), (REMOTE, "error", "1"))
+        self.assertIn("Gestopt:\n- qwen3.6-openrouter: http_402", output)
+        self.assertIn("- qwen3.6-openrouter: R08/1 (", output)
+        self.assertIn("error (beurt 1 failed, MODEL_ERROR)", output)
+        table = parse_tables(output)["nodocs"]
+        self.assertEqual((table[REMOTE]["Afgerond"], table[self.SECOND]["Afgerond"]), ("0/4", "0/4"))   # all eight were planned
+        self.assertIn("(run gestopt: http_402)", output)
+
+    def test_a_key_problem_in_the_second_attempt_stops_the_invocation_after_that_attempt(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"turn": 1, "poging": 1}, "response": http_failure(503)},
+                          {"when": {"turn": 1, "poging": 2}, "response": http_failure(402, self.BODY)}]}
+        done = self.run_py("--models", REMOTE, self.SECOND, "--cases", "R09", config=config, check=False,
+                           **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        rows = [r for r in self.rows() if "case" in r or r["turn"] == "stop"]
+        self.assertEqual([(r.get("poging"), r["turn"]) for r in rows], [(1, 1), (1, "end"), (2, 1), (2, "end"), (None, "stop")])
+        self.assertEqual(rows[-1], stop_row(REMOTE, "http_402"))
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "run", "run"])
+
+    def test_any_other_http_error_in_a_run_is_no_stop_and_earns_a_second_attempt(self):
+        for status in (400, 404, 408, 429, 500, 502, 503):
+            with self.subTest(status):
+                self.out = self.tmp / f"run-{status}"
+                config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                                  {"when": {"poging": 1}, "response": http_failure(status, "try again")}]}
+                self.run_py("--models", REMOTE, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+                self.assertEqual([(r["poging"], r["status"]) for r in self.end_rows()], [(1, "error"), (2, "final")])
+                self.assertNotIn("stop", [r["turn"] for r in self.rows()])
+
+    def test_a_401_on_every_step_of_a_probe_writes_the_probe_row_and_the_stop_and_asks_no_other_model(self):
+        config = {**DIRECT, "probe": [probe_http(OPENROUTER_MODELS[REMOTE], 401, "User not found.")]}
+        done = self.run_py("--models", REMOTE, self.SECOND, "--cases", "R09", config=config, check=False,
+                           **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        reason = "model HTTP 401: User not found."
+        self.assertEqual(self.rows(), [probe_row(REMOTE, "none", "probe-fout 401", dict.fromkeys(PROBE_STEPS, reason)),
+                                       stop_row(REMOTE, "http_401")])             # no plan row, no conversation
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe"])     # the second model is not even probed
+        self.assertEqual(json.loads((self.out / "blind-key.json").read_text()), {})
+        self.assertIn("401", done.stderr)
+        output, _ = self.score()
+        self.assertIn("Gestopt:\n- qwen3.6-openrouter: http_401", output)
+
+    def test_a_402_on_one_step_of_a_probe_stops_the_invocation_before_any_plan_row_even_of_a_model_that_was_fine(self):
+        rule = probe_fails(OPENROUTER_MODELS[REMOTE], c_two_tools="model HTTP 402: Insufficient credits")
+        done = self.run_py("--models", LOCAL, REMOTE, self.SECOND, "--cases", "R09", config={**DIRECT, "probe": [rule]},
+                           check=False, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        reason = {"c_two_tools": "model HTTP 402: Insufficient credits"}
+        self.assertEqual(self.rows(), [probe_row(LOCAL), probe_row(REMOTE, "unreliable", None, reason),
+                                       stop_row(REMOTE, "http_402")])
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe"])
+
+    def test_a_403_on_a_step_of_a_probe_is_a_stop_too_and_a_429_is_not(self):
+        rule = probe_fails(LOCAL_MODELS[LOCAL], a_plain="model HTTP 403: forbidden")
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config={**DIRECT, "probe": [rule]}, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual(self.rows()[-1], stop_row(LOCAL, "http_403"))
+        self.out = self.tmp / "run-429"
+        rule = probe_fails(LOCAL_MODELS[LOCAL], a_plain="model HTTP 429: slow down")
+        self.run_py("--models", LOCAL, "--cases", "R09", config={**DIRECT, "probe": [rule]})
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", "plan", 1, "end"])
+
+
+class HarnessCostCapTest(HarnessRunBase):
+    """--max-cost-usd: before every attempt run.py adds up the cost_usd of the turn rows written in this run (a missing amount
+    counts as 0), and from the cap on it starts nothing new: it writes the stop row for the model that was about to run and
+    ends with a failure status (spec 5.7; Review Focus 4)."""
+
+    SECOND = "qwen3.6-lokaal"
+
+    def priced(self, **costs):
+        """Every turn of the seeds named in costs (seed1=0.002) costs that much; the other seeds name no cost."""
+        rules = [{"response": {"answer": FENCE_REPLY}}]
+        rules += [{"when": {"seed": int(name[len("seed"):])}, "response": {"usage": {"costUsd": cost}}}
+                  for name, cost in costs.items()]
+        return {"run": rules}
+
+    def test_the_cap_stops_before_the_next_conversation_also_when_some_rows_name_no_cost(self):
+        config = self.priced(seed1=0.002, seed3=0.002, seed4=0.002, seed5=0.002)       # seed 2 names none: it counts as 0
+        done = self.run_py("--models", LOCAL, "--cases", "R09", "--seeds", "1", "2", "3", "4", "5", "--max-cost-usd", "0.003",
+                           config=config, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        rows = self.rows()
+        self.assertEqual([r["turn"] for r in rows], ["probe", "plan", 1, "end", 1, "end", 1, "end", "stop"])
+        self.assertEqual([r["cost_usd"] for r in rows if isinstance(r["turn"], int)], [0.002, None, 0.002])
+        self.assertEqual(rows[-1], stop_row(LOCAL, "max_cost"))
+        self.assertEqual(list(rows[-1]), ["turn", "model", "reason"])
+        self.assertEqual(len(self.manifests()), 3)                       # seeds 4 and 5 never started
+        self.assertEqual(len(rows[1]["conversations"]), 5)               # but they were planned
+        self.assertEqual(len(json.loads((self.out / "blind-key.json").read_text())), 3)
+        self.assertIn("--max-cost-usd", done.stderr)
+        self.assertIn(LOCAL, done.stderr)
+
+    def test_the_cap_counts_the_turn_rows_and_not_the_closing_rows_that_repeat_them(self):
+        # the closing row of a conversation repeats the cost of its turns, as score.py knows: counted too, the first
+        # conversation (0.002 + 0.002) would be over the cap of 0.003 and the second would never start
+        done = self.run_py("--models", LOCAL, "--cases", "R09", "--seeds", "1", "2", "3", "--max-cost-usd", "0.003",
+                           config=self.priced(seed1=0.002, seed2=0.002, seed3=0.002), check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual([r["seed"] for r in self.end_rows()], [1, 2])
+        self.assertEqual(self.rows()[-1], stop_row(LOCAL, "max_cost"))
+
+    def test_a_cost_equal_to_the_cap_is_over_it(self):
+        done = self.run_py("--models", LOCAL, "--cases", "R09", "--seeds", "1", "2", "--max-cost-usd", "0.25",
+                           config=self.priced(seed1=0.25, seed2=0.25), check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual([r["seed"] for r in self.end_rows()], [1])
+        self.assertEqual(self.rows()[-1], stop_row(LOCAL, "max_cost"))
+
+    def test_a_cap_that_the_last_conversation_reaches_is_no_stop_because_nothing_more_was_to_start(self):
+        done = self.run_py("--models", LOCAL, "--cases", "R09", "--seeds", "1", "2", "--max-cost-usd", "0.004",
+                           config=self.priced(seed1=0.002, seed2=0.002))          # exactly 0.004 after the last conversation
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual([r["seed"] for r in self.end_rows()], [1, 2])
+        self.assertNotIn("stop", [r["turn"] for r in self.rows()])
+
+    def test_the_cap_is_checked_before_a_second_attempt_and_the_first_attempt_then_counts(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"poging": 1}, "response": http_failure(503, usage={"costUsd": 0.002})}]}
+        done = self.run_py("--models", LOCAL, "--cases", "R09", "--max-cost-usd", "0.002", config=config, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        rows = self.rows()
+        self.assertEqual([(r.get("poging"), r["turn"]) for r in rows[2:]], [(1, 1), (1, "end"), (None, "stop")])
+        self.assertEqual(rows[-1], stop_row(LOCAL, "max_cost"))
+        self.assertEqual(len(self.manifests()), 1)                       # no second attempt
+        bid = rows[2]["blind_id"]
+        self.assertEqual([p.name for p in (self.out / "transcripts").iterdir()], [f"{bid}.md"])   # the first attempt counts
+        output, (summary,) = self.score()
+        self.assertEqual((summary["status"], summary["poging"]), ("error", "1"))     # it stays in the denominator
+        self.assertEqual(parse_tables(output)["nodocs"][LOCAL]["Afgerond"], "0/1")
+
+    def test_just_under_the_cap_a_second_attempt_still_starts(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"poging": 1}, "response": http_failure(503, usage={"costUsd": 0.002})}]}
+        self.run_py("--models", LOCAL, "--cases", "R09", "--max-cost-usd", "0.003", config=config)
+        self.assertEqual([(r["poging"], r["status"]) for r in self.end_rows()], [(1, "error"), (2, "final")])
+
+    def test_with_two_models_both_plans_come_first_and_the_conversations_of_the_second_stay_in_its_plan(self):
+        done = self.run_py("--models", LOCAL, self.SECOND, "--cases", "R08,R09", "--seeds", "1", "2", "--max-cost-usd", "0.0025",
+                           config=self.priced(seed1=0.001, seed2=0.001), check=False)
+        self.assertNotEqual(done.returncode, 0)
+        rows = self.rows()
+        conversations = [("R08", 1), ("R08", 2), ("R09", 1), ("R09", 2)]
+        self.assertEqual(rows[:4], [probe_row(LOCAL), probe_row(self.SECOND), plan_row(LOCAL, conversations),
+                                    plan_row(self.SECOND, conversations)])
+        self.assertEqual(rows[-1], stop_row(LOCAL, "max_cost"))          # during the first model, before its fourth conversation
+        self.assertEqual([(r["model"], r["case"], r["seed"]) for r in self.end_rows()],
+                         [(LOCAL, "R08", 1), (LOCAL, "R08", 2), (LOCAL, "R09", 1)])
+        self.assertEqual([r["turn"] for r in rows if r["model"] == self.SECOND], ["probe", "plan"])
+        output, _ = self.score()
+        table = parse_tables(output)["nodocs"]
+        self.assertEqual((table[LOCAL]["Afgerond"], table[self.SECOND]["Afgerond"]), ("3/4", "0/4"))
+        self.assertIn("ontbreekt 4x (R08/1, R08/2, R09/1, R09/2) (run gestopt: max_cost)", output)
+        self.assertIn("Gestopt:\n- gsq-lokaal: max_cost", output)
+
+    def test_the_stop_names_the_model_that_was_about_to_run(self):
+        self.run_py("--models", LOCAL, self.SECOND, "--cases", "R09", "--max-cost-usd", "0.001",
+                    config=self.priced(seed1=0.001), check=False)
+        self.assertEqual([r["model"] for r in self.end_rows()], [LOCAL])
+        self.assertEqual(self.rows()[-1], stop_row(self.SECOND, "max_cost"))
+
+    def test_without_the_option_nothing_stops_however_much_it_costs(self):
+        self.run_py("--models", LOCAL, "--cases", "R09", "--seeds", "1", "2", "3",
+                    config=self.priced(seed1=50.0, seed2=60.0, seed3=70.0))
+        self.assertEqual([r["seed"] for r in self.end_rows()], [1, 2, 3])
+        self.assertNotIn("stop", [r["turn"] for r in self.rows()])
+
+    def test_a_local_model_that_names_no_cost_never_reaches_the_cap(self):
+        self.run_py("--models", LOCAL, "--cases", "R08,R09", "--seeds", "1", "2", "--max-cost-usd", "0.000001", config=DIRECT)
+        self.assertEqual(len(self.end_rows()), 4)
+
+    def test_the_cap_has_to_be_a_positive_amount_and_is_refused_before_anything_runs(self):
+        for amount in ("0", "-1", "abc", "nan", "inf", ""):
+            with self.subTest(amount):
+                done = self.run_py("--models", LOCAL, "--max-cost-usd", amount, check=False)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn("--max-cost-usd", done.stderr)
+        self.assertEqual(self.invocations(), [])
+        self.run_py("--models", LOCAL, "--cases", "R09", "--max-cost-usd", "0.5", config=DIRECT)
+
+
+CHECK_KEY = HERE / "check_key.py"
+CHECK_VARIABLE = "CHECK_KEY_TEST_VARIABLE"      # the name check_key.py is told; the test lends it DUMMY_KEY and nothing else
+
+
+class CheckKeyTest(unittest.TestCase):
+    """check_key.py: how many files under some directories hold the value of an environment variable. Counts and the name of
+    the variable are printed, never the value and never a file name."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+
+    def tree(self, name, files):
+        """A directory under tmp with files ({relative path: bytes or str})."""
+        root = self.tmp / name
+        for rel, content in files.items():
+            path = root / rel
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
+        root.mkdir(exist_ok=True)
+        return root
+
+    def check(self, *dirs, value=DUMMY_KEY, variable=CHECK_VARIABLE, option=None):
+        """check_key.py over dirs with value in the variable (None: the variable is not set at all)."""
+        env = {k: v for k, v in clean_env().items() if k != CHECK_VARIABLE}
+        if value is not None:
+            env[CHECK_VARIABLE] = value
+        argv = [sys.executable, str(CHECK_KEY), "--env", option if option is not None else variable, *map(str, dirs)]
+        return subprocess.run(argv, capture_output=True, text=True, env=env)
+
+    def counts(self, done):
+        """[{files_scanned, unreadable, with_key}] of the lines of the output, one per directory."""
+        return [{k: int(v) for k, v in re.findall(r"(\w+)=(\d+)", line)} for line in done.stdout.splitlines()]
+
+    def test_it_counts_a_file_that_holds_the_key_and_prints_no_value(self):
+        root = self.tree("run", {"raw.jsonl": f'{{"content": "{DUMMY_KEY}"}}\n', "notes.txt": "nothing here",
+                                 "harness/a/trace.jsonl": "{}"})
+        done = self.check(root)
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(self.counts(done), [{"files_scanned": 3, "unreadable": 0, "with_key": 1}])
+        self.assertIn(CHECK_VARIABLE, done.stdout)                         # the name does appear
+        self.assertIn(str(root), done.stdout)
+        for text in (done.stdout, done.stderr):
+            self.assertNotIn(DUMMY_KEY, text)
+            self.assertNotIn("raw.jsonl", text)                             # and no file name
+
+    def test_it_exits_0_when_no_file_holds_the_key(self):
+        root = self.tree("run", {"a.txt": "one", "b/c.txt": "two"})
+        done = self.check(root)
+        self.assertEqual((done.returncode, self.counts(done)), (0, [{"files_scanned": 2, "unreadable": 0, "with_key": 0}]))
+        self.assertEqual(self.check(self.tree("empty", {})).stdout.count("files_scanned=0"), 1)
+
+    def test_it_walks_the_directory_down_and_counts_a_file_once_however_often_the_key_is_in_it(self):
+        root = self.tree("run", {"a/b/c/d.txt": f"{DUMMY_KEY} and {DUMMY_KEY}", "a/b/e.txt": DUMMY_KEY.upper(),
+                                 "f.bin": b"\x00\xff" + DUMMY_KEY.encode() + b"\x00"})
+        self.assertEqual(self.counts(self.check(root)), [{"files_scanned": 3, "unreadable": 0, "with_key": 2}])
+
+    def test_it_reports_each_directory_on_its_own_line_and_a_hit_in_any_gives_exit_1(self):
+        clean = self.tree("clean", {"a.txt": "x"})
+        leaked = self.tree("leaked", {"a.txt": DUMMY_KEY, "b.txt": "y"})
+        done = self.check(clean, leaked)
+        self.assertEqual(done.returncode, 1)
+        self.assertEqual(self.counts(done), [{"files_scanned": 1, "unreadable": 0, "with_key": 0},
+                                             {"files_scanned": 2, "unreadable": 0, "with_key": 1}])
+        self.assertEqual([str(clean) in done.stdout.splitlines()[0], str(leaked) in done.stdout.splitlines()[1]], [True, True])
+
+    def test_the_key_with_whitespace_around_it_counts_by_its_trimmed_form(self):
+        # undici trims a header value, so that is the form that ends up in a file
+        root = self.tree("run", {"a.txt": f"echo {DUMMY_KEY}!"})
+        self.assertEqual(self.check(root, value=f"  {DUMMY_KEY}\n").returncode, 1)
+
+    def test_a_missing_or_empty_variable_is_exit_2_and_the_message_names_the_variable_only(self):
+        root = self.tree("run", {"a.txt": "x"})
+        for value in (None, "", "   \n"):
+            with self.subTest(repr(value)):
+                done = self.check(root, value=value)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn(CHECK_VARIABLE, done.stderr)
+                self.assertEqual(done.stdout, "")                          # nothing was checked, so nothing is claimed
+
+    def test_a_key_given_in_place_of_a_variable_name_is_refused_without_quoting_it(self):
+        root = self.tree("run", {"a.txt": "x"})
+        for pasted in (DUMMY_KEY, "sk-or-v1-" + "0123456789abcdef", "lower_case_name"):
+            with self.subTest(pasted):
+                done = self.check(root, option=pasted)
+                self.assertEqual(done.returncode, 2)
+                self.assertNotIn(pasted, done.stdout + done.stderr)
+
+    def test_a_directory_that_is_not_one_is_exit_2_and_not_a_clean_bill(self):
+        root = self.tree("run", {"a.txt": "x"})
+        done = self.check(root, self.tmp / "nowhere")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("2", done.stderr)                                    # which argument
+        self.assertEqual(done.stdout, "")                                  # not even the good directory is reported as checked
+        done = self.check(root / "a.txt")
+        self.assertEqual(done.returncode, 2)
+
+    @unittest.skipIf(not hasattr(os, "geteuid") or os.geteuid() == 0, "root can read anything")
+    def test_a_file_that_cannot_be_read_and_a_directory_that_cannot_be_listed_are_counted(self):
+        root = self.tree("run", {"ok.txt": "x", "locked.txt": "y", "closed/inside.txt": DUMMY_KEY})
+        (root / "locked.txt").chmod(0o000)
+        (root / "closed").chmod(0o000)
+        self.addCleanup((root / "closed").chmod, 0o700)
+        self.addCleanup((root / "locked.txt").chmod, 0o600)
+        done = self.check(root)
+        # one file read, one that could not be read, one directory that could not be listed: the key in it goes unseen,
+        # which is why the count is there
+        self.assertEqual((done.returncode, self.counts(done)), (0, [{"files_scanned": 1, "unreadable": 2, "with_key": 0}]))
+
+    def test_the_script_uses_the_standard_library_only(self):
+        import ast
+        known = getattr(sys, "stdlib_module_names", None)
+        if known is None:
+            self.skipTest("sys.stdlib_module_names needs Python 3.10")
+        tree = ast.parse(CHECK_KEY.read_text(encoding="utf-8"))
+        imported = {alias.name.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.Import) for alias in node.names}
+        imported |= {node.module.split(".")[0] for node in ast.walk(tree) if isinstance(node, ast.ImportFrom)}
+        self.assertTrue(imported)
+        self.assertEqual(imported - set(known), set())
+
+
+class HarnessKeyCheckTest(HarnessRunBase):
+    """After a run, run.py runs check_key.py over the run directory, once for each key variable of the models."""
+
+    def two_variables(self):
+        """A models file with three labels that need a key: two share FIRST_TEST_KEY, one has SECOND_TEST_KEY."""
+        models = json.loads(MODELS_FILE.read_text())
+        base = models[REMOTE]
+        models = {"x-one": {**base, "api_key_env": "FIRST_TEST_KEY"}, "x-two": {**base, "api_key_env": "SECOND_TEST_KEY"},
+                  "x-three": {**base, "api_key_env": "FIRST_TEST_KEY"}, LOCAL: models[LOCAL]}
+        path = self.tmp / "models.json"
+        path.write_text(json.dumps(models))
+        return path
+
+    def test_it_runs_once_per_distinct_key_variable_over_the_run_directory_and_prints_counts_only(self):
+        first, second = "first-dummy-value-0a1b2c3d", "second-dummy-value-4e5f6a7b"
+        done = self.run_py("--models", "x-one", "x-two", "x-three", LOCAL, "--cases", "R09",
+                           "--models-file", self.two_variables(), config=DIRECT, FIRST_TEST_KEY=first, SECOND_TEST_KEY=second)
+        lines = [ln for ln in done.stdout.splitlines() if ln.startswith("check_key ")]
+        self.assertEqual(sorted(ln.split()[1] for ln in lines), ["FIRST_TEST_KEY", "SECOND_TEST_KEY"])     # not three, not four
+        for line in lines:
+            self.assertIn(str(self.out), line)
+            self.assertRegex(line, r"files_scanned=\d+ unreadable=0 with_key=0$")
+        self.assertLess(done.stdout.index("check_key "), done.stdout.index("done:"))
+        for value in (first, second):
+            self.assertNotIn(value, done.stdout + done.stderr)
+
+    def test_no_check_runs_when_no_model_needs_a_key(self):
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT)
+        self.assertNotIn("check_key", done.stdout + done.stderr)
+
+    def test_a_hit_makes_run_py_exit_with_a_failure_status_and_the_value_is_not_in_the_output(self):
+        leaking = script(f"```\n<task>\n{DUMMY_KEY}\n</task>\n```\nAannames:\n- geen\nInstellingen: effort medium.")
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config=leaking, check=False, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        files = [p for p in self.out.rglob("*") if p.is_file() and DUMMY_KEY.encode() in p.read_bytes()]
+        self.assertGreater(len(files), 1)                     # raw.jsonl, a transcript, result.json, trace.jsonl
+        total = len([p for p in self.out.rglob("*") if p.is_file()])
+        self.assertIn(f"files_scanned={total} unreadable=0 with_key={len(files)}", done.stdout)
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
+        self.assertIn("check_key", done.stderr)                                 # and run.py says it failed
+        self.assertIn(f"done: {self.out}", done.stdout)                         # the run itself finished
+
+    def test_the_check_also_runs_after_a_stop_and_after_a_run_that_broke_off(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}}, {"response": http_failure(402)}]}
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config=config, check=False, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("with_key=0", done.stdout)
+        self.out = self.tmp / "run-broken"
+        config = {"probe": [{"when": {"model": OPENROUTER_MODELS["qwen3.8-openrouter"]}, "response": {"crash": "ECONNREFUSED"}}]}
+        done = self.run_py("--models", REMOTE, "qwen3.8-openrouter", "--cases", "R09", config=config, check=False,
+                           **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("probe.json", done.stderr)                                # the break-off is reported as before
+        self.assertIn("with_key=0", done.stdout)                                # and the files it left were checked
+
+    def test_check_keys_passes_the_name_of_the_variable_and_nothing_else_to_the_script(self):
+        calls = []
+
+        def fake_run(argv, **kwargs):
+            calls.append((argv, kwargs))
+            return subprocess.CompletedProcess(argv, 0, stdout="check_key X dir: files_scanned=1 unreadable=0 with_key=0\n",
+                                               stderr="")
+        with mock.patch.object(run.subprocess, "run", fake_run), contextlib.redirect_stdout(io.StringIO()):
+            failed = run.check_keys({"OPENROUTER_API_KEY", "OTHER_API_KEY"}, self.out, [DUMMY_KEY])
+        self.assertFalse(failed)
+        self.assertEqual([argv for argv, _ in calls],
+                         [[sys.executable, str(CHECK_KEY), "--env", name, str(self.out)]
+                          for name in ("OPENROUTER_API_KEY", "OTHER_API_KEY")])
+        self.assertFalse(any(DUMMY_KEY in part for argv, _ in calls for part in argv))
+        self.assertTrue(all("env" not in kwargs for _, kwargs in calls))        # the variable travels in the environment
+
+    def test_a_check_that_cannot_be_made_counts_as_a_failure(self):
+        for outcome in (subprocess.CompletedProcess([], 2, stdout="", stderr="check_key: X is not set or empty\n"),
+                        subprocess.CompletedProcess([], 1, stdout="check_key X d: files_scanned=1 unreadable=0 with_key=1\n",
+                                                    stderr=""),
+                        OSError(2, "No such file or directory")):
+            with self.subTest(outcome):
+                def fake_run(argv, **kwargs):
+                    if isinstance(outcome, Exception):
+                        raise outcome
+                    return outcome
+                with mock.patch.object(run.subprocess, "run", fake_run), contextlib.redirect_stdout(io.StringIO()), \
+                        contextlib.redirect_stderr(io.StringIO()):
+                    self.assertTrue(run.check_keys({"X"}, self.out, []))
 
 
 class HarnessSelectionTest(HarnessRunBase):
@@ -4054,12 +5010,14 @@ class HarnessSelectionTest(HarnessRunBase):
                 self.assertIn(args[0], done.stderr)
         self.assertEqual(self.invocations(), [])
         for args in (["--variant", "docs"], ["--models-file", "x.json"], ["--harness", "node cli.js"],
-                     ["--docset", "d"], ["--max-output-tokens", "1"], ["--max-wall-seconds", "1"]):
+                     ["--docset", "d"], ["--max-output-tokens", "1"], ["--max-wall-seconds", "1"],
+                     ["--max-cost-usd", "1"]):
             with self.subTest(args):
                 done = subprocess.run([sys.executable, str(HERE / "run.py"), "--models", "m", *args],
                                       capture_output=True, text=True)
                 self.assertEqual(done.returncode, 2)
                 self.assertIn(args[0], done.stderr)
+                self.assertIn("does not apply to the backend ollama", done.stderr)     # known to run.py, and refused
 
     def test_a_harness_command_with_an_unbalanced_quote_is_an_error_and_not_a_traceback(self):
         self.harness = 'node "cli.js'
@@ -4132,12 +5090,6 @@ class HarnessScoreTest(HarnessRunBase):
     """score.py reads the rows run.py writes."""
 
     USAGE = {"inputTokens": 1000, "outputTokens": 200, "reasoningTokens": 50, "costUsd": 0.001}
-
-    def score(self):
-        done = subprocess.run([sys.executable, str(HERE / "score.py"), str(self.out)], capture_output=True, text=True)
-        self.assertEqual(done.returncode, 0, done.stderr)
-        with (self.out / "summary.csv").open(newline="", encoding="utf-8") as f:
-            return done.stdout, list(csv.DictReader(f))
 
     def test_a_run_without_docs_is_scored_with_the_harness_columns(self):
         config = {"run": [{"response": {"answer": FENCE_REPLY, "usage": self.USAGE, "providers": ["Novita"]}},
