@@ -1,0 +1,19 @@
+nemotron-openrouter probe: reliable
+nemotron-openrouter D01 seed 1: final in 66.3s
+nemotron-openrouter D01 seed 2: final in 111.1s
+nemotron-openrouter D01 seed 3: error in 57.1s
+nemotron-openrouter D01 seed 3 (poging 2): error in 75.2s
+nemotron-openrouter D02 seed 1: final in 47.8s
+nemotron-openrouter D02 seed 2: final in 58.4s
+nemotron-openrouter D02 seed 3: final in 83.0s
+nemotron-openrouter D03 seed 1: final in 58.1s
+nemotron-openrouter D03 seed 2: final in 35.1s
+nemotron-openrouter D03 seed 3: final in 63.4s
+nemotron-openrouter D04 seed 1: final in 69.5s
+nemotron-openrouter D04 seed 2: final in 66.0s
+nemotron-openrouter D04 seed 3: final in 68.9s
+nemotron-openrouter D05 seed 1: final in 47.8s
+nemotron-openrouter D05 seed 2: final in 37.8s
+nemotron-openrouter D05 seed 3: final in 51.2s
+check_key OPENROUTER_API_KEY /Users/janpetervisser/Development/m5-first-contact/task14/runs/nemotron-openrouter-docs: files_scanned=145 unreadable=0 with_key=0
+done: /Users/janpetervisser/Development/m5-first-contact/task14/runs/nemotron-openrouter-docs

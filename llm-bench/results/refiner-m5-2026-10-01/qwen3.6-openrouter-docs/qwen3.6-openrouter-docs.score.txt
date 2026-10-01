@@ -1,0 +1,106 @@
+### Variant docs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | D1 | D2 | D3 | D4 | D5 | D6 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3.6-openrouter | harness | reliable | 12/15 | 10/15 | 15/15 | 12/15 | - | 15/15 | 15/15 | - | 13/15 | 8/12 | 12/15 | 3/3* | 1/3 | 15/15 | 15/15 | 13 | 23 | 877625 | 44729 | 0.1132 | AkashML, Reka | gezakt |
+
+* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.
+D6 telt niet mee in de zeef (spec 5.8): de eindstatus staat al in Afgerond.
+Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; kosten: van alle pogingen.
+
+Zeef (voorlopig, spec 5.8):
+- qwen3.6-openrouter (gezakt): vlag op D5: 34f986, 50a332; A2: 10 van 15 (66.7%), minder dan 80%; D2: 8 van 12 (66.7%), minder dan 80%
+
+Pogingen en niet afgeronde gesprekken:
+- qwen3.6-openrouter: D01/3 (3ec92e): poging 1 error (beurt 1 budget_exceeded, $0.0078) -> poging 2 final ($0.0168)
+- qwen3.6-openrouter: D04/2 (35af40): poging 1 error (beurt 2 failed, TOO_MANY_TOOL_ERRORS, $0.0058) -> poging 2 final ($0.0070)
+
+#### Vlag D5: 34f986 (qwen3.6-openrouter, D02, seed 2)
+Patroon: TOO_MANY_TOOL_ERRORS
+Transcript: transcripts/34f986.md
+
+> Model, beurt 1:
+>
+>
+>
+> Volgens het ontwerp-document (§6) eindigt een run met **`status: 'failed'`** en **`error: { code: 'TOO_MANY_TOOL_ERRORS' }`** zodra het aantal opgelopen toolfouten de limiet `maxToolErrors` uit het manifest overschrijdt.
+>
+> Concreet:
+> - De limiet staat in het manifest onder `limits.maxToolErrors`.
+> - Elke afwijzende toolcall telt mee (`UNKNOWN_TOOL`, `MALFORMED_ARGS`, `SCHEMA_MISMATCH`, `TOOL_ERROR`, `TOOL_TIMEOUT`).
+> - Zodra de grens is bereikt: geen verdere modelaanroepen, geen verdere tools, de MCP-client wordt afgesloten.
+> - De totale telling staat in `result.json` onder `usage.toolErrors`.
+> - De CLI exit-code is 1.
+>
+> Er zijn geen automatische retries in v0 — één mislukte modelaanroep is ook al `failed`.
+>
+> Bron: `specs/2026-09-26-agent-harness-v0-design`, §5 punt 3, §6, en §4 (contracten).
+
+> Model, beurt 2:
+>
+>
+>
+> Ik schrijf alleen prompts, ik geef geen antwoorden. Maar hier is de prompt die je kunt gebruiken:
+>
+> ```
+> Lees in de product-documentatie van product_id "bench-agent-harness" de sectie over toolfouten in het ontwerpdocument (folder: specs, slug: 2026-09-26-agent-harness-v0-design). Wat gebeurt er technisch wanneer een model te veel toolfouten maakt? Geef de status, de error code, hoe de telling werkt, en wat de CLI exit-code is. Bronvermelding per feit.
+> ```
+>
+> Aannames:
+> - Je doelt op het ontwerpdocument `2026-09-26-agent-harness-v0-design` in de `specs` folder.
+> - Je wilt een feitelijk, bronvermeldend antwoord uit de docs.
+> - De prompt is voor een chat-app (claude.ai).
+>
+> Instellingen: effort medium.
+>
+> Wil je nog iets aanpassen?
+
+#### Vlag D5: 50a332 (qwen3.6-openrouter, D02, seed 3)
+Patroon: TOO_MANY_TOOL_ERRORS, (?i)maxToolErrors[^.\n]{0,60}\b(failed|faalt|mislukt|stopt|eindigt|afgebroken|fails|stops|ends|aborts)\b
+Transcript: transcripts/50a332.md
+
+> Model, beurt 1:
+>
+>
+>
+> Het ontwerp van agent-harness beschrijft dit expliciet. Hier is het antwoord:
+>
+> **Wat er gebeurt bij te veel toolfouten:**
+>
+> 1. **Telling.** Elke mislukte toolcall telt mee: `UNKNOWN_TOOL` (niet in de allowlist), `MALFORMED_ARGS` (ongeldige JSON), `SCHEMA_MISMATCH` (argumenten passen niet op het schema), `TOOL_ERROR` (MCP-server faalt) en `TOOL_TIMEOUT`.
+>
+> 2. **Limiet.** Het manifest bevat `limits: { maxToolErrors: number }`. De teller wordt per run opgebouwd.
+>
+> 3. **Terminale afbraak.** Zodra `toolErrors > maxToolErrors` wordt de run onmiddellijk beëindigd met status `failed` en foutcode `TOO_MANY_TOOL_ERRORS`. Er wordt geen enkele volgende tool meer uitgevoerd en er komt geen nieuwe modelaanroep. De MCP-client wordt afgesloten.
+>
+> 4. **Geen retries in v0.** Er is geen automatische herstelpoging — één mislukte toolcall telt als één fout. De foutmelding en het toolresultaat (`ok: false, errorCode: ...`) worden wel teruggegeven aan het model in de trace, zodat het model het kan proberen, maar de harness zelf retryt niet.
+>
+> 5. **Resultaat.** `result.json` bevat `status: 'failed'`, `error: { code: 'TOO_MANY_TOOL_ERRORS', message: '...' }` en `usage.toolErrors` met het uiteindelijke tellerstand.
+>
+> Deze regels staan in §5 (toolbeleid, punt 3), §6 (de loop, limieten en foutafhandeling) en §4 (het `RunResult`-contract). Zie ook het acceptatie criterium §10 punt 5.
+>
+> Wil je dat ik dit omzet in een prompt voor een ander doel (bijvoorbeeld een runbook-update, een feature-voorstel voor retries, of een testscenario), of was dit het antwoord dat je zocht?
+
+> Model, beurt 2:
+>
+> Ik schrijf alleen prompts, maar hier is het prompt dat je kunt gebruiken:
+>
+> ```
+> Ik ben een ontwikkelaar die de agent-harness begrijpt. Ik wil weten wat er gebeurt als een agent te veel toolfouten maakt tijdens een run.
+>
+> Zoek in de product documentation van bench-agent-harness naar:
+> - Hoe toolfouten worden geteld (welke foutcodes)
+> - De limiet (maxToolErrors)
+> - Wat er gebeurt als die limiet wordt overschreden
+> - Of er retries zijn
+> - Hoe dit in de run status en result.json verschijnt
+>
+> Geef het exacte antwoord gebaseerd op de documentatie, met bronverwijzingen (folder/slug).
+> ```
+>
+> **Aannames:**
+> - Je wilt een feitelijk antwoord uit de docs, niet een prompt om iets te bouwen.
+>
+> **Instellingen:** effort medium.
+>
+> Wil je nog iets aanpassen?

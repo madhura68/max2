@@ -1,0 +1,16 @@
+gsq-lokaal probe: reliable
+qwen3.6-lokaal probe: reliable
+gsq-lokaal D01 seed 1: final in 101.8s
+gsq-lokaal D02 seed 1: error in 116.1s
+gsq-lokaal D02 seed 1 (poging 2): error in 115.6s
+gsq-lokaal D03 seed 1: final in 67.0s
+gsq-lokaal D04 seed 1: final in 74.8s
+gsq-lokaal D05 seed 1: final in 102.6s
+qwen3.6-lokaal D01 seed 1: final in 216.8s
+qwen3.6-lokaal D02 seed 1: error in 71.4s
+qwen3.6-lokaal D02 seed 1 (poging 2): error in 110.2s
+qwen3.6-lokaal D03 seed 1: final in 43.6s
+qwen3.6-lokaal D04 seed 1: error in 35.4s
+qwen3.6-lokaal D04 seed 1 (poging 2): error in 34.7s
+qwen3.6-lokaal D05 seed 1: final in 33.2s
+done: /Users/janpetervisser/Development/m5-first-contact/task13/runs/limits-4096-240

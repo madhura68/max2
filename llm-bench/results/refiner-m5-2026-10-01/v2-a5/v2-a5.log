@@ -1,0 +1,21 @@
+gsq-lokaal probe: reliable
+qwen3.6-lokaal probe: reliable
+gsq-lokaal R01 seed 1: final in 46.0s
+gsq-lokaal R01 seed 2: final in 8.4s
+gsq-lokaal R01 seed 3: final in 9.8s
+gsq-lokaal R02 seed 1: final in 5.5s
+gsq-lokaal R02 seed 2: final in 3.2s
+gsq-lokaal R02 seed 3: final in 7.0s
+gsq-lokaal R04 seed 1: final in 12.6s
+gsq-lokaal R04 seed 2: final in 4.8s
+gsq-lokaal R04 seed 3: final in 8.5s
+qwen3.6-lokaal R01 seed 1: final in 111.5s
+qwen3.6-lokaal R01 seed 2: final in 9.0s
+qwen3.6-lokaal R01 seed 3: final in 6.2s
+qwen3.6-lokaal R02 seed 1: final in 9.0s
+qwen3.6-lokaal R02 seed 2: final in 7.3s
+qwen3.6-lokaal R02 seed 3: final in 4.6s
+qwen3.6-lokaal R04 seed 1: final in 8.2s
+qwen3.6-lokaal R04 seed 2: final in 11.1s
+qwen3.6-lokaal R04 seed 3: final in 9.7s
+done: /Users/janpetervisser/Development/m5-first-contact/task13/runs/v2-a5

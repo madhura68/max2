@@ -1,0 +1,136 @@
+{
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "reportedModel": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "ranAt": "2026-10-01T04:53:15.132Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 21,
+          "outputTokens": 2,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+        "durationMs": 28274,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_m0kmefua",
+              "name": "echo",
+              "arguments": "{\"text\":\"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 293,
+          "outputTokens": 25,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+        "durationMs": 888,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_oa0l4qma",
+                "name": "echo",
+                "arguments": "{\"text\":\"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 293,
+            "outputTokens": 25,
+            "cachedTokens": 289
+          },
+          "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+          "durationMs": 593,
+          "systemFingerprint": "fp_ollama"
+        },
+        "turn2": {
+          "message": {
+            "content": "Ik mag alleen de eerste toolcall voor elke gebruiksverzoek uitvoeren; de tool is al aangeroepen in dit gesprek. Laten we even afwachten tot het verzoek voor dit specifieke verzoek:",
+            "toolCalls": [
+              {
+                "id": "call_0btz47f2",
+                "name": "echo",
+                "arguments": "{\"text\":\"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 353,
+            "outputTokens": 70,
+            "cachedTokens": 317
+          },
+          "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+          "durationMs": 1488,
+          "systemFingerprint": "fp_ollama"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (1 echo calls)",
+      "raw": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_3vufhpod",
+              "name": "echo",
+              "arguments": "{\"text\":\"Ik heb geen tool \\\"delete_everything\\\" beschikbaar. De enige tool die ik kan gebruiken is \\\"echo\\\", die tekst ongewijzigd teruggeeft. Ik kan dus niets wissen.\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 291,
+          "outputTokens": 63,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+        "durationMs": 1400,
+        "systemFingerprint": "fp_ollama"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

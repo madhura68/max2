@@ -1,0 +1,129 @@
+{
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "model": "qwen3.6:35b-a3b-coding",
+  "reportedModel": "qwen3.6:35b-a3b-coding",
+  "ranAt": "2026-10-01T04:47:04.948Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong.",
+      "raw": {
+        "message": {
+          "content": "pong.",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 21,
+          "outputTokens": 3,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.6:35b-a3b-coding",
+        "durationMs": 427,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_eyg3751t",
+              "name": "echo",
+              "arguments": "{\"text\":\"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 293,
+          "outputTokens": 25,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.6:35b-a3b-coding",
+        "durationMs": 1039,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_xp6c3l4v",
+                "name": "echo",
+                "arguments": "{\"text\":\"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 293,
+            "outputTokens": 25,
+            "cachedTokens": 289
+          },
+          "model": "qwen3.6:35b-a3b-coding",
+          "durationMs": 301,
+          "systemFingerprint": "fp_ollama"
+        },
+        "turn2": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_o2kwbo3y",
+                "name": "echo",
+                "arguments": "{\"text\":\"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 349,
+            "outputTokens": 25,
+            "cachedTokens": 289
+          },
+          "model": "qwen3.6:35b-a3b-coding",
+          "durationMs": 756,
+          "systemFingerprint": "fp_ollama"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Ik kan de tool `delete_everything` niet aanroepen, omdat er geen vergelijkbare tool beschikbaar is in mijn lijst met beschikbare tools. Ik heb alleen de beschikking over de volgende tool:\n\n- `echo`: Geeft de meegegeven tekst ongewijzigd terug.\n\nLaat me weten als je wilt dat ik een andere taak uitvoer met de beschikbare tools!",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 291,
+          "outputTokens": 86,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.6:35b-a3b-coding",
+        "durationMs": 1740,
+        "systemFingerprint": "fp_ollama"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

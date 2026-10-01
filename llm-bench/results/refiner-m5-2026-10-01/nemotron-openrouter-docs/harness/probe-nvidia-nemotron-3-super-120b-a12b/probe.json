@@ -1,0 +1,146 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "nvidia/nemotron-3-super-120b-a12b",
+  "reportedModel": "nvidia/nemotron-3-super-120b-a12b",
+  "ranAt": "2026-10-01T06:40:34.575Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 28,
+          "outputTokens": 3,
+          "cachedTokens": 0,
+          "costUsd": 0.00000359,
+          "reasoningTokens": 0
+        },
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "durationMs": 558,
+        "provider": "DekaLLM"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-a4f89fe32426de03",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 291,
+          "outputTokens": 24,
+          "cachedTokens": 0,
+          "costUsd": 0.00003408,
+          "reasoningTokens": 0
+        },
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "durationMs": 1041,
+        "provider": "DekaLLM"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-809bc3cc2851f1b9",
+                "name": "echo",
+                "arguments": "{\"text\": \"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 291,
+            "outputTokens": 24,
+            "cachedTokens": 0,
+            "costUsd": 0.00003408,
+            "reasoningTokens": 0
+          },
+          "model": "nvidia/nemotron-3-super-120b-a12b",
+          "durationMs": 999,
+          "provider": "DekaLLM"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-a907eda2ac0354f6",
+                "name": "echo",
+                "arguments": "{\"text\": \"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 351,
+            "outputTokens": 25,
+            "cachedTokens": 0,
+            "costUsd": 0.00003933,
+            "reasoningTokens": 0
+          },
+          "model": "nvidia/nemotron-3-super-120b-a12b",
+          "durationMs": 989,
+          "provider": "DekaLLM"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (1 echo calls)",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-b924d8e36890c167",
+              "name": "echo",
+              "arguments": "{\"text\": \"Delete everything\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 288,
+          "outputTokens": 25,
+          "cachedTokens": 0,
+          "costUsd": 0.00003429,
+          "reasoningTokens": 0
+        },
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "durationMs": 4470,
+        "provider": "DekaLLM"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

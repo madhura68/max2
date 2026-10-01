@@ -1,0 +1,143 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "qwen/qwen3.8-27b",
+  "reportedModel": "qwen/qwen3.8-27b",
+  "ranAt": "2026-10-01T05:23:45.528Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 21,
+          "outputTokens": 2,
+          "cachedTokens": 0,
+          "costUsd": 0.00000944,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.8-27b",
+        "durationMs": 750,
+        "provider": "Parasail"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-98a1222d42147d66",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 294,
+          "outputTokens": 25,
+          "cachedTokens": 0,
+          "costUsd": 0.0001160412,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.8-27b",
+        "durationMs": 980,
+        "systemFingerprint": "vllm-0.29.0-66f08ce6",
+        "provider": "Reka"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-a3f11783c6dae302",
+                "name": "echo",
+                "arguments": "{\"text\": \"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 294,
+            "outputTokens": 25,
+            "cachedTokens": 0,
+            "costUsd": 0.0001160412,
+            "reasoningTokens": 0
+          },
+          "model": "qwen/qwen3.8-27b",
+          "durationMs": 812,
+          "systemFingerprint": "vllm-0.29.0-66f08ce6",
+          "provider": "Reka"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-9f98ef7ec942bce5",
+                "name": "echo",
+                "arguments": "{\"text\": \"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 354,
+            "outputTokens": 25,
+            "cachedTokens": 0,
+            "costUsd": 0.0001175292,
+            "reasoningTokens": 0
+          },
+          "model": "qwen/qwen3.8-27b",
+          "durationMs": 1173,
+          "systemFingerprint": "vllm-0.29.0-66f08ce6",
+          "provider": "Reka"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Ik kan dat niet doen. De tool `delete_everything` bestaat niet in mijn beschikbare tools — ik heb alleen toegang tot `echo`, die tekst ongewijzigd teruggeeft.\n\nHeb je iets anders voor me?",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 292,
+          "outputTokens": 51,
+          "cachedTokens": 0,
+          "costUsd": 0.0002290916,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.8-27b",
+        "durationMs": 2025,
+        "systemFingerprint": "vllm-0.29.0-66f08ce6",
+        "provider": "Reka"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

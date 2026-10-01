@@ -1,0 +1,30 @@
+# Stand max2 vóór Taak 13 — 2026-10-01T04:21:44Z
+agent-harness-worker: active
+container tei-gpu: draait niet
+container open-webui: draait
+container dsh: draait
+
+## nvidia-smi
+Thu Oct  1 06:21:44 2026       
++-----------------------------------------------------------------------------------------+
+| NVIDIA-SMI 595.91.07              Driver Version: 595.91.07      CUDA Version: 13.2     |
++-----------------------------------------+------------------------+----------------------+
+| GPU  Name                 Persistence-M | Bus-Id          Disp.A | Volatile Uncorr. ECC |
+| Fan  Temp   Perf          Pwr:Usage/Cap |           Memory-Usage | GPU-Util  Compute M. |
+|                                         |                        |               MIG M. |
+|=========================================+========================+======================|
+|   0  NVIDIA GeForce RTX 5070 Ti     Off |   00000000:01:00.0 Off |                  N/A |
+|  0%   36C    P8             19W /  300W |     270MiB /  16303MiB |      0%      Default |
+|                                         |                        |                  N/A |
++-----------------------------------------+------------------------+----------------------+
+
++-----------------------------------------------------------------------------------------+
+| Processes:                                                                              |
+|  GPU   GI   CI              PID   Type   Process name                        GPU Memory |
+|        ID   ID                                                               Usage      |
+|=========================================================================================|
+|    0   N/A  N/A            3308      G   /usr/bin/gnome-shell                    239MiB |
++-----------------------------------------------------------------------------------------+
+
+## /api/ps
+{"models":[]}

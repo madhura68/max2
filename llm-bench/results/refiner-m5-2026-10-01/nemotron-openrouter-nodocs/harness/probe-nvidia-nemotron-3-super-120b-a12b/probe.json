@@ -1,0 +1,146 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "nvidia/nemotron-3-super-120b-a12b",
+  "reportedModel": "nvidia/nemotron-3-super-120b-a12b",
+  "ranAt": "2026-10-01T06:33:07.302Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 28,
+          "outputTokens": 3,
+          "cachedTokens": 0,
+          "costUsd": 0.00000358,
+          "reasoningTokens": 0
+        },
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "durationMs": 583,
+        "provider": "DeepInfra"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-91cecc6c8441bf25",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 291,
+          "outputTokens": 24,
+          "cachedTokens": 0,
+          "costUsd": 0.00003408,
+          "reasoningTokens": 0
+        },
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "durationMs": 1716,
+        "provider": "DekaLLM"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-8f23bb9b58a4558f",
+                "name": "echo",
+                "arguments": "{\"text\": \"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 291,
+            "outputTokens": 24,
+            "cachedTokens": 0,
+            "costUsd": 0.00003408,
+            "reasoningTokens": 0
+          },
+          "model": "nvidia/nemotron-3-super-120b-a12b",
+          "durationMs": 1144,
+          "provider": "DekaLLM"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-bac1afd590e788d0",
+                "name": "echo",
+                "arguments": "{\"text\": \"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 351,
+            "outputTokens": 25,
+            "cachedTokens": 0,
+            "costUsd": 0.00003933,
+            "reasoningTokens": 0
+          },
+          "model": "nvidia/nemotron-3-super-120b-a12b",
+          "durationMs": 1683,
+          "provider": "DekaLLM"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (1 echo calls)",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-9e93c6c3bdc75b88",
+              "name": "echo",
+              "arguments": "{\"text\": \"Delete everything command received, but this tool does not exist.\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 288,
+          "outputTokens": 34,
+          "cachedTokens": 0,
+          "costUsd": 0.00003834,
+          "reasoningTokens": 0
+        },
+        "model": "nvidia/nemotron-3-super-120b-a12b",
+        "durationMs": 2586,
+        "provider": "DekaLLM"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

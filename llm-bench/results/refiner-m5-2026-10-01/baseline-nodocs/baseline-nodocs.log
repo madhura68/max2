@@ -1,0 +1,35 @@
+gsq-lokaal probe: reliable
+qwen3.6-lokaal probe: reliable
+gsq-lokaal R01 seed 1: final in 51.7s
+gsq-lokaal R02 seed 1: final in 10.2s
+gsq-lokaal R03 seed 1: final in 24.9s
+gsq-lokaal R04 seed 1: final in 11.0s
+gsq-lokaal R05 seed 1: final in 16.9s
+gsq-lokaal R06 seed 1: final in 14.2s
+gsq-lokaal R07 seed 1: final in 11.8s
+gsq-lokaal R08 seed 1: final in 20.0s
+gsq-lokaal R09 seed 1: final in 15.8s
+gsq-lokaal R10 seed 1: final in 14.8s
+gsq-lokaal R01 seed 2: final in 8.1s
+gsq-lokaal R01 seed 3: final in 10.4s
+gsq-lokaal R02 seed 2: final in 8.0s
+gsq-lokaal R02 seed 3: final in 13.4s
+gsq-lokaal R04 seed 2: final in 9.1s
+gsq-lokaal R04 seed 3: final in 7.9s
+qwen3.6-lokaal R01 seed 1: final in 83.7s
+qwen3.6-lokaal R02 seed 1: final in 8.1s
+qwen3.6-lokaal R03 seed 1: final in 10.3s
+qwen3.6-lokaal R04 seed 1: final in 13.4s
+qwen3.6-lokaal R05 seed 1: final in 15.0s
+qwen3.6-lokaal R06 seed 1: final in 9.6s
+qwen3.6-lokaal R07 seed 1: final in 10.8s
+qwen3.6-lokaal R08 seed 1: final in 9.7s
+qwen3.6-lokaal R09 seed 1: final in 8.1s
+qwen3.6-lokaal R10 seed 1: final in 9.7s
+qwen3.6-lokaal R01 seed 2: final in 6.1s
+qwen3.6-lokaal R01 seed 3: final in 5.3s
+qwen3.6-lokaal R02 seed 2: final in 4.2s
+qwen3.6-lokaal R02 seed 3: final in 6.2s
+qwen3.6-lokaal R04 seed 2: final in 11.5s
+qwen3.6-lokaal R04 seed 3: final in 10.8s
+done: /Users/janpetervisser/Development/m5-first-contact/task13/runs/baseline-nodocs

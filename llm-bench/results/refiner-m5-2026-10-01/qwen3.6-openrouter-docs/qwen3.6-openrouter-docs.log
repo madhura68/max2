@@ -1,0 +1,20 @@
+qwen3.6-openrouter probe: reliable
+qwen3.6-openrouter D01 seed 1: final in 23.5s
+qwen3.6-openrouter D01 seed 2: final in 27.2s
+qwen3.6-openrouter D01 seed 3: error in 19.5s
+qwen3.6-openrouter D01 seed 3 (poging 2): final in 45.1s
+qwen3.6-openrouter D02 seed 1: final in 28.8s
+qwen3.6-openrouter D02 seed 2: final in 16.7s
+qwen3.6-openrouter D02 seed 3: final in 20.2s
+qwen3.6-openrouter D03 seed 1: final in 19.2s
+qwen3.6-openrouter D03 seed 2: final in 19.5s
+qwen3.6-openrouter D03 seed 3: final in 15.0s
+qwen3.6-openrouter D04 seed 1: final in 22.6s
+qwen3.6-openrouter D04 seed 2: error in 18.7s
+qwen3.6-openrouter D04 seed 2 (poging 2): final in 42.6s
+qwen3.6-openrouter D04 seed 3: final in 25.1s
+qwen3.6-openrouter D05 seed 1: final in 31.7s
+qwen3.6-openrouter D05 seed 2: final in 18.4s
+qwen3.6-openrouter D05 seed 3: final in 13.5s
+check_key OPENROUTER_API_KEY /Users/janpetervisser/Development/m5-first-contact/task14/runs/qwen3.6-openrouter-docs: files_scanned=277 unreadable=0 with_key=0
+done: /Users/janpetervisser/Development/m5-first-contact/task14/runs/qwen3.6-openrouter-docs
