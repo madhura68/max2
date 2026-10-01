@@ -1,4 +1,4 @@
-"""Tests for the refiner eval: runner against a fake Ollama, checks against fixed transcripts,
+"""Tests for the refiner eval: runner against a fake Ollama and a fake harness, checks against fixed transcripts,
 and the frozen docset with its freezer and check.
 
   python3 -m unittest llm-bench/refiner/test_refiner.py
@@ -10,7 +10,9 @@ import hashlib
 import io
 import json
 import os
+import random
 import re
+import shlex
 import shutil
 import subprocess
 import sys
@@ -20,6 +22,7 @@ import unittest
 from datetime import datetime
 from http.server import BaseHTTPRequestHandler, HTTPServer
 from pathlib import Path
+from unittest import mock
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
@@ -2512,6 +2515,1478 @@ class ReportTest(RunDirTest):
                               "Zeef": "gezakt"})
             self.assertIn(f"- {model} (gezakt): vlag op A5: {flagged}", output)
             self.assertIn(f"#### Vlag A5: {flagged} ({model}, R01, seed 1)", output)
+
+
+# Taak 11a: the stand-in for the harness. fake_harness.py has the two commands run.py calls, with the layout, the file shapes
+# and the exit codes of the real ones (agent-harness src/cli.ts, probe.ts, trace.ts, run.ts, manifest.ts), and answers what the
+# test tells it to. No test calls the real harness, OpenRouter or Ollama.
+FAKE_HARNESS = HERE / "fake_harness.py"
+PROBE_STEPS = ["a_plain", "b_single_tool", "c_two_tools", "d_nonexistent_tool"]
+DOC_TOOL_NAMES = ["search_product_docs", "get_product_doc", "list_product_docs", "related_product_docs"]
+DUMMY_KEY = "dummy-value-not-a-key-0f4a9c1e"     # a test lends a child process this and nothing real
+
+
+def clean_env(**extra):
+    """The environment for a child process: ours without an OPENROUTER_API_KEY (a test never lends a real key), plus extra."""
+    env = {k: v for k, v in os.environ.items() if k != "OPENROUTER_API_KEY"}
+    env.update(extra)
+    return env
+
+
+def sample_manifest(profile="answer", **over):
+    """A manifest the real harness accepts (src/manifest.ts); over replaces top-level fields, and None removes one."""
+    m = {"id": "a1b2c3-p1-t1", "profile": profile, "system": "Systeem.", "prompt": "Vraag?",
+         "model": {"baseUrl": "https://openrouter.ai/api/v1", "name": "qwen/qwen3.6-35b-a3b",
+                   "extraBody": {"temperature": 0.7, "seed": 1}},
+         "limits": dict(ROW_LIMITS)}
+    if profile == "tools":
+        m["tools"] = {"server": {"command": "node", "args": ["cli.js", "doc-server", "--dir", "/docs", "--product-id", "p"]},
+                      "allow": list(DOC_TOOL_NAMES)}
+    m.update(over)
+    return {k: v for k, v in m.items() if v is not None}
+
+
+def model_block(**over):
+    return {"baseUrl": "https://openrouter.ai/api/v1", "name": "qwen/qwen3.6-35b-a3b", **over}
+
+
+# What the real harness refuses in a manifest (src/manifest.ts): each entry changes a valid answer manifest into an invalid one.
+INVALID_MANIFESTS = {
+    "an id with a capital": {"id": "A1"},
+    "an id of 81 characters": {"id": "a" * 81},
+    "an unknown profile": {"profile": "chat"},
+    "an empty prompt": {"prompt": ""},
+    "a history that starts with the assistant": {"history": [{"role": "assistant", "content": "x"}]},
+    "a history that ends with the user": {"history": [{"role": "user", "content": "x"}]},
+    "a history that does not alternate": {"history": [{"role": "user", "content": "x"}, {"role": "user", "content": "y"},
+                                                       {"role": "assistant", "content": "z"}]},
+    "tools next to the profile answer": {"tools": {"server": {"command": "node", "args": []}, "allow": ["a"]}},
+    "a reserved key in extraBody": {"model": model_block(extraBody={"model": "x"})},
+    "reasoning_effort next to reasoningEffort": {"model": model_block(reasoningEffort="none",
+                                                                      extraBody={"reasoning_effort": "none"})},
+    "an unknown reasoningEffort": {"model": model_block(reasoningEffort="extreme")},
+    "a base URL that is no URL": {"model": model_block(baseUrl="openrouter")},
+    "a limit that is not positive": {"limits": {**ROW_LIMITS, "maxTurns": 0}},
+    "a missing limit": {"limits": {k: v for k, v in ROW_LIMITS.items() if k != "maxWallSeconds"}},
+}
+
+
+class FakeHarnessTest(unittest.TestCase):
+    """fake_harness.py: the files, shapes and exit codes of the real harness, as run.py reads them."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.out = self.tmp / "out"
+        self.log = self.tmp / "invocations.jsonl"
+        self.counter = 0
+
+    def fake(self, *args, config=None, **env):
+        """The fake with args and a config (what it answers) in its environment."""
+        path = self.tmp / "config.json"
+        path.write_text(json.dumps(config or {}))
+        return subprocess.run([sys.executable, str(FAKE_HARNESS), *map(str, args)], capture_output=True, text=True,
+                              env=clean_env(FAKE_HARNESS_CONFIG=str(path), FAKE_HARNESS_LOG=str(self.log), **env))
+
+    def probe(self, model="qwen/qwen3.6-35b-a3b", *extra, out=None, config=None, **env):
+        return self.fake("probe", "--base-url", "https://openrouter.ai/api/v1", "--model", model,
+                         "--out", out or self.out, *extra, config=config, **env)
+
+    def run_manifest(self, manifest, *extra, config=None, **env):
+        self.counter += 1
+        path = self.tmp / f"manifest-{self.counter}.json"
+        path.write_text(json.dumps(manifest))
+        return self.fake("run", path, "--out", self.out, *extra, config=config, **env)
+
+    def run_dir(self, run_id="a1b2c3-p1-t1"):
+        return self.out / run_id
+
+    def trace(self, run_id="a1b2c3-p1-t1"):
+        return [json.loads(line) for line in (self.run_dir(run_id) / "trace.jsonl").read_text().splitlines()]
+
+    def result(self, run_id="a1b2c3-p1-t1"):
+        return json.loads((self.run_dir(run_id) / "result.json").read_text())
+
+    def test_probe_writes_probe_json_where_the_harness_does(self):
+        done = self.probe()
+        self.assertEqual(done.returncode, 0, done.stderr)
+        probe = json.loads((self.out / "probe-qwen-qwen3.6-35b-a3b" / "probe.json").read_text())
+        self.assertEqual(list(probe), ["baseUrl", "model", "reportedModel", "ranAt", "steps", "tool_calling", "usage_reported"])
+        self.assertEqual((probe["baseUrl"], probe["model"], probe["tool_calling"], probe["usage_reported"]),
+                         ("https://openrouter.ai/api/v1", "qwen/qwen3.6-35b-a3b", "reliable", True))
+        self.assertEqual(list(probe["steps"]), PROBE_STEPS)
+        for step in probe["steps"].values():
+            self.assertEqual((sorted(step), step["pass"]), (["pass", "raw", "reason"], True))
+        self.assertIsNotNone(datetime.fromisoformat(probe["ranAt"].replace("Z", "+00:00")))     # UTC, as the harness writes it
+        self.assertIn("PASS a_plain:", done.stdout)
+        self.assertIn("tool_calling: reliable", done.stdout)
+
+    def test_the_probe_directory_name_follows_the_harness(self):
+        for model, name in (("qwen/qwen3.6-35b-a3b", "probe-qwen-qwen3.6-35b-a3b"),
+                            ("qwen3.8-gsq-rco:27b-iq3_s-text", "probe-qwen3.8-gsq-rco-27b-iq3-s-text"),
+                            ("Google/Gemma-4-31B-IT", "probe-google-gemma-4-31b-it"),
+                            ("a//b::c", "probe-a-b-c")):
+            with self.subTest(model=model):
+                out = self.tmp / name
+                self.assertEqual(self.probe(model, out=out).returncode, 0)
+                self.assertEqual([p.name for p in out.iterdir()], [name])
+                self.assertEqual(json.loads((out / name / "probe.json").read_text())["model"], model)
+
+    def test_the_verdict_follows_the_steps_and_the_exit_code_follows_the_verdict(self):
+        # src/probe.ts: no single tool call is none; a failing second turn or foreign tool call is unreliable; a_plain
+        # is shown but does not decide
+        for failing, verdict, code in (((), "reliable", 0), (("a_plain",), "reliable", 0), (("b_single_tool",), "none", 1),
+                                       (("c_two_tools",), "unreliable", 1), (("d_nonexistent_tool",), "unreliable", 1),
+                                       (("b_single_tool", "c_two_tools"), "none", 1)):
+            with self.subTest(failing=failing):
+                fail = {step: f"{step} did not pass" for step in failing}
+                out = self.tmp / ("out-" + "-".join(failing or ("none",)))
+                done = self.probe(out=out, config={"probe": [{"response": {"fail": fail}}]})
+                probe = json.loads((out / "probe-qwen-qwen3.6-35b-a3b" / "probe.json").read_text())   # also written on exit 1
+                self.assertEqual((probe["tool_calling"], done.returncode), (verdict, code))
+                self.assertEqual({s: x["reason"] for s, x in probe["steps"].items() if not x["pass"]}, fail)
+                self.assertEqual(done.stdout.count("FAIL "), len(failing))
+
+    def test_a_probe_rule_can_name_one_model(self):
+        config = {"probe": [{"when": {"model": "m-bad"}, "response": {"fail": {"c_two_tools": "no second call"}}}]}
+        self.assertEqual(self.probe("m-bad", config=config).returncode, 1)
+        self.assertEqual(self.probe("m-good", config=config).returncode, 0)
+
+    def test_a_probe_that_crashes_leaves_no_probe_json(self):
+        done = self.probe(config={"probe": [{"response": {"crash": "connect ECONNREFUSED"}}]})
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("ECONNREFUSED", done.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_the_extra_body_file_of_a_probe_is_held_to_the_manifest_rules(self):
+        for body, why in (({"model": "x"}, "gereserveerde"), ([1], "JSON-object"), ({"temperature": 0.7}, None)):
+            with self.subTest(body=body):
+                path = self.tmp / "extra.json"
+                path.write_text(json.dumps(body))
+                out = self.tmp / f"out-{len(json.dumps(body))}"
+                done = self.probe("m", "--extra-body-file", path, out=out)
+                if why:
+                    self.assertEqual(done.returncode, 1)
+                    self.assertIn(why, done.stderr)
+                    self.assertFalse(out.exists())
+                else:
+                    self.assertEqual(done.returncode, 0, done.stderr)
+
+    def test_run_writes_result_and_trace_in_the_harness_layout(self):
+        config = {"run": [{"response": {"answer": "Hallo.", "providers": ["Novita"], "duration_ms": 2500,
+                                        "usage": {"inputTokens": 321, "outputTokens": 45, "cachedTokens": 12,
+                                                  "costUsd": 0.00052, "reasoningTokens": 7}}}]}
+        done = self.run_manifest(sample_manifest(), config=config)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(sorted(p.name for p in self.run_dir().iterdir()), ["result.json", "trace.jsonl"])
+        result = self.result()
+        self.assertEqual(list(result), ["runId", "status", "answer", "model", "usage", "durationMs"])
+        self.assertEqual((result["runId"], result["status"], result["answer"], result["durationMs"]),
+                         ("a1b2c3-p1-t1", "completed", "Hallo.", 2500))
+        self.assertEqual(result["model"], {"name": "qwen/qwen3.6-35b-a3b", "baseUrl": "https://openrouter.ai/api/v1",
+                                           "reported": "qwen/qwen3.6-35b-a3b"})
+        self.assertEqual(result["usage"], {"source": "provider_reported", "inputTokens": 321, "outputTokens": 45, "turns": 1,
+                                           "toolCalls": 0, "toolErrors": 0, "cachedTokens": 12, "costUsd": 0.00052,
+                                           "reasoningTokens": 7})
+        events = self.trace()
+        self.assertEqual([e["type"] for e in events], ["run_start", "model_request", "model_response", "run_end"])
+        self.assertTrue(all("ts" in e for e in events))
+        self.assertEqual(events[0]["manifest"]["id"], "a1b2c3-p1-t1")
+        response = events[2]
+        self.assertEqual(sorted(response), ["content", "durationMs", "finishReason", "provider", "toolCalls", "ts", "turn", "type",
+                                            "usage"])
+        self.assertEqual((response["content"], response["toolCalls"], response["finishReason"], response["provider"],
+                          response["turn"]), ("Hallo.", [], "stop", "Novita", 1))
+        self.assertEqual(response["usage"]["costUsd"], 0.00052)
+        self.assertEqual(events[3], {"ts": events[3]["ts"], "type": "run_end", "status": "completed"})
+        self.assertIn("completed", done.stdout)
+
+    def test_a_tools_run_pairs_each_tool_call_with_its_result(self):
+        self.assertEqual(self.probe().returncode, 0)
+        calls = [{"name": "search_product_docs", "arguments": {"query": "x"}},
+                 {"name": "get_product_doc", "arguments": "{oops", "ok": False, "error_code": "MALFORMED_ARGS"}]
+        config = {"run": [{"response": {"calls": calls, "answer": "Klaar.", "providers": ["A", "B"]}}]}
+        done = self.run_manifest(sample_manifest("tools"), config=config)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        events = self.trace()
+        self.assertEqual([e["type"] for e in events],
+                         ["run_start", "tool_snapshot", "model_request", "model_response", "tool_call", "tool_result",
+                          "model_request", "model_response", "tool_call", "tool_result",
+                          "model_request", "model_response", "run_end"])
+        self.assertEqual(events[1]["names"], sorted(DOC_TOOL_NAMES))
+        first, second = [e for e in events if e["type"] == "tool_call"]
+        self.assertEqual((first["name"], first["arguments"], first["argumentsWasObject"]),
+                         ("search_product_docs", '{"query": "x"}', False))
+        self.assertEqual((second["name"], second["arguments"]), ("get_product_doc", "{oops"))   # a string stays as it is
+        ok, bad = [e for e in events if e["type"] == "tool_result"]
+        self.assertEqual((ok["callId"], ok["ok"], "errorCode" in ok, ok["truncated"]), (first["callId"], True, False, False))
+        self.assertEqual((bad["callId"], bad["ok"], bad["errorCode"]), (second["callId"], False, "MALFORMED_ARGS"))
+        for e in (ok, bad):
+            self.assertEqual(sorted(e), ["bytes", "callId", "ok", "sha256", "truncated", "ts", "type"] if e is ok
+                             else ["bytes", "callId", "errorCode", "ok", "sha256", "truncated", "ts", "type"])
+        self.assertEqual(sorted(p.name for p in (self.run_dir() / "tools").iterdir()),
+                         sorted(f"{e['callId']}.txt" for e in (ok, bad)))
+        responses = [e for e in events if e["type"] == "model_response"]
+        self.assertEqual([(e["provider"], e["finishReason"]) for e in responses],
+                         [("A", "tool_calls"), ("B", "tool_calls"), ("B", "stop")])    # the last provider repeats
+        self.assertEqual([len(e["toolCalls"]) for e in responses], [1, 1, 0])
+        self.assertEqual(responses[0]["toolCalls"][0]["id"], first["callId"])
+        result = self.result()
+        self.assertEqual({k: result["usage"][k] for k in ("turns", "toolCalls", "toolErrors")},
+                         {"turns": 3, "toolCalls": 2, "toolErrors": 1})
+        self.assertIn("toolSnapshotHash", result)
+
+    def test_a_run_that_does_not_complete_exits_1_and_has_no_answer(self):
+        error = {"code": "MODEL_ERROR", "message": "model HTTP 402"}
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"status": "failed", "error": error}}]})
+        self.assertEqual(done.returncode, 1)
+        result = self.result()
+        self.assertEqual((result["status"], result["error"], "answer" in result), ("failed", error, False))
+        events = self.trace()
+        self.assertEqual([e["type"] for e in events], ["run_start", "model_request", "run_end"])    # no model_response
+        self.assertEqual(events[-1]["error"], error)
+
+    def test_a_cut_off_answer_is_budget_exceeded_with_a_response_that_finished_on_length(self):
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"status": "budget_exceeded", "respond": True,
+                                                                                  "finish_reason": "length"}}]})
+        self.assertEqual(done.returncode, 1)
+        result = self.result()
+        self.assertEqual((result["status"], "answer" in result, "error" in result), ("budget_exceeded", False, False))
+        self.assertEqual([e["finishReason"] for e in self.trace() if e["type"] == "model_response"], ["length"])
+
+    def test_a_run_without_a_result_leaves_no_result_json(self):
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"no_result": True}}]})
+        self.assertEqual(done.returncode, 1)
+        self.assertTrue(self.run_dir().is_dir())
+        self.assertFalse((self.run_dir() / "result.json").exists())
+
+    def test_it_refuses_a_run_dir_that_exists(self):
+        self.assertEqual(self.run_manifest(sample_manifest(), config={"run": [{"response": {"answer": "eerste"}}]}).returncode, 0)
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"answer": "tweede"}}]})
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("run dir already exists", done.stderr)
+        self.assertEqual(self.result()["answer"], "eerste")
+
+    def test_the_probe_gate_for_a_tools_manifest(self):
+        tools = sample_manifest("tools")
+        done = self.run_manifest(tools)                                           # no probe at all
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("PROBE_REQUIRED", done.stderr)
+        self.assertFalse(self.run_dir().exists())                                 # it exits before it opens the run dir
+        self.assertEqual(self.probe("another/model").returncode, 0)               # a probe of another model does not count
+        self.assertEqual(self.run_manifest(tools).returncode, 1)
+        unreliable = {"probe": [{"response": {"fail": {"c_two_tools": "no second call"}}}]}
+        self.assertEqual(self.probe(config=unreliable).returncode, 1)
+        done = self.run_manifest(tools)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("rates tool calling as unreliable", done.stderr)
+        self.assertFalse(self.run_dir().exists())
+        self.assertEqual(self.run_manifest(tools, "--skip-probe").returncode, 0)  # the escape hatch
+        self.out = self.tmp / "out2"
+        self.assertEqual(self.run_manifest(sample_manifest(model=model_block(baseUrl="http://127.0.0.1:11434/v1"))).returncode,
+                         0)                                                       # profile answer: no gate
+        self.assertEqual(self.probe().returncode, 0)
+        wrong_url = sample_manifest("tools", model=model_block(baseUrl="https://elsewhere.example/v1"))
+        done = self.run_manifest(wrong_url)                                       # a probe for another baseUrl
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("was made for", done.stderr)
+
+    def test_a_manifest_the_real_harness_would_refuse_is_refused(self):
+        for n, (why, over) in enumerate(INVALID_MANIFESTS.items()):
+            with self.subTest(why):
+                self.out = self.tmp / f"out-{n}"
+                done = self.run_manifest(sample_manifest(**over))
+                self.assertEqual(done.returncode, 1)
+                self.assertIn("invalid manifest", done.stderr)
+                self.assertFalse(self.out.exists())
+        self.out = self.tmp / "out-tools"
+        done = self.run_manifest(sample_manifest("tools", tools=None), "--skip-probe")    # profile tools without tools
+        self.assertEqual((done.returncode, "tools" in done.stderr), (1, True))
+
+    def test_a_manifest_the_real_harness_accepts_is_accepted(self):
+        history = [{"role": "user", "content": "Vraag"}, {"role": "assistant", "content": "Antwoord"}]
+        accepted = sample_manifest(history=history, model=model_block(baseUrl="http://127.0.0.1:11434/v1", name="m:1",
+                                                                      reasoningEffort="none", extraBody={"seed": 2}),
+                                   limits={k: v for k, v in ROW_LIMITS.items() if k != "contextTokens"})   # it is optional
+        done = self.run_manifest(accepted)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(self.trace()[0]["manifest"]["history"], history)
+
+    def test_every_invocation_is_logged_with_its_argv(self):
+        self.probe()
+        self.run_manifest(sample_manifest("tools"))
+        lines = [json.loads(line) for line in self.log.read_text().splitlines()]
+        self.assertEqual([entry["argv"][0] for entry in lines], ["probe", "run"])
+        self.assertEqual(lines[0]["argv"][1:5], ["--base-url", "https://openrouter.ai/api/v1", "--model", "qwen/qwen3.6-35b-a3b"])
+        self.assertEqual(lines[1]["argv"][2:], ["--out", str(self.out)])
+
+    def test_an_api_key_variable_that_is_not_set_stops_the_command_and_a_set_one_is_never_shown(self):
+        done = self.run_manifest(sample_manifest(), "--api-key-env", "NO_SUCH_VARIABLE_FOR_TESTS")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("NO_SUCH_VARIABLE_FOR_TESTS", done.stderr)
+        self.assertFalse(self.out.exists())
+        done = self.run_manifest(sample_manifest(), "--api-key-env", "OPENROUTER_API_KEY", OPENROUTER_API_KEY=DUMMY_KEY)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        done = self.probe("m", "--api-key-env", "OPENROUTER_API_KEY", OPENROUTER_API_KEY=DUMMY_KEY)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        everything = done.stdout + done.stderr + "".join(p.read_text() for p in self.tmp.rglob("*") if p.is_file())
+        self.assertNotIn(DUMMY_KEY, everything)
+
+    def test_extra_body_file_is_a_probe_option_only(self):
+        done = self.run_manifest(sample_manifest(), "--extra-body-file", self.tmp / "x.json")
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("harness probe", done.stderr)
+        self.assertFalse(self.out.exists())
+
+    def test_the_rules_of_a_config_merge_in_file_order(self):
+        history = [{"role": "user", "content": "Vraag"}, {"role": "assistant", "content": "Antwoord"}]
+        config = {"run": [
+            {"response": {"answer": "standaard", "providers": ["P"]}},
+            {"when": {"turn": 2}, "response": {"answer": "beurt twee"}},
+            {"when": {"seed": 2}, "response": {"answer": "seed twee"}},
+            {"when": {"prompt_contains": "bijzonder"}, "response": {"answer": "bijzonder antwoord"}},
+            {"when": {"model": "other/model", "turn": 1}, "response": {"answer": "ander model"}},
+            {"when": {"poging": 2}, "response": {"answer": "tweede poging"}}]}
+        cases = (("t1", sample_manifest(id="a1-p1-t1"), "standaard"),
+                 ("t2", sample_manifest(id="a1-p1-t2", history=history), "beurt twee"),
+                 ("seed", sample_manifest(id="a2-p1-t1", model=model_block(extraBody={"seed": 2})), "seed twee"),
+                 ("prompt", sample_manifest(id="a3-p1-t1", prompt="Iets bijzonders"), "bijzonder antwoord"),
+                 ("model", sample_manifest(id="a4-p1-t1", model=model_block(name="other/model")), "ander model"),
+                 ("poging", sample_manifest(id="a5-p2-t1"), "tweede poging"),
+                 ("last wins", sample_manifest(id="a6-p2-t2", history=history), "tweede poging"))
+        for why, manifest, answer in cases:
+            with self.subTest(why):
+                self.assertEqual(self.run_manifest(manifest, config=config).returncode, 0)
+                self.assertEqual(self.result(manifest["id"])["answer"], answer)
+        self.assertEqual(self.trace("a1-p1-t1")[2]["provider"], "P")             # a field that no later rule sets stays
+
+
+# Taak 11a: run.py --backend harness. fake_harness.py (above) is the harness; models.json holds the labels.
+MODELS_FILE = HERE / "models.json"
+PROMPT_FILE = PROMPTS / "promptverfijner-systeem.txt"
+ADDENDUM_FILE = PROMPTS / "promptverfijner-docs-addendum.txt"
+PROVIDER_BLOCK = {"data_collection": "deny", "require_parameters": True}
+LOCAL_MODELS = {"gsq-lokaal": "qwen3.8-gsq-rco:27b-iq3_s-text", "qwen3.6-lokaal": "qwen3.6:35b-a3b-coding"}
+OPENROUTER_MODELS = {"qwen3.6-openrouter": "qwen/qwen3.6-35b-a3b", "qwen3.8-openrouter": "qwen/qwen3.8-27b",
+                     "gemma-openrouter": "google/gemma-4-31b-it", "qwen3.5-122b-openrouter": "qwen/qwen3.5-122b-a10b",
+                     "nemotron-openrouter": "nvidia/nemotron-3-super-120b-a12b"}
+LOCAL, REMOTE = "gsq-lokaal", "qwen3.6-openrouter"     # a label that needs no key and one that needs OPENROUTER_API_KEY
+KEY_VARIABLE = "OPENROUTER_API_KEY"                     # the name; a test lends the variable DUMMY_KEY and nothing else
+LOCAL_URL, REMOTE_URL = "http://127.0.0.1:11434/v1", "https://openrouter.ai/api/v1"
+
+
+def script(*answers, **response):
+    """A config for the fake harness: the answer to model turn n is answers[n - 1], and the last answer goes on repeating.
+    response: more fields of the fake's response (usage, providers, ...) for every turn."""
+    rules = [{"response": {"answer": answers[-1], **response}}]
+    rules += [{"when": {"turn": n}, "response": {"answer": text}} for n, text in enumerate(answers[:-1], start=1)]
+    return {"run": rules}
+
+
+ASK = script(QUESTIONS, FENCE_REPLY)      # the model asks first and then writes the prompt (FakeOllama "ask")
+DIRECT = script(FENCE_REPLY)              # the model writes the prompt at once (FakeOllama "direct")
+NEVER = script(QUESTIONS)                 # the model never writes a prompt (FakeOllama "never")
+
+
+def sha256_hex(text):
+    return hashlib.sha256(text.encode()).hexdigest()
+
+
+def probe_fails(model, **fail):
+    """A fake-harness rule: the probe of model fails the steps named in fail ({step: reason})."""
+    return {"when": {"model": model}, "response": {"fail": fail}}
+
+
+class HarnessRunBase(unittest.TestCase):
+    """run.py --backend harness with fake_harness.py as the harness. It holds no test, so a subclass does not repeat any."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.out = (self.tmp / "run").resolve()         # run.py creates it
+        self.log = self.tmp / "invocations.jsonl"
+        self.harness = f"{shlex.quote(sys.executable)} {shlex.quote(str(FAKE_HARNESS))}"
+
+    def run_py(self, *args, config=None, check=True, cwd=None, **env):
+        """run.py --backend harness with args. config: what the fake harness answers; check: expect exit status 0;
+        env: more variables for run.py and so for the harness."""
+        (self.tmp / "fake.json").write_text(json.dumps(config or {}))
+        variant = [] if "--variant" in args else ["--variant", "nodocs"]       # run.py wants it said; most tests run nodocs
+        argv = [sys.executable, str(HERE / "run.py"), "--backend", "harness", "--harness", self.harness, *variant,
+                "--out", str(self.out), *map(str, args)]
+        done = subprocess.run(argv, capture_output=True, text=True, cwd=cwd,
+                              env=clean_env(FAKE_HARNESS_CONFIG=str(self.tmp / "fake.json"), FAKE_HARNESS_LOG=str(self.log),
+                                            **env))
+        if check:
+            self.assertEqual(done.returncode, 0, done.stderr)
+        return done
+
+    def rows(self):
+        return [json.loads(line) for line in (self.out / "raw.jsonl").read_text(encoding="utf-8").splitlines()]
+
+    def turn_rows(self):
+        return [r for r in self.rows() if isinstance(r["turn"], int)]
+
+    def end_rows(self):
+        return [r for r in self.rows() if r["turn"] == "end"]
+
+    def manifests(self):
+        """{id: manifest} of the turns of the run, in the order of the ids."""
+        return {p.stem: json.loads(p.read_text(encoding="utf-8"))
+                for p in sorted((self.out / "manifests").glob("*.json")) if re.fullmatch(r"[0-9a-f]{6}-p\d+-t\d+", p.stem)}
+
+    def invocations(self):
+        """The argv of every call run.py made to the fake harness."""
+        return [json.loads(line)["argv"] for line in self.log.read_text().splitlines()] if self.log.exists() else []
+
+
+class BlindIdsTest(unittest.TestCase):
+    """The blind ids of the backend harness: six hexadecimal digits, one per conversation, from the stamp as for the backend ollama."""
+
+    def test_the_ids_are_those_the_ollama_loop_draws_for_the_same_stamp(self):
+        stamp = "20260930T120000Z"
+        rng, ids = random.Random(stamp), run.blind_ids(stamp)
+        for _ in range(8):
+            drawn = next(ids)
+            self.assertRegex(drawn, r"^[0-9a-f]{6}$")
+            self.assertEqual(drawn, f"{rng.randrange(16**6):06x}")
+
+    def test_an_id_that_was_given_is_not_given_again(self):
+        with mock.patch.object(run.random, "Random") as fake:
+            fake.return_value.randrange.side_effect = [5, 5, 5, 7, 7, 9]
+            ids = run.blind_ids("stamp")
+            self.assertEqual([next(ids) for _ in range(3)], ["000005", "000007", "000009"])
+
+
+class ModelsFileTest(unittest.TestCase):
+    """models.json: the seven labels of the spec, with the settings of Task 2 and no key."""
+
+    def setUp(self):
+        self.models = json.loads(MODELS_FILE.read_text(encoding="utf-8"))
+
+    def test_it_holds_the_seven_labels_in_the_order_of_the_plan(self):
+        self.assertEqual(list(self.models), ["gsq-lokaal", "qwen3.6-lokaal", "qwen3.6-openrouter", "qwen3.8-openrouter",
+                                             "gemma-openrouter", "qwen3.5-122b-openrouter", "nemotron-openrouter"])
+
+    def test_the_local_labels_are_the_two_installed_models_with_reasoning_off_without_docs_only(self):
+        for label, name in LOCAL_MODELS.items():
+            with self.subTest(label):
+                self.assertEqual(self.models[label], {
+                    "base_url": LOCAL_URL, "name": name,
+                    "nodocs": {"reasoningEffort": "none", "extraBody": {}},
+                    "docs": {"extraBody": {}},
+                    "probe": {"extraBody": {"reasoning_effort": "none"}}})
+
+    def test_the_openrouter_labels_carry_the_provider_block_and_the_reasoning_of_task_2(self):
+        for label, name in OPENROUTER_MODELS.items():
+            with self.subTest(label):
+                self.assertEqual(self.models[label], {
+                    "base_url": REMOTE_URL, "name": name, "api_key_env": KEY_VARIABLE,
+                    "nodocs": {"extraBody": {"provider": PROVIDER_BLOCK, "reasoning": {"effort": "none"}}},
+                    "docs": {"extraBody": {"provider": PROVIDER_BLOCK, "reasoning": {"effort": "medium"}}},
+                    "probe": {"extraBody": {"provider": PROVIDER_BLOCK, "reasoning": {"effort": "none"}}}})
+
+    def test_run_py_adds_temperature_and_seed_so_the_labels_do_not_hold_them(self):
+        for label, cfg in self.models.items():
+            for variant in ("nodocs", "docs", "probe"):
+                self.assertFalse({"temperature", "seed"} & set(cfg[variant]["extraBody"]), (label, variant))
+
+    def test_the_only_thing_about_a_key_is_the_name_of_a_variable(self):
+        def walk(value, path=()):
+            if isinstance(value, dict):
+                for k, v in value.items():
+                    yield from walk(v, path + (k,))
+            else:
+                yield path, value
+        for path, value in walk(self.models):
+            if re.search(r"(?i)key|token|secret|auth|password", path[-1]):
+                self.assertEqual((path[1:], value), (("api_key_env",), KEY_VARIABLE), path)
+
+    def test_load_models_returns_the_labels_asked_for_and_refuses_the_others(self):
+        models = run.load_models(MODELS_FILE, [LOCAL, REMOTE])
+        self.assertEqual(list(models), [LOCAL, REMOTE])
+        self.assertEqual(models[REMOTE]["name"], "qwen/qwen3.6-35b-a3b")
+        with self.assertRaisesRegex(run.RunError, "no-such-label.*gsq-lokaal.*nemotron-openrouter"):
+            run.load_models(MODELS_FILE, ["no-such-label"])
+
+    def test_a_value_in_api_key_env_is_refused_and_never_quoted_back(self):
+        # api_key_env goes into argv as it is: a key pasted into it has to stop the run, and the message must not repeat it
+        path = Path(tempfile.mkdtemp()) / "models.json"
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        pasted = ("sk-or-v1-" + "0123456789", DUMMY_KEY)            # key-shaped, built here so no such text is in the source
+        for value in (*pasted, "OPENROUTER KEY", "", 5, None):
+            with self.subTest(value):
+                path.write_text(json.dumps({"x": {**self.models["gsq-lokaal"], "api_key_env": value}}))
+                with self.assertRaisesRegex(run.RunError, "x.*api_key_env") as caught:
+                    run.load_models(path, ["x"])
+                for text in pasted:
+                    self.assertNotIn(text, str(caught.exception))
+        path.write_text(json.dumps({"x": {**self.models["gsq-lokaal"], "api_key_env": "SOME_OTHER_KEY_2"}}))
+        self.assertEqual(run.load_models(path, ["x"])["x"]["api_key_env"], "SOME_OTHER_KEY_2")
+
+    def test_a_models_file_that_is_no_object_of_labels_is_refused(self):
+        path = Path(tempfile.mkdtemp()) / "models.json"
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        for text in ("[]", '"gsq-lokaal"', "{broken"):
+            with self.subTest(text):
+                path.write_text(text)
+                with self.assertRaisesRegex(run.RunError, "models file"):
+                    run.load_models(path, [LOCAL])
+        with self.assertRaisesRegex(run.RunError, "models file"):
+            run.load_models(path.parent / "nowhere.json", [LOCAL])
+
+    def test_load_models_refuses_a_label_that_lacks_a_field_naming_the_label_and_the_field(self):
+        broken = self.models["gsq-lokaal"]
+        for field in ("base_url", "name", "nodocs", "docs", "probe"):
+            with self.subTest(field):
+                path = Path(tempfile.mkdtemp()) / "models.json"
+                self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+                path.write_text(json.dumps({"gsq-lokaal": {k: v for k, v in broken.items() if k != field}}))
+                with self.assertRaisesRegex(run.RunError, f"gsq-lokaal.*{field}"):
+                    run.load_models(path, ["gsq-lokaal"])
+        path = Path(tempfile.mkdtemp()) / "models.json"
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        path.write_text(json.dumps({"x": {**broken, "probe": {}}}))
+        with self.assertRaisesRegex(run.RunError, "x.*probe.*extraBody"):
+            run.load_models(path, ["x"])
+
+
+class SystemTextTest(unittest.TestCase):
+    """The system text as it is sent: the prompt file, in the docs variant with the addendum behind it."""
+
+    def test_without_docs_it_is_the_prompt_file_as_it_is(self):
+        self.assertEqual(run.system_text(PROMPT_FILE, "nodocs", "bench-agent-harness"), PROMPT_FILE.read_text())
+
+    def test_with_docs_the_addendum_follows_a_blank_line_with_the_product_id_filled_in(self):
+        text = run.system_text(PROMPT_FILE, "docs", "bench-agent-harness")
+        prompt, addendum = PROMPT_FILE.read_text().rstrip(), ADDENDUM_FILE.read_text().rstrip()
+        self.assertEqual(text, prompt + "\n\n" + addendum.replace("{product_id}", "bench-agent-harness"))
+        self.assertTrue(text.startswith(prompt + "\n\n# Documentation tools\n"))
+        self.assertIn('Pass product_id "bench-agent-harness" on every call.', text)
+        self.assertNotIn("{product_id}", text)
+        self.assertFalse(text.endswith(("\n", " ")))      # trailing whitespace of both parts is stripped
+
+    def test_only_the_addendum_is_filled_in_and_a_brace_in_the_prompt_is_left_alone(self):
+        path = Path(tempfile.mkdtemp()) / "prompt.txt"
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        path.write_text("Schrijf {product_id} en {x} letterlijk.\n\n\n")
+        text = run.system_text(path, "docs", "{p}")
+        self.assertTrue(text.startswith("Schrijf {product_id} en {x} letterlijk.\n\n# Documentation tools\n"))
+        self.assertIn('Pass product_id "{p}" on every call.', text)
+
+
+class TurnRowTest(unittest.TestCase):
+    """What run.py takes from result.json and trace.jsonl for the row of a turn."""
+
+    RESULT = {"runId": "a1b2c3-p1-t2", "status": "completed", "answer": "Antwoord.",
+              "model": {"name": "m", "baseUrl": LOCAL_URL},
+              "usage": {"source": "provider_reported", "inputTokens": 1200, "outputTokens": 300, "turns": 3, "toolCalls": 2,
+                        "toolErrors": 0, "cachedTokens": 64, "costUsd": 0.0004, "reasoningTokens": 120},
+              "durationMs": 6200}
+
+    @staticmethod
+    def response(turn, provider=None, finish="stop"):
+        return {"ts": "t", "type": "model_response", "turn": turn, "content": "x", "toolCalls": [], "finishReason": finish,
+                "usage": {"source": "provider_reported", "inputTokens": 1, "outputTokens": 1}, "durationMs": 5,
+                **({"provider": provider} if provider else {})}
+
+    @staticmethod
+    def call(call_id, name="search_product_docs", arguments='{"query": "x"}'):
+        return {"ts": "t", "type": "tool_call", "callId": call_id, "name": name, "arguments": arguments,
+                "argumentsWasObject": False}
+
+    @staticmethod
+    def outcome(call_id, ok=True, error_code=None):
+        return {"ts": "t", "type": "tool_result", "callId": call_id, "ok": ok, "truncated": False, "sha256": "0" * 64,
+                "bytes": 3, **({"errorCode": error_code} if error_code else {})}
+
+    def row(self, events=(), **result):
+        return run.turn_row({**self.RESULT, **result}, list(events), 2, "a1b2c3-p1-t2", "0" * 64, ROW_LIMITS)
+
+    def test_the_row_of_a_completed_turn(self):
+        events = [{"ts": "t", "type": "run_start", "manifest": {}}, self.response(1, "Novita", "tool_calls"), self.call("c1"),
+                  self.outcome("c1"), self.response(2, "Novita", "stop"), {"ts": "t", "type": "run_end", "status": "completed"}]
+        expected = {
+            "turn": 2, "content": "Antwoord.", "status": "completed", "error_code": None, "model_turns": 3,
+            "tool_calls": [{"name": "search_product_docs", "arguments": {"query": "x"}, "ok": True, "error_code": None}],
+            "input_tokens": 1200, "output_tokens": 300, "cached_tokens": 64, "reasoning_tokens": 120, "cost_usd": 0.0004,
+            "providers": ["Novita"], "finish_reason": "stop", "wall_s": 6.2, "harness_run": "harness/a1b2c3-p1-t2",
+            "prompt_sha256": "0" * 64, "limits": ROW_LIMITS}
+        row = self.row(events)
+        self.assertEqual(row, expected)
+        self.assertEqual(list(row), list(expected))
+
+    def test_a_tool_call_pairs_with_its_result_by_call_id_not_by_position(self):
+        events = [self.call("c1", "search_product_docs"), self.call("c2", "get_product_doc", '{"slug": "a"}'),
+                  self.outcome("c2", ok=False, error_code="TOOL_ERROR"), self.outcome("c1")]
+        calls = run.tool_calls(events)
+        self.assertEqual(calls, [{"name": "search_product_docs", "arguments": {"query": "x"}, "ok": True, "error_code": None},
+                                 {"name": "get_product_doc", "arguments": {"slug": "a"}, "ok": False,
+                                  "error_code": "TOOL_ERROR"}])
+        self.assertEqual(list(calls[0]), ["name", "arguments", "ok", "error_code"])
+
+    def test_arguments_are_the_object_when_the_text_is_a_json_object_and_the_text_otherwise(self):
+        for text, expected in (('{"query": "x", "limit": 3}', {"query": "x", "limit": 3}), ("{}", {}), ("{oops", "{oops"),
+                               ("[1, 2]", "[1, 2]"), ('"x"', '"x"'), ("", "")):
+            with self.subTest(text):
+                self.assertEqual(run.tool_calls([self.call("c1", arguments=text), self.outcome("c1")])[0]["arguments"],
+                                 expected)
+
+    def test_a_tool_call_event_without_a_call_id_is_a_call_without_a_result_and_not_a_crash(self):
+        event = {"ts": "t", "type": "tool_call", "name": "search_product_docs", "arguments": "{}"}
+        self.assertEqual(run.tool_calls([event, self.outcome("c1")]),
+                         [{"name": "search_product_docs", "arguments": {}, "ok": None, "error_code": None}])
+
+    def test_a_call_without_a_result_has_no_verdict(self):
+        self.assertEqual(run.tool_calls([self.call("c1")]),
+                         [{"name": "search_product_docs", "arguments": {"query": "x"}, "ok": None, "error_code": None}])
+        self.assertEqual(run.tool_calls([]), [])
+
+    def test_providers_are_distinct_in_the_order_first_seen_and_the_finish_reason_is_the_last_response(self):
+        events = [self.response(1, "B", "tool_calls"), self.response(2, "A", "tool_calls"), self.response(3),
+                  self.response(4, "B", "length")]
+        row = self.row(events)
+        self.assertEqual((row["providers"], row["finish_reason"]), (["B", "A"], "length"))
+
+    def test_a_run_without_a_model_response_has_no_finish_reason_and_no_providers(self):
+        row = self.row([{"ts": "t", "type": "run_start", "manifest": {}}])
+        self.assertEqual((row["providers"], row["finish_reason"], row["tool_calls"]), ([], None, []))
+
+    def test_a_turn_that_did_not_complete_has_empty_content_and_the_error_code(self):
+        failed = {"runId": "a1b2c3-p1-t2", "status": "failed", "error": {"code": "MODEL_ERROR", "message": "model HTTP 503"},
+                  "model": {"name": "m", "baseUrl": LOCAL_URL}, "durationMs": 900,
+                  "usage": {"source": "missing", "inputTokens": 0, "outputTokens": 0, "turns": 1, "toolCalls": 0,
+                            "toolErrors": 0}}
+        row = run.turn_row(failed, [], 2, "a1b2c3-p1-t2", "0" * 64, ROW_LIMITS)
+        self.assertEqual((row["content"], row["status"], row["error_code"], row["wall_s"]), ("", "failed", "MODEL_ERROR", 0.9))
+        # a budget stop has no error: its code is None, and the answer is absent
+        stopped = {**failed, "status": "budget_exceeded"}
+        stopped.pop("error")
+        row = run.turn_row(stopped, [], 2, "a1b2c3-p1-t2", "0" * 64, ROW_LIMITS)
+        self.assertEqual((row["content"], row["status"], row["error_code"]), ("", "budget_exceeded", None))
+
+    def test_a_usage_field_that_is_not_there_is_none_and_a_zero_stays_a_zero(self):
+        bare = {**self.RESULT["usage"]}
+        for field in ("cachedTokens", "costUsd", "reasoningTokens"):
+            bare.pop(field)
+        row = self.row(usage=bare)
+        self.assertEqual((row["cached_tokens"], row["reasoning_tokens"], row["cost_usd"]), (None, None, None))
+        row = self.row(usage={**bare, "cachedTokens": 0, "costUsd": 0, "reasoningTokens": 0})
+        self.assertEqual((row["cached_tokens"], row["reasoning_tokens"], row["cost_usd"]), (0, 0, 0))
+
+    def test_cost_does_not_depend_on_whether_the_provider_reported_the_tokens(self):
+        usage = {**self.RESULT["usage"], "source": "missing"}
+        self.assertEqual(self.row(usage=usage)["cost_usd"], 0.0004)
+
+    def test_reasoning_tokens_are_part_of_the_output_tokens_and_are_not_added(self):
+        row = self.row()
+        self.assertEqual((row["output_tokens"], row["reasoning_tokens"]), (300, 120))
+
+
+class HarnessFilesTest(unittest.TestCase):
+    """Reading what the harness wrote: a file that is not there or not usable is an error of its own, never an empty turn."""
+
+    def setUp(self):
+        self.dir = Path(tempfile.mkdtemp()) / "a1b2c3-p1-t1"
+        self.dir.mkdir()
+        self.addCleanup(shutil.rmtree, self.dir.parent, ignore_errors=True)
+
+    def test_a_missing_result_json_is_a_harness_error_that_names_the_run_dir(self):
+        with self.assertRaisesRegex(run.HarnessError, r"a1b2c3-p1-t1.*result\.json"):
+            run.read_result(self.dir)
+
+    def test_a_result_json_that_is_no_result_is_refused(self):
+        for text in ("", "{not json", "[]", '{"status": "unknown"}', "{}"):
+            with self.subTest(text):
+                (self.dir / "result.json").write_text(text)
+                with self.assertRaisesRegex(run.HarnessError, r"result\.json"):
+                    run.read_result(self.dir)
+
+    def test_a_result_json_is_returned_as_it_is(self):
+        result = {"runId": "a1b2c3-p1-t1", "status": "failed", "durationMs": 5, "usage": {}}
+        (self.dir / "result.json").write_text(json.dumps(result))
+        self.assertEqual(run.read_result(self.dir), result)
+
+    def test_a_missing_trace_is_a_harness_error(self):
+        with self.assertRaisesRegex(run.HarnessError, r"a1b2c3-p1-t1.*trace\.jsonl"):
+            run.read_trace(self.dir)
+
+    def test_a_trace_line_that_is_no_json_is_refused_with_its_line_number(self):
+        (self.dir / "trace.jsonl").write_text('{"type": "run_start"}\n{broken\n')
+        with self.assertRaisesRegex(run.HarnessError, r"trace\.jsonl.*line 2"):
+            run.read_trace(self.dir)
+
+    def test_a_trace_is_read_in_order_and_blank_lines_are_skipped(self):
+        (self.dir / "trace.jsonl").write_text('{"type": "run_start"}\n\n{"type": "run_end", "status": "completed"}\n')
+        self.assertEqual([e["type"] for e in run.read_trace(self.dir)], ["run_start", "run_end"])
+
+
+class ProbeRowTest(unittest.TestCase):
+    """The row run.py writes for a probe, which score.py reads (load_meta, probe_reasons)."""
+
+    STEPS = {"a_plain": {"pass": True, "reason": "content: pong", "raw": {}},
+             "b_single_tool": {"pass": True, "reason": 'echo("ping")', "raw": {}},
+             "c_two_tools": {"pass": False, "reason": "turn 2: expected exactly one tool call, got 0", "raw": None},
+             "d_nonexistent_tool": {"pass": False, "reason": "called: delete_everything", "raw": {}}}
+
+    def test_the_row_names_the_verdict_and_only_the_steps_that_failed(self):
+        probe = {"baseUrl": REMOTE_URL, "model": "google/gemma-4-31b-it", "tool_calling": "unreliable", "steps": self.STEPS}
+        row = run.probe_row("gemma-openrouter", "docs", probe)
+        expected = probe_row("gemma-openrouter", "unreliable", None,
+                             {"c_two_tools": "turn 2: expected exactly one tool call, got 0",
+                              "d_nonexistent_tool": "called: delete_everything"}, "docs")
+        self.assertEqual(row, expected)
+        self.assertEqual(list(row), list(expected))
+        self.assertEqual(score.probe_reasons(row), ["probe-oordeel unreliable",
+                                                    "c_two_tools: turn 2: expected exactly one tool call, got 0",
+                                                    "d_nonexistent_tool: called: delete_everything"])
+
+    def test_a_reliable_probe_has_no_reasons_even_when_a_plain_step_failed(self):
+        steps = {**self.STEPS, "c_two_tools": {"pass": True, "reason": "ok", "raw": {}},
+                 "d_nonexistent_tool": {"pass": True, "reason": "ok", "raw": {}},
+                 "a_plain": {"pass": False, "reason": "empty content or unexpected tool call", "raw": {}}}
+        row = run.probe_row(LOCAL, "nodocs", {"tool_calling": "reliable", "steps": steps})
+        self.assertEqual(row, probe_row(LOCAL, "reliable", None, {"a_plain": "empty content or unexpected tool call"}))
+
+    def test_a_probe_without_a_verdict_is_refused(self):
+        with self.assertRaisesRegex(run.HarnessError, "tool_calling"):
+            run.probe_row(LOCAL, "nodocs", {"tool_calling": "maybe", "steps": self.STEPS})
+
+    def test_the_probe_directory_is_named_as_the_harness_names_it(self):
+        for model, name in (("qwen/qwen3.6-35b-a3b", "probe-qwen-qwen3.6-35b-a3b"),
+                            ("qwen3.8-gsq-rco:27b-iq3_s-text", "probe-qwen3.8-gsq-rco-27b-iq3-s-text"),
+                            ("nvidia/nemotron-3-super-120b-a12b", "probe-nvidia-nemotron-3-super-120b-a12b"),
+                            ("Google/Gemma-4-31B-IT", "probe-google-gemma-4-31b-it")):
+            self.assertEqual(run.probe_dir_name(model), name)
+
+
+class HarnessConversationTest(HarnessRunBase):
+    """A conversation without docs: the manifest of each turn and the rows."""
+
+    def test_the_manifest_of_each_turn_carries_the_conversation_so_far(self):
+        self.run_py("--models", LOCAL, "--cases", "R07", config=NEVER)         # four user turns and never a prompt
+        r07, bid = case("R07"), self.turn_rows()[0]["blind_id"]
+        manifests = self.manifests()
+        self.assertEqual(list(manifests), [f"{bid}-p1-t{n}" for n in (1, 2, 3, 4)])
+        prompts = [r07["input"], *r07["replies"], "Akkoord, schrijf nu de prompt."]
+        history = []
+        for n, manifest in enumerate(manifests.values()):
+            self.assertEqual((manifest["profile"], manifest["system"], manifest["prompt"], "tools" in manifest),
+                             ("answer", PROMPT_FILE.read_text(), prompts[n], False))
+            self.assertEqual(manifest.get("history"), history or None)      # at turn 1 there is no history
+            self.assertEqual(list(manifest), ["id", "profile", "system", *(["history"] if history else []), "prompt",
+                                              "model", "limits"])
+            history = history + [{"role": "user", "content": prompts[n]}, {"role": "assistant", "content": QUESTIONS}]
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", 1, 2, 3, 4, "end"])
+        self.assertEqual(self.end_rows()[0]["status"], "no_final")
+
+    def test_the_pressure_turn_follows_the_first_answer_without_a_prompt(self):
+        self.run_py("--models", LOCAL, "--cases", "R01", config=ASK)
+        r01 = case("R01")
+        first, second = self.manifests().values()
+        self.assertEqual(first["prompt"], r01["input"])
+        self.assertEqual(second["history"], [{"role": "user", "content": r01["input"]},
+                                             {"role": "assistant", "content": QUESTIONS}])
+        self.assertEqual(second["prompt"], r01["pressure_reply"])
+        self.assertEqual([r["content"] for r in self.turn_rows()], [QUESTIONS, FENCE_REPLY])
+        self.assertEqual(self.end_rows()[0]["status"], "final")
+
+    def test_temperature_seed_and_the_reasoning_of_the_label_are_in_the_model_block(self):
+        self.run_py("--models", LOCAL, REMOTE, "--cases", "R09", "--seeds", "1", "3", "--temperature", "0.2",
+                    config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
+        blocks = {}
+        for manifest in self.manifests().values():
+            blocks.setdefault(manifest["model"]["name"], []).append(manifest["model"])
+
+        def by_seed(models):
+            return sorted(models, key=lambda m: m["extraBody"]["seed"])
+        self.assertEqual(by_seed(blocks[LOCAL_MODELS[LOCAL]]), [
+            {"baseUrl": LOCAL_URL, "name": LOCAL_MODELS[LOCAL], "reasoningEffort": "none",
+             "extraBody": {"temperature": 0.2, "seed": seed}} for seed in (1, 3)])
+        self.assertEqual(by_seed(blocks[OPENROUTER_MODELS[REMOTE]]), [
+            {"baseUrl": REMOTE_URL, "name": OPENROUTER_MODELS[REMOTE],
+             "extraBody": {"provider": PROVIDER_BLOCK, "reasoning": {"effort": "none"}, "temperature": 0.2, "seed": seed}}
+            for seed in (1, 3)])
+        self.assertEqual(sorted(r["seed"] for r in self.end_rows()), [1, 1, 3, 3])
+
+    def test_reasoning_effort_comes_from_the_variant_block_of_the_label(self):
+        models = {"x-test": {"base_url": LOCAL_URL, "name": "x:1",
+                             "nodocs": {"extraBody": {"top_k": 20}},
+                             "docs": {"reasoningEffort": "low", "extraBody": {}},
+                             "probe": {"extraBody": {}}}}
+        path = self.tmp / "models.json"
+        path.write_text(json.dumps(models))
+        self.run_py("--models", "x-test", "--cases", "R09", "--models-file", path, config=DIRECT)
+        (manifest,) = self.manifests().values()
+        self.assertEqual(manifest["model"], {"baseUrl": LOCAL_URL, "name": "x:1",
+                                             "extraBody": {"top_k": 20, "temperature": 0.7, "seed": 1}})
+        self.out = self.tmp / "run-docs"
+        self.run_py("--models", "x-test", "--cases", "D01", "--variant", "docs", "--models-file", path, config=DIRECT)
+        (manifest,) = self.manifests().values()
+        self.assertEqual(manifest["model"], {"baseUrl": LOCAL_URL, "name": "x:1", "reasoningEffort": "low",
+                                             "extraBody": {"temperature": 0.7, "seed": 1}})
+
+    def test_a_label_with_odd_characters_names_the_probe_file_safely(self):
+        models = {"../odd label": {**json.loads(MODELS_FILE.read_text())[LOCAL]}}
+        path = self.tmp / "models.json"
+        path.write_text(json.dumps(models))
+        self.run_py("--models", "../odd label", "--cases", "R09", "--models-file", path, config=DIRECT)
+        self.assertEqual(sorted(p.name for p in (self.out / "manifests").glob("probe-*")), ["probe-..-odd-label.extra-body.json"])
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()),
+                         ["blind-key.json", "harness", "manifests", "raw.jsonl", "transcripts"])
+
+    def test_the_limits_are_in_the_manifest_and_in_the_rows(self):
+        self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT)
+        (manifest,) = self.manifests().values()
+        self.assertEqual(manifest["limits"], {"maxTurns": 8, "maxOutputTokens": 4096, "maxWallSeconds": 240,
+                                              "maxToolErrors": 2, "contextTokens": 65536})
+        self.assertEqual(self.turn_rows()[0]["limits"], manifest["limits"])
+        self.out = self.tmp / "run-2"
+        self.run_py("--models", LOCAL, "--cases", "R09", "--max-output-tokens", "2048", "--max-wall-seconds", "120",
+                    config=DIRECT)
+        (manifest,) = self.manifests().values()
+        self.assertEqual(manifest["limits"], {"maxTurns": 8, "maxOutputTokens": 2048, "maxWallSeconds": 120,
+                                              "maxToolErrors": 2, "contextTokens": 65536})
+        self.assertEqual(self.turn_rows()[0]["limits"], manifest["limits"])
+
+    def test_the_rows_of_a_conversation_follow_the_row_contract(self):
+        usage = {"inputTokens": 1200, "outputTokens": 300, "cachedTokens": 64, "costUsd": 0.0004, "reasoningTokens": 120}
+        config = script(FENCE_REPLY, usage=usage, providers=["Novita"], duration_ms=2500)
+        self.run_py("--models", REMOTE, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        probe, turn, end = self.rows()
+        bid = turn["blind_id"]
+        self.assertRegex(bid, r"^[0-9a-f]{6}$")
+        self.assertEqual(probe, probe_row(REMOTE, "reliable", None, {}, "nodocs"))
+        expected = {"model": REMOTE, "case": "R09", "seed": 1, "blind_id": bid, "backend": "harness", "variant": "nodocs",
+                    "poging": 1, "turn": 1, "content": FENCE_REPLY, "status": "completed", "error_code": None,
+                    "model_turns": 1, "tool_calls": [], "input_tokens": 1200, "output_tokens": 300, "cached_tokens": 64,
+                    "reasoning_tokens": 120, "cost_usd": 0.0004, "providers": ["Novita"], "finish_reason": "stop",
+                    "wall_s": 2.5, "harness_run": f"harness/{bid}-p1-t1", "prompt_sha256": sha256_hex(PROMPT_FILE.read_text()),
+                    "limits": ROW_LIMITS}
+        self.assertEqual(turn, expected)
+        self.assertEqual(list(turn), list(expected))
+        self.assertTrue((self.out / turn["harness_run"] / "result.json").is_file())
+        self.assertEqual(list(end), ["model", "case", "seed", "blind_id", "backend", "variant", "poging", "turn", "status",
+                                     "conversation_wall_s", "cost_usd"])
+        self.assertEqual({k: end[k] for k in ("model", "case", "seed", "blind_id", "backend", "variant", "poging", "turn",
+                                              "status", "cost_usd")},
+                         {"model": REMOTE, "case": "R09", "seed": 1, "blind_id": bid, "backend": "harness",
+                          "variant": "nodocs", "poging": 1, "turn": "end", "status": "final", "cost_usd": 0.0004})
+        self.assertIsInstance(end["conversation_wall_s"], float)
+        self.assertGreaterEqual(end["conversation_wall_s"], 0)
+        for row in (turn, end):                           # the Ollama-only fields are not there
+            self.assertFalse({"ps_before", "tei_on", "ollama", "options", "think"} & set(row))
+        self.assertEqual(sorted(p.name for p in self.out.iterdir()),
+                         ["blind-key.json", "harness", "manifests", "raw.jsonl", "transcripts"])
+        self.assertEqual(sorted(p.name for p in (self.out / "harness").iterdir()),
+                         [f"{bid}-p1-t1", "probe-qwen-qwen3.6-35b-a3b"])
+
+    def test_the_prompt_hash_is_that_of_the_text_in_the_manifest_and_equals_the_ollama_backends(self):
+        self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT)
+        (manifest,) = self.manifests().values()
+        self.assertEqual(self.turn_rows()[0]["prompt_sha256"], sha256_hex(manifest["system"]))
+        self.assertEqual(manifest["system"], PROMPT_FILE.read_text())
+        self.assertEqual(self.turn_rows()[0]["prompt_sha256"], hashlib.sha256(PROMPT_FILE.read_bytes()).hexdigest())
+
+    def test_the_prompt_option_names_the_system_prompt(self):
+        other = PROMPTS / "promptverfijner-systeem-v2.txt"
+        self.run_py("--models", LOCAL, "--cases", "R09", "--prompt", other, config=DIRECT)
+        (manifest,) = self.manifests().values()
+        self.assertEqual(manifest["system"], other.read_text())
+        self.assertEqual(self.turn_rows()[0]["prompt_sha256"], hashlib.sha256(other.read_bytes()).hexdigest())
+
+    def test_the_end_row_costs_the_sum_of_the_known_costs_and_none_when_no_turn_names_one(self):
+        def priced(first, second):
+            def usage(cost):
+                return {"usage": {"costUsd": cost}} if cost is not None else {}
+            return {"run": [{"response": {"answer": FENCE_REPLY}},
+                            {"when": {"turn": 1}, "response": {"answer": QUESTIONS, **usage(first)}},
+                            {"when": {"turn": 2}, "response": usage(second)}]}
+        for n, (first, second, total) in enumerate(((0.001, 0.0025, 0.0035), (0.001, None, 0.001), (None, None, None),
+                                                    (0, 0, 0))):
+            with self.subTest(first=first, second=second):
+                self.out = self.tmp / f"run-{n}"
+                self.run_py("--models", LOCAL, "--cases", "R01", config=priced(first, second))
+                self.assertEqual([r["cost_usd"] for r in self.turn_rows()], [first, second])
+                self.assertEqual(self.end_rows()[0]["cost_usd"], total)
+
+    def test_the_blind_key_and_the_transcripts_hide_the_model_but_name_the_conversation(self):
+        self.run_py("--models", LOCAL, "--cases", "R01,R09", "--seeds", "1", "2", config=ASK)
+        key = json.loads((self.out / "blind-key.json").read_text())
+        self.assertEqual(sorted(key.values(), key=lambda v: (v["case"], v["seed"])),
+                         [{"model": LOCAL, "case": cid, "seed": seed} for cid in ("R01", "R09") for seed in (1, 2)])
+        self.assertEqual(sorted(key), sorted(p.stem for p in (self.out / "transcripts").iterdir()))
+        for bid, who in key.items():
+            text = (self.out / "transcripts" / f"{bid}.md").read_text()
+            self.assertTrue(text.startswith(f"# Transcript {bid} ({who['case']}: {case(who['case'])['titel']})\n"))
+            self.assertIn("### Gebruiker", text)
+            self.assertIn("### Model", text)
+            self.assertNotIn(LOCAL, text)
+            self.assertNotIn(LOCAL_MODELS[LOCAL], text)
+        self.assertEqual(len(key), 4)
+
+    def test_every_label_of_models_json_runs_in_both_variants_and_its_manifest_is_accepted(self):
+        labels = [*LOCAL_MODELS, *OPENROUTER_MODELS]
+        self.run_py("--models", *labels, "--cases", "R09", config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([r["model"] for r in self.end_rows()], labels)
+        self.assertEqual({m["model"]["name"] for m in self.manifests().values()},
+                         {*LOCAL_MODELS.values(), *OPENROUTER_MODELS.values()})
+        self.out = self.tmp / "run-docs"
+        self.run_py("--models", *labels, "--cases", "D01", "--variant", "docs", config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([(r["model"], r["variant"], r["status"]) for r in self.end_rows()],
+                         [(label, "docs", "final") for label in labels])
+
+
+class HarnessAttemptTest(HarnessRunBase):
+    """attempt() takes the poging and the limits as parameters, so a second attempt of a conversation (Task 11b) is another
+    call with its own ids and limits and not new code."""
+
+    def test_a_second_attempt_has_its_own_poging_its_own_ids_and_its_own_limits(self):
+        (self.out / "manifests").mkdir(parents=True)
+        (self.tmp / "fake.json").write_text(json.dumps(ASK))
+        backend = run.HarnessBackend(run.Harness([sys.executable, str(FAKE_HARNESS)], self.out / "harness"), self.out,
+                                     "nodocs", PROMPT_FILE.read_text(), run.load_models(MODELS_FILE, [LOCAL]), 0.7, None)
+        rows, doubled = [], {**ROW_LIMITS, "maxOutputTokens": 8192, "maxWallSeconds": 480}
+        env = {"FAKE_HARNESS_CONFIG": str(self.tmp / "fake.json"), "FAKE_HARNESS_LOG": str(self.log)}
+        with mock.patch.dict(os.environ, env):
+            first = backend.attempt(LOCAL, case("R01"), 1, "abc123", 1, dict(ROW_LIMITS), rows.append)
+            second = backend.attempt(LOCAL, case("R01"), 1, "abc123", 2, doubled, rows.append)
+        self.assertEqual((first[0], second[0]), ("final", "final"))
+        self.assertEqual([(r["poging"], r["turn"]) for r in rows],
+                         [(1, 1), (1, 2), (1, "end"), (2, 1), (2, 2), (2, "end")])
+        self.assertEqual(sorted(p.stem for p in (self.out / "manifests").glob("abc123-*.json")),
+                         ["abc123-p1-t1", "abc123-p1-t2", "abc123-p2-t1", "abc123-p2-t2"])
+        manifest = json.loads((self.out / "manifests" / "abc123-p2-t1.json").read_text())
+        self.assertEqual((manifest["limits"], rows[3]["limits"], rows[0]["limits"]), (doubled, doubled, ROW_LIMITS))
+        self.assertEqual(rows[3]["harness_run"], "harness/abc123-p2-t1")
+        # score.py takes the attempt with the highest poging and remembers how the first one ended
+        (self.out / "raw.jsonl").write_text("".join(json.dumps(r) + "\n" for r in rows), encoding="utf-8")
+        conversation_of_run = score.load_run(self.out)[(LOCAL, "R01", 1)]
+        self.assertEqual((conversation_of_run["poging"], conversation_of_run["first_attempt_status"],
+                          conversation_of_run["status"]), (2, "final", "final"))
+
+
+class HarnessDocsTest(HarnessRunBase):
+    """A conversation with docs: the addendum, the tool server and the tool calls of the trace."""
+
+    SEARCH_CALL = {"name": "search_product_docs",
+                   "arguments": {"product_id": "bench-agent-harness", "query": "doc-server"}}
+    GET_CALL = {"name": "get_product_doc", "ok": False, "error_code": "TOOL_ERROR",
+                "arguments": {"product_id": "bench-agent-harness", "folder": "runbooks", "slug": "task-worker"}}
+    CONFIG = {"run": [{"response": {"answer": FENCE_REPLY}},
+                      {"when": {"turn": 1}, "response": {"answer": QUESTIONS, "calls": [SEARCH_CALL, GET_CALL],
+                                                         "providers": ["Novita", "Chutes"]}}]}
+
+    def docs_run(self, *args, **kw):
+        return self.run_py("--models", REMOTE, "--variant", "docs", "--cases", "D01", *args,
+                           **{"config": self.CONFIG, KEY_VARIABLE: DUMMY_KEY, **kw})
+
+    def test_the_manifest_has_the_profile_tools_the_addendum_and_the_tool_server(self):
+        self.docs_run()
+        first, second = self.manifests().values()
+        system = PROMPT_FILE.read_text().rstrip() + "\n\n" + ADDENDUM_FILE.read_text().rstrip().replace(
+            "{product_id}", "bench-agent-harness")
+        for manifest in (first, second):
+            self.assertEqual((manifest["profile"], manifest["system"]), ("tools", system))
+            self.assertEqual(manifest["tools"], {
+                "server": {"command": sys.executable,
+                           "args": [str(FAKE_HARNESS), "doc-server", "--dir", str((HERE / "docset").resolve()),
+                                    "--product-id", "bench-agent-harness"]},
+                "allow": DOC_TOOL_NAMES})
+        self.assertEqual(list(first), ["id", "profile", "system", "prompt", "model", "tools", "limits"])
+        self.assertEqual(list(second), ["id", "profile", "system", "history", "prompt", "model", "tools", "limits"])
+        self.assertEqual(second["history"][0], {"role": "user", "content": case("D01")["input"]})
+
+    def test_the_prompt_hash_of_a_docs_row_is_that_of_the_text_with_the_addendum(self):
+        self.docs_run()
+        for row, manifest in zip(self.turn_rows(), self.manifests().values()):
+            self.assertEqual(row["prompt_sha256"], sha256_hex(manifest["system"]))
+            self.assertNotEqual(row["prompt_sha256"], sha256_hex(PROMPT_FILE.read_text()))
+
+    def test_the_tool_calls_of_the_trace_are_in_the_row_of_the_turn_that_made_them(self):
+        self.docs_run()
+        first, second = self.turn_rows()
+        self.assertEqual(first["tool_calls"], [
+            {"name": "search_product_docs", "arguments": self.SEARCH_CALL["arguments"], "ok": True, "error_code": None},
+            {"name": "get_product_doc", "arguments": self.GET_CALL["arguments"], "ok": False, "error_code": "TOOL_ERROR"}])
+        self.assertEqual(second["tool_calls"], [])
+        self.assertEqual((first["model_turns"], second["model_turns"]), (3, 1))          # two calls and the answer; the answer
+        self.assertEqual((first["providers"], first["finish_reason"], second["providers"]), (["Novita", "Chutes"], "stop", []))
+        self.assertEqual((first["variant"], second["variant"]), ("docs", "docs"))
+
+    def test_the_run_call_has_no_skip_probe_and_names_the_key_variable_only(self):
+        self.docs_run()
+        run_calls = [argv for argv in self.invocations() if argv[0] == "run"]
+        self.assertEqual(len(run_calls), 2)
+        for argv, manifest_id in zip(run_calls, self.manifests()):
+            self.assertEqual(argv, ["run", str(self.out / "manifests" / f"{manifest_id}.json"), "--out",
+                                    str(self.out / "harness"), "--api-key-env", KEY_VARIABLE])
+
+    def test_the_tool_server_command_and_arguments_come_from_the_harness_option(self):
+        self.harness = f"{shlex.quote(sys.executable)} -u {shlex.quote(str(FAKE_HARNESS))}"
+        self.docs_run()
+        (server,) = {json.dumps(m["tools"]["server"]) for m in self.manifests().values()}
+        self.assertEqual(json.loads(server), {"command": sys.executable,
+                                              "args": ["-u", str(FAKE_HARNESS), "doc-server", "--dir",
+                                                       str((HERE / "docset").resolve()), "--product-id",
+                                                       "bench-agent-harness"]})
+
+    def test_a_relative_docset_becomes_absolute_and_its_product_id_goes_into_the_addendum_and_the_server_arguments(self):
+        docset = self.tmp / "mijn-docset"
+        docset.mkdir()
+        (docset / "docset.json").write_text(json.dumps({"product_id": "mijn-product", "files": []}))
+        self.docs_run("--docset", "mijn-docset", cwd=self.tmp)
+        (manifest, _) = self.manifests().values()
+        self.assertEqual(manifest["tools"]["server"]["args"][-4:],
+                         ["--dir", str(docset.resolve()), "--product-id", "mijn-product"])
+        self.assertIn('Pass product_id "mijn-product" on every call.', manifest["system"])
+        self.assertNotIn("bench-agent-harness", manifest["system"])
+
+    def test_a_docset_without_docset_json_is_an_error_before_anything_runs(self):
+        done = self.docs_run("--docset", self.tmp / "nowhere", check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("docset.json", done.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_the_docset_is_not_needed_without_docs(self):
+        self.run_py("--models", LOCAL, "--cases", "R09", "--docset", self.tmp / "nowhere", config=DIRECT)
+        self.assertEqual(len(self.manifests()), 1)
+
+
+class HarnessProbeTest(HarnessRunBase):
+    """The probe: once per model, before its conversations, in both variants; docs only after a reliable one."""
+
+    def test_the_probe_runs_once_per_model_before_the_conversations_of_that_model(self):
+        self.run_py("--models", LOCAL, REMOTE, "--cases", "R09", "--seeds", "1", "2", config=DIRECT,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "run", "run", "probe", "run", "run"])
+        self.assertEqual([(r["model"], r["turn"]) for r in self.rows()],
+                         [(LOCAL, "probe"), (LOCAL, 1), (LOCAL, "end"), (LOCAL, 1), (LOCAL, "end"),
+                          (REMOTE, "probe"), (REMOTE, 1), (REMOTE, "end"), (REMOTE, 1), (REMOTE, "end")])
+        self.assertEqual(self.rows()[0], probe_row(LOCAL, "reliable", None, {}, "nodocs"))
+
+    def test_the_probe_call_carries_the_endpoint_the_model_the_key_variable_name_and_the_extra_body_file(self):
+        self.run_py("--models", LOCAL, REMOTE, "--cases", "R09", config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
+        local, remote = [argv for argv in self.invocations() if argv[0] == "probe"]
+        harness_out = str(self.out / "harness")
+        self.assertEqual(local[:7], ["probe", "--base-url", LOCAL_URL, "--model", LOCAL_MODELS[LOCAL], "--out", harness_out])
+        self.assertEqual(remote[:7], ["probe", "--base-url", REMOTE_URL, "--model", OPENROUTER_MODELS[REMOTE], "--out",
+                                      harness_out])
+        self.assertEqual(local[7], "--extra-body-file")
+        self.assertEqual(remote[7:9], ["--api-key-env", KEY_VARIABLE])
+        self.assertEqual(remote[9], "--extra-body-file")
+        self.assertEqual(len(local), 9)
+        self.assertEqual(len(remote), 11)
+        self.assertEqual(json.loads(Path(local[8]).read_text()), {"reasoning_effort": "none"})
+        self.assertEqual(json.loads(Path(remote[10]).read_text()),
+                         {"provider": PROVIDER_BLOCK, "reasoning": {"effort": "none"}})
+        self.assertTrue(Path(local[8]).resolve().is_relative_to(self.out))
+
+    def test_the_probe_row_of_a_probe_that_is_not_reliable_names_the_failing_steps(self):
+        config = {**DIRECT, "probe": [probe_fails(OPENROUTER_MODELS[REMOTE], c_two_tools="turn 2: expected exactly one "
+                                                                                         "tool call, got 0")]}
+        self.run_py("--models", REMOTE, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual(self.rows()[0], probe_row(REMOTE, "unreliable", None,
+                                                   {"c_two_tools": "turn 2: expected exactly one tool call, got 0"}))
+        config["probe"] = [probe_fails(OPENROUTER_MODELS[REMOTE], b_single_tool="expected exactly one tool call, got 0",
+                                       c_two_tools="turn 1: expected exactly one tool call, got 0")]
+        self.out = self.tmp / "run-none"
+        self.run_py("--models", REMOTE, "--cases", "R09", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual(self.rows()[0]["verdict"], "none")
+        self.assertEqual(list(self.rows()[0]["reasons"]), ["b_single_tool", "c_two_tools"])
+
+    def test_without_docs_a_model_whose_probe_is_not_reliable_still_has_its_conversations(self):
+        config = {**DIRECT, "probe": [probe_fails(LOCAL_MODELS[LOCAL], d_nonexistent_tool="called: delete_everything")]}
+        self.run_py("--models", LOCAL, "--cases", "R09", config=config)
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", 1, "end"])
+        self.assertEqual(self.rows()[0]["verdict"], "unreliable")
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "run"])
+
+    def test_with_docs_a_model_whose_probe_is_not_reliable_has_no_conversations_but_the_other_models_do(self):
+        config = {**DIRECT, "probe": [probe_fails(OPENROUTER_MODELS[REMOTE], c_two_tools="no second call")]}
+        self.run_py("--models", REMOTE, "qwen3.8-openrouter", "--variant", "docs", "--cases", "D01", config=config,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        rows = self.rows()
+        self.assertEqual(rows[0], probe_row(REMOTE, "unreliable", None, {"c_two_tools": "no second call"}, "docs"))
+        self.assertEqual(rows[1], probe_row("qwen3.8-openrouter", "reliable", None, {}, "docs"))
+        self.assertEqual({r["model"] for r in rows[2:]}, {"qwen3.8-openrouter"})
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "run"])      # no run for REMOTE
+        self.assertEqual({m["model"]["name"] for m in self.manifests().values()}, {"qwen/qwen3.8-27b"})
+        self.assertEqual([who["model"] for who in json.loads((self.out / "blind-key.json").read_text()).values()],
+                         ["qwen3.8-openrouter"])
+        self.assertEqual(len(list((self.out / "transcripts").iterdir())), 1)
+
+    def test_a_harness_command_that_cannot_be_started_is_an_error_that_names_it(self):
+        self.harness = "no-such-harness-command-for-tests cli.js"
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no-such-harness-command-for-tests", done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_a_probe_that_leaves_no_probe_json_stops_the_run_with_an_error(self):
+        config = {**DIRECT, "probe": [{"response": {"crash": "connect ECONNREFUSED"}}]}
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config=config, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("probe.json", done.stderr)
+        self.assertIn(LOCAL_MODELS[LOCAL], done.stderr)
+        self.assertIn("exit status 1", done.stderr)
+        self.assertIn("ECONNREFUSED", done.stderr)                  # what the harness said is passed on
+        self.assertEqual([r for r in self.rows() if r["turn"] != "probe"], [])
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe"])
+
+
+class HarnessKeyTest(HarnessRunBase):
+    """The key is a variable name and never a value."""
+
+    def test_the_variable_name_is_in_argv_for_the_labels_that_need_a_key_and_the_value_is_nowhere(self):
+        done = self.run_py("--models", LOCAL, REMOTE, "--cases", "R01", "--variant", "nodocs", config=ASK,
+                           **{KEY_VARIABLE: DUMMY_KEY})
+
+        def model_of(argv):
+            if argv[0] == "probe":
+                return argv[argv.index("--model") + 1]
+            return json.loads(Path(argv[1]).read_text())["model"]["name"]
+
+        for argv in self.invocations():
+            needs_key = model_of(argv) == OPENROUTER_MODELS[REMOTE]
+            self.assertEqual(argv.count("--api-key-env"), 1 if needs_key else 0, argv)
+            if needs_key:
+                self.assertEqual(argv[argv.index("--api-key-env") + 1], KEY_VARIABLE)
+            self.assertNotIn("--skip-probe", argv)
+            self.assertFalse(any(DUMMY_KEY in part for part in argv))
+        self.assertEqual(sum("--api-key-env" in argv for argv in self.invocations()), 1 + 2)       # one probe, two runs
+        hits = [p.name for p in self.out.rglob("*") if p.is_file() and DUMMY_KEY in p.read_text(encoding="utf-8")]
+        self.assertEqual(hits, [])
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr + self.log.read_text())
+        for manifest in self.manifests().values():
+            self.assertNotIn("apiKey", manifest["model"])
+        self.assertIn(KEY_VARIABLE, self.log.read_text())        # the name does appear
+
+    def test_a_key_variable_that_is_not_set_stops_the_run_before_any_call_and_names_the_variable(self):
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config=DIRECT, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn(KEY_VARIABLE, done.stderr)
+        self.assertEqual(self.invocations(), [])
+        self.assertFalse((self.out / "raw.jsonl").exists())
+        # a run of labels that need no key does not ask for one
+        self.assertEqual(self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT).returncode, 0)
+
+
+class HarnessFailureTest(HarnessRunBase):
+    """A turn that does not complete, and a harness that leaves no result."""
+
+    FAILED = {"status": "failed", "error": {"code": "MODEL_ERROR", "message": "model HTTP 503"},
+              "usage": {"inputTokens": 0, "outputTokens": 0, "costUsd": 0.0005}}
+
+    def rules(self, *extra):
+        """A model that never writes a prompt, with a cost on its first turn, and the rules in extra on top."""
+        return {"run": [{"response": {"answer": QUESTIONS}},
+                        {"when": {"turn": 1}, "response": {"usage": {"costUsd": 0.001}}}, *extra]}
+
+    def test_a_turn_that_does_not_complete_gets_its_row_and_ends_the_conversation_with_status_error(self):
+        config = self.rules({"when": {"turn": 2, "seed": 1}, "response": self.FAILED})
+        done = self.run_py("--models", LOCAL, "--cases", "R07", "--seeds", "1", "2", config=config)
+        by_seed = {}
+        for row in self.rows()[1:]:
+            by_seed.setdefault(row["seed"], []).append(row)
+        failing, fine = by_seed[1], by_seed[2]
+        self.assertEqual([(r["turn"], r["status"]) for r in failing], [(1, "completed"), (2, "failed"), ("end", "error")])
+        row = failing[1]
+        self.assertEqual((row["content"], row["error_code"], row["cost_usd"], row["finish_reason"], row["providers"]),
+                         ("", "MODEL_ERROR", 0.0005, None, []))
+        self.assertEqual(failing[2]["cost_usd"], 0.0015)                 # a failed turn is paid for too
+        self.assertEqual([(r["turn"], r["status"]) for r in fine],       # the next seed ran, all four turns
+                         [(1, "completed"), (2, "completed"), (3, "completed"), (4, "completed"), ("end", "no_final")])
+        self.assertEqual(len(self.manifests()), 2 + 4)                   # no turn 3 and 4 after the failure
+        self.assertIn("error", done.stdout)
+        transcript = (self.out / "transcripts" / f"{failing[0]['blind_id']}.md").read_text()
+        self.assertEqual(transcript.count("### Model"), 1)               # the failed turn has no text to show
+
+    def test_every_status_that_is_not_completed_ends_the_conversation(self):
+        for status in ("failed", "budget_exceeded", "timed_out"):
+            with self.subTest(status):
+                self.out = self.tmp / f"run-{status}"
+                self.run_py("--models", LOCAL, "--cases", "R07",
+                            config=self.rules({"when": {"turn": 2}, "response": {"status": status}}))
+                rows = self.rows()[1:]
+                self.assertEqual([(r["turn"], r["status"]) for r in rows], [(1, "completed"), (2, status), ("end", "error")])
+                self.assertEqual(rows[1]["content"], "")
+
+    def test_a_run_without_result_json_is_an_error_that_names_the_manifest_and_stops_run_py(self):
+        config = self.rules({"when": {"turn": 2}, "response": {"no_result": True}})
+        done = self.run_py("--models", LOCAL, "--cases", "R07", "--seeds", "1", "2", config=config, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        manifest_id = sorted(self.manifests())[1]
+        self.assertTrue(manifest_id.endswith("-p1-t2"))
+        self.assertIn(manifest_id, done.stderr)
+        self.assertIn("result.json", done.stderr)
+        self.assertIn("exit status 1", done.stderr)
+        self.assertIn("stopped before result.json was written", done.stderr)      # what the harness said is passed on
+        self.assertNotIn("Traceback", done.stderr)                       # a message, not a stack trace
+        self.assertEqual(len(self.manifests()), 2)                       # the second seed never started
+        # what was written before stays: the probe row and the first turn, without a row for the missing one or an end row
+        rows = self.rows()
+        self.assertEqual([r["turn"] for r in rows], ["probe", 1])
+        # the conversation that was under way keeps its place in the blind key, so its rows can still be read
+        self.assertEqual(json.loads((self.out / "blind-key.json").read_text()),
+                         {rows[1]["blind_id"]: {"model": LOCAL, "case": "R07", "seed": 1}})
+
+
+class HarnessSelectionTest(HarnessRunBase):
+    """Which cases a variant runs, and the refusals before anything runs."""
+
+    PLAIN = [f"R{n:02d}" for n in range(1, 11)]
+    DOCS = [f"D{n:02d}" for n in range(1, 6)]
+
+    def test_nodocs_runs_the_ten_plain_cases_and_no_doc_case(self):
+        self.run_py("--models", LOCAL, config=DIRECT)
+        self.assertEqual([r["case"] for r in self.end_rows()], self.PLAIN)
+        self.assertEqual(len({r["blind_id"] for r in self.end_rows()}), 10)          # a blind id of its own per conversation
+        self.assertEqual({r["variant"] for r in self.rows() if r["turn"] != "probe"}, {"nodocs"})
+        self.assertEqual({m["profile"] for m in self.manifests().values()}, {"answer"})
+
+    def test_docs_runs_the_doc_cases_only(self):
+        self.run_py("--models", REMOTE, "--variant", "docs", config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertEqual([r["case"] for r in self.end_rows()], self.DOCS)
+        self.assertEqual({r["variant"] for r in self.rows()}, {"docs"})
+        self.assertEqual({m["profile"] for m in self.manifests().values()}, {"tools"})
+
+    def test_cases_narrows_the_selection_and_a_case_of_the_other_variant_is_left_out(self):
+        self.run_py("--models", LOCAL, "--cases", "R03,D02,R09", config=DIRECT)
+        self.assertEqual([r["case"] for r in self.end_rows()], ["R03", "R09"])
+
+    def test_a_selection_without_a_case_is_an_error_before_anything_runs(self):
+        done = self.run_py("--models", LOCAL, "--cases", "D01", check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("D01", done.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_an_unknown_label_is_refused_with_the_known_ones_before_anything_runs(self):
+        done = self.run_py("--models", LOCAL, "no-such-label", check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("no-such-label", done.stderr)
+        self.assertIn("nemotron-openrouter", done.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_a_run_directory_that_already_holds_files_is_refused(self):
+        # one invocation is one variant of one prompt version and has a run directory of its own (spec 5.7)
+        self.out.mkdir()
+        (self.out / "raw.jsonl").write_text("")
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn(str(self.out), done.stderr)
+        self.assertEqual(self.invocations(), [])
+        self.assertEqual((self.out / "raw.jsonl").read_text(), "")
+        self.out = self.tmp / "empty"
+        self.out.mkdir()                                               # an empty directory is fine
+        self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT)
+
+    def test_the_harness_command_and_the_variant_have_to_be_said(self):
+        # one invocation is one variant: a variant that falls back on a default is a run of the wrong one, unseen
+        for args, missing in ((["--models", LOCAL], ["--harness", "--variant"]),
+                              (["--models", LOCAL, "--variant", "docs"], ["--harness"]),
+                              (["--models", LOCAL, "--harness", self.harness], ["--variant"])):
+            with self.subTest(args):
+                done = subprocess.run([sys.executable, str(HERE / "run.py"), "--backend", "harness", *args],
+                                      capture_output=True, text=True)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn("needs " + " and ".join(missing), done.stderr)
+
+    def test_an_option_of_the_other_backend_is_refused(self):
+        for args in (["--think", "true"], ["--num-ctx", "8192"], ["--host", "http://127.0.0.1:1"]):
+            with self.subTest(args):
+                done = self.run_py("--models", LOCAL, *args, check=False)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn(args[0], done.stderr)
+        self.assertEqual(self.invocations(), [])
+        for args in (["--variant", "docs"], ["--models-file", "x.json"], ["--harness", "node cli.js"],
+                     ["--docset", "d"], ["--max-output-tokens", "1"], ["--max-wall-seconds", "1"]):
+            with self.subTest(args):
+                done = subprocess.run([sys.executable, str(HERE / "run.py"), "--models", "m", *args],
+                                      capture_output=True, text=True)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn(args[0], done.stderr)
+
+    def test_a_limit_that_is_not_a_positive_number_is_refused_before_anything_runs(self):
+        for args in (["--max-output-tokens", "0"], ["--max-wall-seconds", "-5"], ["--max-output-tokens", "many"]):
+            with self.subTest(args):
+                done = self.run_py("--models", LOCAL, *args, check=False)
+                self.assertEqual(done.returncode, 2)
+                self.assertIn(args[0], done.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_the_tool_names_the_manifest_allows_are_the_ones_score_py_counts_as_doc_lookups(self):
+        self.assertEqual(list(run.DOC_TOOLS), DOC_TOOL_NAMES)
+        self.assertEqual(set(run.DOC_TOOLS), set(score.DOC_TOOLS))
+
+
+class FlowParityTest(HarnessRunBase):
+    """The conversation flow is one piece of code for both backends: the same user messages in the same order."""
+
+    PAIRS = (("R01", "ask"), ("R01", "direct"), ("R03", "ask"), ("R03", "direct"), ("R07", "never"), ("R10", "never"),
+             ("R09", "direct"))
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = HTTPServer(("127.0.0.1", 0), FakeOllama)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.host = f"http://127.0.0.1:{cls.srv.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def test_both_backends_send_the_same_user_messages_and_end_the_same_way(self):
+        configs = {"ask": ASK, "direct": DIRECT, "never": NEVER}
+        for cid, behaviour in self.PAIRS:
+            with self.subTest(case=cid, behaviour=behaviour):
+                FakeOllama.behaviour, FakeOllama.calls = behaviour, []
+                ollama_out = self.tmp / f"ollama-{cid}-{behaviour}"
+                subprocess.run([sys.executable, str(HERE / "run.py"), "--models", "fake:model", "--cases", cid,
+                                "--host", self.host, "--out", str(ollama_out)], check=True, capture_output=True)
+                ollama_users = [m["content"] for m in FakeOllama.calls[-1]["messages"] if m["role"] == "user"]
+                ollama_end = [json.loads(line) for line in (ollama_out / "raw.jsonl").read_text().splitlines()][-1]
+                self.out = self.tmp / f"harness-{cid}-{behaviour}"
+                self.run_py("--models", LOCAL, "--cases", cid, config=configs[behaviour])
+                last = list(self.manifests().values())[-1]
+                harness_users = [h["content"] for h in last.get("history", []) if h["role"] == "user"] + [last["prompt"]]
+                self.assertEqual(harness_users, ollama_users)
+                self.assertEqual(len(self.manifests()), len(FakeOllama.calls))
+                self.assertEqual(self.end_rows()[0]["status"], ollama_end["status"])
+                known = score.user_messages(case(cid))
+                for text in harness_users:
+                    self.assertIn(text, known)
+
+
+class HarnessScoreTest(HarnessRunBase):
+    """score.py reads the rows run.py writes."""
+
+    USAGE = {"inputTokens": 1000, "outputTokens": 200, "reasoningTokens": 50, "costUsd": 0.001}
+
+    def score(self):
+        done = subprocess.run([sys.executable, str(HERE / "score.py"), str(self.out)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with (self.out / "summary.csv").open(newline="", encoding="utf-8") as f:
+            return done.stdout, list(csv.DictReader(f))
+
+    def test_a_run_without_docs_is_scored_with_the_harness_columns(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY, "usage": self.USAGE, "providers": ["Novita"]}},
+                          {"when": {"turn": 1}, "response": {"answer": QUESTIONS, "usage": self.USAGE,
+                                                             "providers": ["Novita"]}}]}
+        self.run_py("--models", LOCAL, "--cases", "R06,R07", config=config)
+        output, rows = self.score()
+        with (self.out / "summary.csv").open(encoding="utf-8") as f:
+            self.assertEqual(f.readline().strip().split(","), [*score.COLUMNS, *score.HARNESS_COLUMNS])
+        self.assertEqual([r["case"] for r in rows], ["R06", "R07"])
+        for row in rows:
+            self.assertEqual({k: row[k] for k in ("model", "status", "turns", "variant", "poging", "first_attempt_status",
+                                                  "model_turns", "tool_calls", "input_tokens", "output_tokens",
+                                                  "reasoning_tokens", "cost_usd", "providers")},
+                             {"model": LOCAL, "status": "final", "turns": "2", "variant": "nodocs", "poging": "1",
+                              "first_attempt_status": "final", "model_turns": "2", "tool_calls": "0",
+                              "input_tokens": "2000", "output_tokens": "400", "reasoning_tokens": "100",
+                              "cost_usd": "0.002", "providers": "Novita"})
+            self.assertGreaterEqual(float(row["wall_s"]), 0)
+            self.assertEqual(row["eval_tokens"], "")                    # the Ollama measurements stay empty
+        table = parse_tables(output)["nodocs"][LOCAL]
+        self.assertEqual({k: table[k] for k in ("Backend", "Probe", "Afgerond", "Tokens in", "Tokens uit", "Aanbieders")},
+                         {"Backend": "harness", "Probe": "reliable", "Afgerond": "2/2", "Tokens in": "4000",
+                          "Tokens uit": "800", "Aanbieders": "Novita"})
+
+    def test_a_docs_run_is_scored_on_the_tool_calls_and_the_statuses_of_its_rows(self):
+        search = {"name": "search_product_docs", "arguments": {"product_id": "bench-agent-harness", "query": "doc-server"}}
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"turn": 1}, "response": {"answer": QUESTIONS, "calls": [search, search]}}]}
+        self.run_py("--models", REMOTE, "--variant", "docs", "--cases", "D01", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        output, (row,) = self.score()
+        self.assertEqual((row["variant"], row["tool_calls"], row["model_turns"], row["D1"], row["D6"], row["status"]),
+                         ("docs", "2", "4", "pass", "pass", "final"))
+        self.assertIn("### Variant docs", output)
+
+    def test_a_docs_conversation_with_a_failed_turn_is_an_error_with_a_failed_d6(self):
+        failed = {"status": "failed", "error": {"code": "MODEL_ERROR", "message": "model HTTP 503"}}
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"turn": 1}, "response": {"answer": QUESTIONS, "usage": {"costUsd": 0.001}}},
+                          {"when": {"turn": 2}, "response": failed}]}
+        self.run_py("--models", REMOTE, "--variant", "docs", "--cases", "D01", config=config, **{KEY_VARIABLE: DUMMY_KEY})
+        output, (row,) = self.score()
+        self.assertEqual((row["status"], row["D6"], row["turns"]), ("error", "fail", "2"))
+        self.assertIn("D6 status: beurt 2 failed", row["notes"])
+        self.assertIn("error (beurt 2 failed, MODEL_ERROR, $0.0010)", output)
+
+    def test_a_model_without_docs_conversations_is_shown_with_the_reasons_of_its_probe(self):
+        config = {**DIRECT, "probe": [probe_fails(OPENROUTER_MODELS[REMOTE], c_two_tools="turn 2: no second call")]}
+        self.run_py("--models", REMOTE, "qwen3.8-openrouter", "--variant", "docs", "--cases", "D01", config=config,
+                    **{KEY_VARIABLE: DUMMY_KEY})
+        output, rows = self.score()
+        self.assertEqual([r["model"] for r in rows], ["qwen3.8-openrouter"])
+        table = parse_tables(output)["docs"]
+        self.assertEqual((table[REMOTE]["Probe"], table[REMOTE]["Zeef"], table["qwen3.8-openrouter"]["Probe"]),
+                         ("unreliable", "niet gedraaid", "reliable"))
+        self.assertIn(f"- {REMOTE} (niet gedraaid): probe-oordeel unreliable; c_two_tools: turn 2: no second call", output)
+
+
+# Taak 11a: the backend ollama after the backend harness came. The same ten cases and the same rows as on 29 September; the only
+# change is that a case with variant "docs" is skipped.
+class OllamaBackendTest(unittest.TestCase):
+    TURN_KEYS = ["model", "case", "seed", "blind_id", "ps_before", "tei_on", "ollama", "prompt_sha256", "options", "think",
+                 "turn", "content", "thinking_chars", "prompt_eval_count", "prompt_eval_s", "eval_count", "eval_s", "load_s",
+                 "total_s", "done_reason", "wall_s"]
+    END_KEYS = ["model", "case", "seed", "blind_id", "ps_before", "tei_on", "ollama", "prompt_sha256", "options", "think",
+                "turn", "status", "conversation_wall_s"]
+
+    @classmethod
+    def setUpClass(cls):
+        cls.srv = HTTPServer(("127.0.0.1", 0), FakeOllama)
+        threading.Thread(target=cls.srv.serve_forever, daemon=True).start()
+        cls.host = f"http://127.0.0.1:{cls.srv.server_port}"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.srv.shutdown()
+        cls.srv.server_close()
+
+    def run_ollama(self, *args, behaviour="direct"):
+        """run.py with the backend ollama (the default) against the fake Ollama; returns (out, rows)."""
+        FakeOllama.behaviour, FakeOllama.calls = behaviour, []
+        out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        subprocess.run([sys.executable, str(HERE / "run.py"), "--models", "fake:model", "--host", self.host,
+                        "--out", str(out), *map(str, args)], check=True, capture_output=True)
+        return out, [json.loads(line) for line in (out / "raw.jsonl").read_text().splitlines()]
+
+    def test_the_ten_plain_cases_run_and_no_doc_case(self):
+        out, rows = self.run_ollama()
+        ended = [r["case"] for r in rows if r["turn"] == "end"]
+        self.assertEqual(ended, [f"R{n:02d}" for n in range(1, 11)])
+        self.assertEqual(len(FakeOllama.calls), sum(isinstance(r["turn"], int) for r in rows))
+        self.assertEqual(sorted(json.loads((out / "blind-key.json").read_text()).values(), key=lambda v: v["case"])[0],
+                         {"model": "fake:model", "case": "R01", "seed": 1})
+
+    def test_a_doc_case_asked_for_by_name_is_skipped(self):
+        _, rows = self.run_ollama("--cases", "D01,R09,D05")
+        self.assertEqual({r["case"] for r in rows}, {"R09"})
+
+    def test_the_rows_keep_their_fields_in_their_order(self):
+        _, rows = self.run_ollama("--cases", "R09")
+        turn, end = rows
+        self.assertEqual(list(turn), self.TURN_KEYS)
+        self.assertEqual(list(end), self.END_KEYS)
+        self.assertEqual((turn["options"], turn["think"], turn["ollama"], turn["tei_on"] in (True, False, None)),
+                         ({"num_ctx": 16384, "temperature": 0.7}, False, "0.0-test", True))
+        self.assertEqual((end["status"], end["turn"]), ("final", "end"))
+
+    def test_the_prompt_is_the_prompt_file_unless_prompt_names_another(self):
+        text = PROMPT_FILE.read_text()
+        _, rows = self.run_ollama("--cases", "R09")
+        self.assertEqual(FakeOllama.calls[0]["messages"][0], {"role": "system", "content": text})
+        self.assertEqual(rows[0]["prompt_sha256"], hashlib.sha256(text.encode()).hexdigest())
+        other = PROMPTS / "promptverfijner-systeem-v2.txt"
+        _, rows = self.run_ollama("--cases", "R09", "--prompt", other)
+        self.assertEqual(FakeOllama.calls[0]["messages"][0], {"role": "system", "content": other.read_text()})
+        self.assertEqual(rows[0]["prompt_sha256"], hashlib.sha256(other.read_bytes()).hexdigest())
 
 
 if __name__ == "__main__":

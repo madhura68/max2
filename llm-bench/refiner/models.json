@@ -1,0 +1,56 @@
+{
+  "gsq-lokaal": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "nodocs": { "reasoningEffort": "none", "extraBody": {} },
+    "docs": { "extraBody": {} },
+    "probe": { "extraBody": { "reasoning_effort": "none" } }
+  },
+  "qwen3.6-lokaal": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "name": "qwen3.6:35b-a3b-coding",
+    "nodocs": { "reasoningEffort": "none", "extraBody": {} },
+    "docs": { "extraBody": {} },
+    "probe": { "extraBody": { "reasoning_effort": "none" } }
+  },
+  "qwen3.6-openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "name": "qwen/qwen3.6-35b-a3b",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "nodocs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } },
+    "docs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "medium" } } },
+    "probe": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } }
+  },
+  "qwen3.8-openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "name": "qwen/qwen3.8-27b",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "nodocs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } },
+    "docs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "medium" } } },
+    "probe": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } }
+  },
+  "gemma-openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "name": "google/gemma-4-31b-it",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "nodocs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } },
+    "docs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "medium" } } },
+    "probe": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } }
+  },
+  "qwen3.5-122b-openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "name": "qwen/qwen3.5-122b-a10b",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "nodocs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } },
+    "docs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "medium" } } },
+    "probe": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } }
+  },
+  "nemotron-openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "name": "nvidia/nemotron-3-super-120b-a12b",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "nodocs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } },
+    "docs": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "medium" } } },
+    "probe": { "extraBody": { "provider": { "data_collection": "deny", "require_parameters": true }, "reasoning": { "effort": "none" } } }
+  }
+}
