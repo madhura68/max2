@@ -34,9 +34,9 @@ Two backends send the conversations, with one conversation flow (converse) for b
       stops, a row {"turn": "stop", "model", "reason": "http_<status>"} follows the rows of that probe or attempt;
     --max-cost-usd: before every attempt, a second one too, the cost_usd of the turn rows so far (a missing amount is 0) is
       added up; from the cap on a row {"turn": "stop", "model", "reason": "max_cost"} ends the invocation;
-    a run call that leaves no result.json (a manifest the harness refused, a crash): the conversation ends as
-      {"turn": "end", "status": "invocation_error"}, that model stops, the other models go on. What the harness said goes to
-      stderr, masked, and into no row.
+    a run call that leaves no usable result (no result.json, one that is no result, or a trace.jsonl that cannot be read: a
+      manifest the harness refused, a crash): the conversation ends as {"turn": "end", "status": "invocation_error"}, that
+      model stops, the other models go on. What the harness said goes to stderr, masked, and into no row.
   After the run, check_key.py counts the files of the run directory that hold the key, once for each key variable of the models.
 
 Stdlib only. Usage:
@@ -92,9 +92,12 @@ class HarnessError(RunError):
 
 
 class NoResult(HarnessError):
-    """The harness wrote no result.json after a run call: a manifest it refused, PROBE_REQUIRED, a run directory that was there
-    already, a crash. That is a fault of the call and not of the model (spec 5.7): it gets an invocation_error and no second
-    attempt. A result.json that is there and cannot be read stays a plain HarnessError."""
+    """A run call produced no usable result: there is no result.json, or read_result rejects it (not JSON, no usable status),
+    or read_trace rejects the trace.jsonl (missing, not UTF-8, a line that is no JSON or no event). That is a fault of the
+    call and not of the model (spec 5.7): a manifest the harness refused, PROBE_REQUIRED, a run directory that was there
+    already, a crash, a harness that broke down while it wrote. It gets an invocation_error and no second attempt. Only
+    Harness.run raises it; a harness that cannot be started at all, or an unusable probe.json, stay plain HarnessErrors and
+    stop run.py."""
 
 
 class Stop(Exception):
@@ -113,7 +116,7 @@ def key_stop(label, reason):
                                f"or the rights and not with the model; no model is asked anything more")
 
 
-# One attempt at a conversation: status (final, no_final, error, or invocation_error when a run call left no result.json), the
+# One attempt at a conversation: status (final, no_final, error, or invocation_error when a run call left no usable result), the
 # messages of the conversation, its wall time, `stop` (http_<status>, when a model call got a 401, 402 or 403; else None) and
 # `problem` (for an invocation_error what the harness said, with the key masked; else None)
 Attempt = namedtuple("Attempt", "status messages wall stop problem")
@@ -317,7 +320,7 @@ def read_result(run_dir):
     try:
         result = json.loads(path.read_text(encoding="utf-8"))
     except OSError:
-        raise NoResult(f"{run_dir}: the harness wrote no result.json") from None
+        raise HarnessError(f"{run_dir}: the harness wrote no result.json") from None
     except ValueError:
         raise HarnessError(f"{path} is not JSON") from None
     if not isinstance(result, dict) or result.get("status") not in RUN_STATUSES:
@@ -332,6 +335,8 @@ def read_trace(run_dir):
         text = path.read_text(encoding="utf-8")
     except OSError:
         raise HarnessError(f"{run_dir}: the harness wrote no trace.jsonl") from None
+    except ValueError:      # a UnicodeDecodeError: a trace that is not UTF-8 is as unusable as one that is not JSON
+        raise HarnessError(f"{path} is not UTF-8") from None
     events = []
     # split on "\n" only: str.splitlines() also cuts at U+2028, U+2029 and U+0085, which JSON.stringify leaves raw in a string
     for n, line in enumerate(text.split("\n"), start=1):
@@ -476,14 +481,16 @@ class Harness:
 
     def run(self, manifest_path, run_id, cfg):
         """harness run of a manifest, without --skip-probe; (result, trace events) from the files it wrote. Its exit
-        status says nothing more than the result does."""
+        status says nothing more than the result does. A call that produced no usable result raises NoResult: no result.json,
+        one that read_result rejects, or a trace.jsonl that read_trace rejects. The message names the file (and the line),
+        the exit status and what the harness said on stderr, masked; it never quotes the content of a file, which could
+        hold the key."""
         done = self.call("run", manifest_path, "--out", self.out, *key_args(cfg))
         run_dir = self.out / run_id
         try:
-            result = read_result(run_dir)
+            return read_result(run_dir), read_trace(run_dir)
         except HarnessError as e:
-            raise type(e)(f"{e} (harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})") from None
-        return result, read_trace(run_dir)
+            raise NoResult(f"{e} (harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})") from None
 
 
 class HarnessBackend:
@@ -526,7 +533,7 @@ class HarnessBackend:
         closing row (status final, no_final or error; conversation_wall_s; cost_usd, the sum of the known costs of the turns,
         None when no turn named one). A turn that does not end completed has its row, with content '', and ends the attempt.
         Returns an Attempt (status, messages, wall_s, stop, problem). stop is http_<status> when the model call of the turn that
-        ended the attempt got a 401, 402 or 403. A run call that leaves no result.json (NoResult) has no row of its turn: the
+        ended the attempt got a 401, 402 or 403. A run call that leaves no usable result (NoResult) has no row of its turn: the
         closing row says invocation_error, and problem is what the harness said; that text is not written to any row."""
         cfg = self.models[label]
         base = {"model": label, "case": case["id"], "seed": seed, "blind_id": bid, "backend": "harness",
@@ -642,7 +649,7 @@ class Invocation:
         """The first attempt at a conversation and, when a harness run in it did not complete (status error), one second
         attempt: the whole conversation again, with the same seed and blind id and with maxOutputTokens and maxWallSeconds
         doubled. The transcript of the attempt that counts is <blind id>.md, that of the first <blind id>-p1.md. A key problem
-        raises the Stop. Returns False when a run call left no result.json: the model stops, and there is no second attempt.
+        raises the Stop. Returns False when a run call left no usable result: the model stops, and there is no second attempt.
         Before every attempt the cost is checked against the cap, the second attempt included."""
         if self.capped():
             raise self.cap_stop(label)
@@ -668,7 +675,7 @@ class Invocation:
         for case in self.cases:
             for seed in self.seeds:
                 if not self.conversation(label, case, seed):
-                    print(f"{label}: no more conversations after a run call without result", flush=True)
+                    print(f"{label}: no more conversations after a run call without a usable result", flush=True)
                     return
 
     def run(self, raw):

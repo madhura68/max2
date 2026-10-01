@@ -35,6 +35,11 @@ shallow merge of the response of every rule whose "when" holds, in file order; a
     duration_ms    result.durationMs (default 1500)
     reasoning      the reasoning text of every model response
     no_result      stop with exit 1 before result.json is written
+    result_text    the text of result.json, exactly as given, instead of the real result (a test leaves it broken: truncated,
+                   not an object, without a status)
+    trace_text     the text of trace.jsonl, exactly as given, instead of the real trace
+    no_trace       write no trace.jsonl
+                   These three leave the exit status as it is: that of the status the run had.
     stderr         text the run writes to stderr, whatever its status (a test puts a key value in it to see it masked)
   response, probe (all optional):
     fail           {step: reason} for the steps that do not pass
@@ -377,9 +382,12 @@ def cmd_run(opts, config):
               usage={k: usage[k] for k in TRACE_USAGE if k in usage}, durationMs=100, **reasoned, **provider(last))
     error = spec.get("error")
     event("run_end", status=status, **({"error": error} if error else {}))
-    with open(run_dir / "trace.jsonl", "w", encoding="utf-8") as f:
-        for e in events:
-            f.write(json.dumps(e, ensure_ascii=False) + "\n")
+    if "trace_text" in spec:
+        (run_dir / "trace.jsonl").write_text(spec["trace_text"], encoding="utf-8")
+    elif not spec.get("no_trace"):
+        with open(run_dir / "trace.jsonl", "w", encoding="utf-8") as f:
+            for e in events:
+                f.write(json.dumps(e, ensure_ascii=False) + "\n")
     if spec.get("no_result"):
         die("fake_harness: stopped before result.json was written")
 
@@ -389,7 +397,10 @@ def cmd_run(opts, config):
                         "reported": manifest["model"]["name"]},
               "usage": usage, "durationMs": spec.get("duration_ms", 1500),
               **({"toolSnapshotHash": snapshot_hash} if tools_profile else {})}
-    dump(run_dir / "result.json", result)
+    if "result_text" in spec:
+        (run_dir / "result.json").write_text(spec["result_text"], encoding="utf-8")
+    else:
+        dump(run_dir / "result.json", result)
     failure = f" ({error['code']}: {error['message']})" if error else ""
     print(f"{status}{failure} — turns {usage['turns']}, tokens in/out {usage['inputTokens']}/{usage['outputTokens']} "
           f"({usage['source']}), tool calls {usage['toolCalls']}, tool errors {usage['toolErrors']}, "

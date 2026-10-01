@@ -2786,6 +2786,33 @@ class FakeHarnessTest(unittest.TestCase):
         self.assertTrue(self.run_dir().is_dir())
         self.assertFalse((self.run_dir() / "result.json").exists())
 
+    def test_a_run_can_leave_the_text_of_a_result_json_and_a_trace_that_a_test_names(self):
+        # what a harness that broke down while it wrote leaves behind; the exit status stays that of the status it had
+        truncated = '{"runId": "a1b2c3-p1-t1", "status": "compl'
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"result_text": truncated,
+                                                                                 "trace_text": '{"type": "run_start"}\n{oops\n'}}]})
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual((self.run_dir() / "result.json").read_text(), truncated)             # exactly as given
+        self.assertEqual((self.run_dir() / "trace.jsonl").read_text(), '{"type": "run_start"}\n{oops\n')
+        self.assertEqual(sorted(p.name for p in self.run_dir().iterdir()), ["result.json", "trace.jsonl"])
+
+    def test_a_run_can_leave_no_trace_and_the_result_is_still_the_real_one(self):
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"no_trace": True, "answer": "Hallo."}}]})
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual(sorted(p.name for p in self.run_dir().iterdir()), ["result.json"])
+        self.assertEqual((self.result()["status"], self.result()["answer"]), ("completed", "Hallo."))
+
+    def test_a_trace_text_alone_leaves_the_real_result_and_a_result_text_alone_leaves_the_real_trace(self):
+        done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"trace_text": "", "answer": "Eerst."}}]})
+        self.assertEqual((done.returncode, (self.run_dir() / "trace.jsonl").read_text(), self.result()["answer"]),
+                         (0, "", "Eerst."))
+        done = self.run_manifest(sample_manifest(id="a1b2c3-p1-t2"),
+                                 config={"run": [{"response": {"result_text": "[]", "answer": "Daarna."}}]})
+        self.assertEqual(done.returncode, 0)
+        self.assertEqual((self.run_dir("a1b2c3-p1-t2") / "result.json").read_text(), "[]")
+        self.assertEqual([e["type"] for e in self.trace("a1b2c3-p1-t2")], ["run_start", "model_request", "model_response", "run_end"])
+        self.assertEqual(self.trace("a1b2c3-p1-t2")[2]["content"], "Daarna.")
+
     def test_it_refuses_a_run_dir_that_exists(self):
         self.assertEqual(self.run_manifest(sample_manifest(), config={"run": [{"response": {"answer": "eerste"}}]}).returncode, 0)
         done = self.run_manifest(sample_manifest(), config={"run": [{"response": {"answer": "tweede"}}]})
@@ -3311,31 +3338,68 @@ class HarnessFilesTest(unittest.TestCase):
         with self.assertRaisesRegex(run.HarnessError, r"a1b2c3-p1-t1.*result\.json"):
             run.read_result(self.dir)
 
-    def test_only_a_result_json_that_is_not_there_is_no_result_and_one_that_is_unusable_stays_a_plain_harness_error(self):
-        # no file is a fault of the call (a manifest the harness refused, PROBE_REQUIRED, a run dir that was there already):
-        # run.py records an invocation error and goes on. A file that is there and cannot be read is the harness breaking its
-        # own contract: that stops run.py, as before.
-        with self.assertRaises(run.NoResult):
-            run.read_result(self.dir)
-        self.assertTrue(issubclass(run.NoResult, run.HarnessError))
-        (self.dir / "result.json").write_text("{not json")
-        with self.assertRaises(run.HarnessError) as unusable:
-            run.read_result(self.dir)
-        self.assertNotIsInstance(unusable.exception, run.NoResult)
+    # What Harness.run makes of a run call whose files are not usable (fix round 1 of Taak 11b): the call produced no usable
+    # result, whichever file is the trouble, and that is a NoResult, a fault of the call and not of the model.
+    GOOD_RESULT = json.dumps({"runId": "x", "status": "completed", "answer": "ok", "usage": {}, "durationMs": 1})
+    GOOD_TRACE = '{"type": "run_start"}\n{"type": "run_end", "status": "completed"}\n'
+    UNUSABLE = (      # (what is wrong, result.json, trace.jsonl, the words of the message); None: no such file
+        ("no result.json", None, GOOD_TRACE, r"the harness wrote no result\.json"),
+        ("a result.json that was cut off", GOOD_RESULT[:20], GOOD_TRACE, r"result\.json is not JSON"),
+        ("a result.json that is not UTF-8", b"\xff\xfe{}", GOOD_TRACE, r"result\.json is not JSON"),
+        ("a result.json that is no object", "[]", GOOD_TRACE, r"result\.json is no result"),
+        ("a result.json without a status", json.dumps({"runId": "x"}), GOOD_TRACE, r"result\.json is no result"),
+        ("a result.json with a status that is none of the four", json.dumps({"status": "exploded"}), GOOD_TRACE,
+         r"result\.json is no result"),
+        ("no trace.jsonl", GOOD_RESULT, None, r"the harness wrote no trace\.jsonl"),
+        ("a trace line that is not JSON", GOOD_RESULT, '{"type": "run_start"}\n{oops\n', r"trace\.jsonl: line 2 is not JSON"),
+        ("a trace line that is no event", GOOD_RESULT, "[1]\n", r"trace\.jsonl: line 1 is no event"),
+        ("a trace that is not UTF-8", GOOD_RESULT, b"\xff\xfe{}\n", r"trace\.jsonl is not UTF-8"),
+    )
 
-    def test_harness_run_adds_what_the_harness_said_and_keeps_the_kind_of_error(self):
+    def harness_run(self, run_id, result, trace, command=None):
+        """Harness.run over a run directory that holds result and trace (None: no such file; str or bytes: its content)."""
         out = self.dir.parent                                   # --out: the run directory of a run is <out>/<run id>
-        harness = run.Harness([sys.executable, "-c", "pass"], out, [DUMMY_KEY])       # a command that writes nothing
-        with self.assertRaises(run.NoResult) as raised:
-            harness.run(out / "manifest.json", "missing-p1-t1", {})
-        self.assertIn("missing-p1-t1", str(raised.exception))
-        self.assertIn("harness exit status 0", str(raised.exception))
-        (out / "unusable-p1-t1").mkdir()
-        (out / "unusable-p1-t1" / "result.json").write_text("{not json")
+        run_dir = out / run_id
+        run_dir.mkdir()
+        for name, content in (("result.json", result), ("trace.jsonl", trace)):
+            if content is not None:
+                (run_dir / name).write_bytes(content if isinstance(content, bytes) else content.encode("utf-8"))
+        harness = run.Harness(command or [sys.executable, "-c", "import sys; sys.stderr.write('stub harness: no luck')"],
+                              out, [DUMMY_KEY])
+        return harness.run(out / "manifest.json", run_id, {})
+
+    def test_harness_run_makes_every_unusable_output_a_no_result_and_adds_what_the_harness_said(self):
+        for n, (why, result, trace, words) in enumerate(self.UNUSABLE):
+            with self.subTest(why):
+                with self.assertRaisesRegex(run.NoResult, words) as raised:
+                    self.harness_run(f"unusable-{n}-p1-t1", result, trace)
+                self.assertIn(f"unusable-{n}-p1-t1", str(raised.exception))
+                self.assertIn("harness exit status 0: stub harness: no luck", str(raised.exception))
+
+    def test_harness_run_never_quotes_the_content_of_a_file_it_rejects(self):
+        # a harness that broke down may have put anything in its files, the key included; the message names file and line only
+        leaks = (("a result.json that is not JSON", f'{{"quoted-marker": "{DUMMY_KEY}', self.GOOD_TRACE),
+                 ("a trace line that is not JSON", self.GOOD_RESULT,
+                  f'{{"type": "run_start"}}\n{{"quoted-marker": "{DUMMY_KEY}\n'),
+                 ("a result.json that is no result", f'{{"quoted-marker": "{DUMMY_KEY}"}}', self.GOOD_TRACE))
+        for n, (why, result, trace) in enumerate(leaks):
+            with self.subTest(why):
+                with self.assertRaises(run.NoResult) as raised:
+                    self.harness_run(f"leaky-{n}-p1-t1", result, trace)
+                self.assertNotIn("quoted-marker", str(raised.exception))
+                self.assertNotIn(DUMMY_KEY, str(raised.exception))
+
+    def test_harness_run_returns_result_and_trace_when_both_are_usable(self):
+        result, events = self.harness_run("fine-p1-t1", self.GOOD_RESULT, self.GOOD_TRACE)
+        self.assertEqual((result["status"], result["answer"]), ("completed", "ok"))
+        self.assertEqual([e["type"] for e in events], ["run_start", "run_end"])
+
+    def test_a_harness_that_cannot_be_started_is_no_no_result(self):
+        # there is no call and so no output to be unusable: that is the harness being gone, and it stops run.py as before
         with self.assertRaises(run.HarnessError) as raised:
-            harness.run(out / "manifest.json", "unusable-p1-t1", {})
+            self.harness_run("gone-p1-t1", None, None, command=["no-such-harness-command-for-tests"])
         self.assertNotIsInstance(raised.exception, run.NoResult)
-        self.assertIn("harness exit status 0", str(raised.exception))
+        self.assertIn("no-such-harness-command-for-tests", str(raised.exception))
 
     def test_a_result_json_that_is_no_result_is_refused(self):
         for text in ("", "{not json", "[]", '{"status": "unknown"}', "{}"):
@@ -3351,6 +3415,11 @@ class HarnessFilesTest(unittest.TestCase):
 
     def test_a_missing_trace_is_a_harness_error(self):
         with self.assertRaisesRegex(run.HarnessError, r"a1b2c3-p1-t1.*trace\.jsonl"):
+            run.read_trace(self.dir)
+
+    def test_a_trace_that_is_not_utf8_is_refused_and_is_no_traceback(self):
+        (self.dir / "trace.jsonl").write_bytes(b'{"type": "run_start"}\n\xff\xfe\n')
+        with self.assertRaisesRegex(run.HarnessError, r"trace\.jsonl is not UTF-8"):
             run.read_trace(self.dir)
 
     def test_a_trace_line_that_is_no_json_is_refused_with_its_line_number(self):
@@ -4256,25 +4325,136 @@ class HarnessFailureTest(HarnessRunBase):
 
 
 class HarnessInvocationErrorTest(HarnessRunBase):
-    """A run call that leaves no result.json is a fault of the call (a manifest the harness refused, PROBE_REQUIRED, a run
-    directory that was there already, a crash) and not of the model: the conversation ends as invocation_error, there is no
-    second attempt, the measurement of that model stops, the other models go on, and run.py ends with a failure status."""
+    """A run call that leaves no usable result (no result.json, one that read_result rejects, or a trace.jsonl that read_trace
+    rejects) is a fault of the call (a manifest the harness refused, PROBE_REQUIRED, a run directory that was there already, a
+    crash) and not of the model: the conversation ends as invocation_error, there is no second attempt, the measurement of
+    that model stops, the other models go on, and run.py ends with a failure status."""
 
     SECOND = "qwen3.8-openrouter"
     SAID = f"fetch failed: Authorization: Bearer {DUMMY_KEY} rejected"
     END_KEYS = ["model", "case", "seed", "blind_id", "backend", "variant", "poging", "turn", "status", "conversation_wall_s",
                 "cost_usd"]
 
-    def no_result(self, **when):
-        """REMOTE asks first and writes the prompt in turn 2; its run call in the turn named by when leaves no result."""
+    def leaves(self, response, **when):
+        """REMOTE asks first and writes the prompt in turn 2; its run call in the turn named by when does what response says
+        (the fake's no_result, result_text, trace_text or no_trace) and says SAID on stderr."""
         return {"run": [{"response": {"answer": FENCE_REPLY, "usage": {"costUsd": 0.001}}},
                         {"when": {"turn": 1}, "response": {"answer": QUESTIONS}},
-                        {"when": {"model": OPENROUTER_MODELS[REMOTE], **when},
-                         "response": {"no_result": True, "stderr": self.SAID}}]}
+                        {"when": {"model": OPENROUTER_MODELS[REMOTE], **when}, "response": {**response, "stderr": self.SAID}}]}
+
+    def no_result(self, **when):
+        return self.leaves({"no_result": True}, **when)
+
+    def run_leaving(self, response, *extra, **when):
+        return self.run_py("--models", REMOTE, self.SECOND, "--cases", "R01", "--seeds", "1", "2", *extra, check=False,
+                           config=self.leaves(response, **{"turn": 2, **when}), **{KEY_VARIABLE: DUMMY_KEY})
 
     def run_no_result(self, *extra, **when):
-        return self.run_py("--models", REMOTE, self.SECOND, "--cases", "R01", "--seeds", "1", "2", *extra, check=False,
-                           config=self.no_result(**{"turn": 2, **when}), **{KEY_VARIABLE: DUMMY_KEY})
+        return self.run_leaving({"no_result": True}, *extra, **when)
+
+    def fresh_run(self, n):
+        """Another run directory and call log, for the next subtest."""
+        self.out = self.tmp / f"run-{n}"
+        self.log.unlink(missing_ok=True)
+
+    def assert_invocation_error(self, done, *in_stderr):
+        """What an unusable output of REMOTE's call in turn 2 must come to, whichever file was the trouble."""
+        self.assertNotEqual(done.returncode, 0)                                      # the exit status, at the end
+        rows = [r for r in self.rows() if r["model"] == REMOTE and "case" in r]
+        self.assertEqual([(r["poging"], r["turn"]) for r in rows], [(1, 1), (1, "end")])    # no row for the unusable turn
+        end = rows[1]
+        self.assertEqual(list(end), self.END_KEYS)
+        self.assertEqual({k: end[k] for k in ("model", "case", "seed", "blind_id", "backend", "variant", "poging", "turn",
+                                              "status", "cost_usd")},
+                         {"model": REMOTE, "case": "R01", "seed": 1, "blind_id": rows[0]["blind_id"], "backend": "harness",
+                          "variant": "nodocs", "poging": 1, "turn": "end", "status": "invocation_error", "cost_usd": 0.001})
+        self.assertIsInstance(end["conversation_wall_s"], float)
+        # that model stops (no third call, no seed 2, no second attempt) and the next one goes on: the call log of the fake
+        called = [json.loads(Path(argv[1]).read_text(encoding="utf-8"))["model"]["name"]
+                  for argv in self.invocations() if argv[0] == "run"]
+        self.assertEqual(called, [OPENROUTER_MODELS[REMOTE]] * 2 + [OPENROUTER_MODELS[self.SECOND]] * 4)
+        self.assertEqual([(r["model"], r["seed"], r["status"]) for r in self.end_rows()],
+                         [(REMOTE, 1, "invocation_error"), (self.SECOND, 1, "final"), (self.SECOND, 2, "final")])
+        self.assertNotIn(2, [r.get("poging") for r in self.rows()])
+        self.assertNotIn("stop", [r["turn"] for r in self.rows()])                   # an invocation error is no stop
+        # the key is in no output, and raw.jsonl holds no word of what the harness said
+        raw = (self.out / "raw.jsonl").read_text(encoding="utf-8")
+        for text in (done.stdout, done.stderr, raw):
+            self.assertNotIn(DUMMY_KEY, text)
+        for said in ("fetch failed", "Bearer", "exit status", "result.json", "trace.jsonl", "not JSON", "no event"):
+            self.assertNotIn(said, raw)
+        # the reason goes to stderr: the file, the line, the manifest id and what the harness said, with the key masked
+        said = "fetch failed: Authorization: Bearer <redacted> rejected"
+        for part in (f"{rows[0]['blind_id']}-p1-t2", "harness exit status", said, *in_stderr):
+            self.assertIn(part, done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+
+    def test_a_result_json_that_is_not_json_is_an_invocation_error(self):
+        cut_off = '{"runId": "a1b2c3-p1-t2", "status": "compl'                       # the harness broke down while it wrote
+        self.assert_invocation_error(self.run_leaving({"result_text": cut_off}), "result.json is not JSON")
+
+    def test_a_result_json_without_a_usable_status_is_an_invocation_error(self):
+        real = json.loads((REAL_RUN / "result.json").read_text(encoding="utf-8"))      # a real result, one thing wrong with it
+        broken = (("no status", {k: v for k, v in real.items() if k != "status"}),
+                  ("a status that is none of the four", {**real, "status": "exploded"}),
+                  ("a result that is no object", [real]))
+        for n, (why, content) in enumerate(broken):
+            with self.subTest(why):
+                self.fresh_run(n)
+                self.assert_invocation_error(self.run_leaving({"result_text": json.dumps(content)}), "result.json is no result")
+
+    def test_a_malformed_trace_next_to_a_valid_result_is_an_invocation_error(self):
+        broken = (("a line that is not JSON", {"trace_text": '{"type": "run_start"}\n{oops\n'},
+                   "trace.jsonl: line 2 is not JSON"),
+                  ("a line that is no event", {"trace_text": '{"type": "run_start"}\n[1]\n'},
+                   "trace.jsonl: line 2 is no event"),
+                  ("no trace at all", {"no_trace": True}, "the harness wrote no trace.jsonl"))
+        for n, (why, response, words) in enumerate(broken):
+            with self.subTest(why):
+                self.fresh_run(n)
+                self.assert_invocation_error(self.run_leaving(response), words)
+
+    def test_the_content_of_an_unusable_file_is_never_quoted(self):
+        # a harness that broke down may have put anything in its files, the key included: run.py names the file and the line
+        # and quotes nothing, and the key check after the run still finds the key in the harness's own file
+        leaks = (("result.json", {"result_text": f'{{"quoted-marker": "{DUMMY_KEY}'}),
+                 ("trace.jsonl", {"trace_text": f'{{"type": "run_start"}}\n{{"quoted-marker": "{DUMMY_KEY}\n'}))
+        for n, (why, response) in enumerate(leaks):
+            with self.subTest(why):
+                self.fresh_run(n)
+                done = self.run_leaving(response)
+                self.assertNotEqual(done.returncode, 0)
+                self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
+                self.assertNotIn("quoted-marker", done.stdout + done.stderr)
+                for path in [self.out / "raw.jsonl", *(self.out / "transcripts").iterdir(), *(self.out / "manifests").iterdir()]:
+                    self.assertNotIn(DUMMY_KEY, path.read_text(encoding="utf-8"), path.name)
+                self.assertRegex(done.stdout, r"with_key=[1-9]")
+
+    def test_a_harness_that_is_gone_when_a_run_call_is_made_still_stops_run_py_and_is_no_invocation_error(self):
+        # no call, so no output that could be unusable: the harness cannot be started, and that stops run.py as in the probe
+        script = self.tmp / "harness.sh"
+        # the script runs the fake, and after the probe it removes itself
+        script.write_text(f'#!/bin/sh\n{shlex.quote(sys.executable)} {shlex.quote(str(FAKE_HARNESS))} "$@"\nstatus=$?\n'
+                          'if [ "$1" = probe ]; then rm -- "$0"; fi\nexit $status\n')
+        script.chmod(0o755)
+        self.harness = shlex.quote(str(script))
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT, check=False)
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("cannot start the harness", done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+        self.assertEqual([r["turn"] for r in self.rows()], ["probe", "plan"])       # no conversation row, no invocation_error
+        self.assertEqual([argv[0] for argv in self.invocations()], ["probe"])
+
+    def test_an_unusable_output_in_the_second_attempt_ends_that_model_too(self):
+        config = {"run": [{"response": {"answer": FENCE_REPLY}},
+                          {"when": {"model": OPENROUTER_MODELS[REMOTE], "poging": 1}, "response": http_failure(503)},
+                          {"when": {"model": OPENROUTER_MODELS[REMOTE], "poging": 2}, "response": {"result_text": "{oops"}}]}
+        done = self.run_py("--models", REMOTE, self.SECOND, "--cases", "R09", "--seeds", "1", "2", config=config, check=False,
+                           **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        self.assertEqual([(r["model"], r["poging"], r["status"]) for r in self.end_rows()],
+                         [(REMOTE, 1, "error"), (REMOTE, 2, "invocation_error"), (self.SECOND, 1, "final"),
+                          (self.SECOND, 1, "final")])
 
     def test_the_conversation_ends_as_invocation_error_with_its_keys_its_cost_and_no_message_of_the_harness(self):
         done = self.run_no_result()
@@ -4498,7 +4678,8 @@ class HarnessSecondAttemptTest(HarnessRunBase):
         self.assertEqual({n: (a["status"], a["failed"]) for n, a in conversation["attempts"].items()},
                          {1: ("error", (2, "budget_exceeded", None)), 2: ("final", None)})
         meta = score.load_meta(self.out)[LOCAL]
-        self.assertEqual((meta["plan"]["conversations"], meta["probe"]["verdict"], meta["stop"]), ([["R01", 1]], "reliable", None))
+        self.assertEqual((meta["plan"]["conversations"], meta["probe"]["verdict"], meta["stop"]),
+                         ([["R01", 1]], "reliable", None))
 
 
 class HarnessKeyStopTest(HarnessRunBase):
