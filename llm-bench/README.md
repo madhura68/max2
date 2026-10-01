@@ -112,10 +112,13 @@ plan: `PLANS/refiner-eval` (PBI-8); harness-backend: product Agent-harness, `pla
   --num-ctx 16384 --temperature 0.7 --out results/refiner-<datum>
 # backend harness: zonder docs op de lokale modellen, met docs op OpenRouter ($OPENROUTER_API_KEY in de omgeving)
 ./refiner/run.py --backend harness --harness "node /pad/naar/agent-harness/dist/cli.js" --variant nodocs \
-  --models gsq-lokaal qwen3.6-lokaal --seeds 1 2 3 --out results/refiner-<datum>-nodocs
+  --models gsq-lokaal qwen3.6-lokaal --seeds 1 --extra-cases R01,R02,R04 --extra-seeds 2 3 \
+  --out results/refiner-<datum>-nodocs
 ./refiner/run.py --backend harness --harness "node /pad/naar/agent-harness/dist/cli.js" --variant docs \
-  --models qwen3.6-openrouter qwen3.8-openrouter --seeds 1 2 3 --max-cost-usd 1 --out results/refiner-<datum>-docs
-./refiner/score.py results/refiner-<datum>      # per run-map; --docset <map>: andere docset voor D3
+  --models qwen3.6-openrouter qwen3.8-openrouter --seeds 1 2 3 --max-cost-usd 3 --out results/refiner-<datum>-docs
+./refiner/score.py results/refiner-<datum>          # per run-map (ollama); --docset <map>: andere docset voor D3
+./refiner/score.py results/refiner-<datum>-nodocs   # backend harness: elke variant is een eigen run-map
+./refiner/score.py results/refiner-<datum>-docs
 python3 -m unittest refiner/test_refiner.py     # nep-Ollama en nep-harness: geen GPU of extern netwerk nodig
 ```
 
@@ -129,17 +132,26 @@ TEI-status in `raw.jsonl`. Er wordt geen modelcode uitgevoerd.
 `--backend harness` stuurt elke beurt als één `harness run` door de agent-harness-CLI, na één `harness probe` per model;
 dat vraagt een build met de M5-functies (agent-harness PR #24). `--harness` is dat commando met het volledige pad (geen
 `~`) en `--variant nodocs|docs` is verplicht: één aanroep is één variant met één promptversie (`--prompt`, voor beide
-backends) en een eigen run-map. Per harness-run gelden `--max-output-tokens` (4096) en `--max-wall-seconds` (240);
-`--seeds`, `--cases` (bijv. `R01,R04`), `--temperature`, `--out` en de rest staan in `run.py --help`.
+backends) en een eigen run-map; een `--out` die al bestanden bevat wordt geweigerd, dus na een stop of crash is een
+nieuwe map nodig. Per harness-run gelden `--max-output-tokens` (4096) en `--max-wall-seconds` (240); `--temperature`,
+`--out` en de rest staan in `run.py --help`.
+
+De gesprekken per model zijn `--cases` (bijv. `R01,R04`) × `--seeds`; `--extra-cases` met `--extra-seeds` voegt de paren
+extra case × extra seed toe in dezelfde run-map, zodat de zeef één keer over alles oordeelt. Zonder docs is
+`--seeds 1 --extra-cases R01,R02,R04 --extra-seeds 2 3` het plan (16 gesprekken per model: de tien cases één keer, R01,
+R02 en R04 nog twee keer), met docs `--seeds 1 2 3`. Een extra case moet bij de variant horen, de twee opties gaan
+samen, en een paar dat `--cases` × `--seeds` al heeft wordt geweigerd, net als een waarde die je twee keer noemt.
 
 `refiner/models.json` (`--models-file`) kent zeven labels: `gsq-lokaal` en `qwen3.6-lokaal` (via Ollama's
 OpenAI-endpoint) en vijf via OpenRouter. Een label heeft `base_url`, `name`, eventueel `api_key_env`, en per variant
 (`nodocs`, `docs`, `probe`) een blok met `extraBody`. Elk OpenRouter-blok, ook dat van de probe, heeft
-`provider: {data_collection: "deny", require_parameters: true}`. Reasoning staat zonder docs en in de probe uit en met
-docs op `medium` (de lokale modellen krijgen met docs geen instelling: thinking blijft aan). run.py voegt `temperature`
-(`--temperature`, standaard 0,7) en `seed` (het nummer uit `--seeds`, de herhaling) toe aan de `extraBody` van elk
-manifest. `api_key_env` is alleen de naam van de variabele (`OPENROUTER_API_KEY`); die naam gaat als `--api-key-env`
-naar de harness, die de waarde zelf leest: de sleutel staat nooit in argv of in een bestand.
+`provider: {data_collection: "deny", require_parameters: true}`; ontbreekt dat in een van de drie blokken, dan weigert
+run.py het label (met label en blok in de melding) voordat er iets draait. Reasoning staat zonder docs en in de probe
+uit en met docs op `medium` (de lokale modellen krijgen met docs geen instelling: thinking blijft aan). run.py voegt
+`temperature` (`--temperature`, standaard 0,7) en `seed` (het nummer van de herhaling, uit `--seeds` of `--extra-seeds`)
+toe aan de `extraBody` van elk manifest. `api_key_env` is alleen de naam van de variabele (`OPENROUTER_API_KEY`); die
+naam gaat als `--api-key-env` naar de harness, die de waarde zelf leest: de sleutel staat nooit in argv of in een
+bestand.
 
 - `nodocs`: R01–R10, profiel `answer`, de systeemprompt zoals hij is.
 - `docs`: D01–D05, profiel `tools`; de systeemprompt, een lege regel en `prompts/promptverfijner-docs-addendum.txt` (met
@@ -154,9 +166,9 @@ naar de harness, die de waarde zelf leest: de sleutel staat nooit in argv of in 
 oordeel (`reliable`, `unreliable`, `none`) en de redenen van de mislukte stappen. Met docs draait een model alleen na
 `reliable`, zonder docs ook bij een ander oordeel. Faalt elke stap met een HTTP-fout, dan draait het model niets en
 toont `score.py` in de kolom `Probe` het label `geen aanbieder` (404 of 503 met een melding die een provider noemt) of
-`probe-fout <status>`. Een onbereikbaar eindpunt (geen HTTP-status) telt niet als mislukte probe: zonder docs draait het
-model dan door, mislukt elk gesprek en eindigt run.py toch met 0. Kijk dus naar de proberij in `raw.jsonl` (kolom
-`Probe` van `score.py`) voordat je een run vertrouwt.
+`probe-fout <status>`. Een onbereikbaar eindpunt (geen HTTP-status) krijgt geen label: het oordeel is `none`, te zien in
+de kolom `Probe`. Zonder docs draait het model dan gewoon door, mislukt elk gesprek en eindigt run.py toch met 0. Kijk
+dus naar die kolom (of de proberij in `raw.jsonl`) voordat je een run vertrouwt.
 
 ### Pogingen, stops en kosten
 
@@ -165,7 +177,8 @@ model dan door, mislukt elk gesprek en eindigt run.py toch met 0. Kijk dus naar 
 - **Tweede poging.** Eindigt een harness-run niet `completed` (`failed`, `budget_exceeded`, `timed_out`), dan eindigt
   die poging als `error` en volgt één tweede poging van het hele gesprek: dezelfde seed en blinde id, `maxOutputTokens`
   en `maxWallSeconds` verdubbeld, rijen met `poging: 2`. `<blind id>.md` is het transcript van de poging die telt,
-  `<blind id>-p1.md` dat van de eerste. Na `no_final` volgt geen tweede poging.
+  `<blind id>-p1.md` dat van de eerste. Er volgt geen tweede poging na `no_final`, na een stop door `model HTTP 401`,
+  `402` of `403`, en als `--max-cost-usd` bereikt is.
 - **`invocation_error`.** Geeft een run-aanroep geen bruikbaar resultaat (geen of ongeldige `result.json`, onleesbare
   `trace.jsonl`), dan eindigt het gesprek zo, zonder tweede poging: dat model stopt, de andere gaan door en run.py
   eindigt met exit 1. Wat de harness zei gaat gemaskeerd naar stderr, in geen rij.
@@ -174,10 +187,11 @@ model dan door, mislukt elk gesprek en eindigt run.py toch met 0. Kijk dus naar 
   in de probefase laat de latere modellen zonder rij: ze kregen geen kans. Exit 1 volgt op een stop, een
   `invocation_error` of een sleutel in de run-map, met de reden op stderr; `done: <map>` komt ook na een stop. Een
   gesprek dat na de tweede poging `error` blijft, geeft géén foutstatus: kijk naar `Afgerond` in `score.py`.
-- **Kostengrens.** `--max-cost-usd` heeft geen standaard: geef hem bij elke OpenRouter-run mee. Vóór elke poging, ook
-  vóór een tweede, telt run.py de `cost_usd` van alle beurtrijen op (een ontbrekend bedrag is 0); vanaf de grens volgt
-  de stop. Binnen een poging wordt niet gecontroleerd, en probe-aanvragen en een betaalde aanvraag die op een fout
-  eindigt staan in geen `cost_usd`: houd een marge. De limiet van de sleutel blijft de controle:
+- **Kostengrens.** `--max-cost-usd` heeft geen standaard: geef hem bij elke OpenRouter-run mee, met 1,5 per model per
+  aanroep (twee modellen: 3). De teller begint bij 0 per aanroep en telt over alle modellen van die aanroep. Vóór elke
+  poging, ook vóór een tweede, telt run.py de `cost_usd` van alle beurtrijen op (een ontbrekend bedrag is 0); vanaf de
+  grens volgt de stop. Binnen een poging wordt niet gecontroleerd, en probe-aanvragen en een betaalde aanvraag die op
+  een fout eindigt staan in geen `cost_usd`: houd een marge. De limiet van de sleutel blijft de controle:
   `GET https://openrouter.ai/api/v1/key` (print alleen `limit`, `limit_remaining` en `usage`).
 - **Sleutelcontrole.** `refiner/check_key.py --env OPENROUTER_API_KEY <map> …` leest de waarde uit de omgeving (`--env`
   is de naam) en print per map alleen aantallen (`files_scanned`, `unreadable`, `with_key`); exit 1 bij een treffer.
@@ -193,9 +207,11 @@ Een run-map bevat (`manifests/` en `harness/` alleen bij de backend harness):
   `no_final`, `error`, `invocation_error`), en `probe`, `plan` en `stop`;
 - `summary.csv` (door `score.py`) en `blind-key.json` (blinde id naar model, case, seed);
 - `transcripts/<blind id>.md` en, bij een tweede poging, `<blind id>-p1.md` voor de eerste;
-- `manifests/`: een manifest per beurt, `<blind id>-p<poging>-t<beurt>.json`, en de extra body van elke probe;
-- `harness/`: wat de harness schreef, `probe-<model>/probe.json` en per beurt `<blind id>-p<poging>-t<beurt>/` met
-  `result.json`, `trace.jsonl` en `tools/`.
+- `manifests/`: een manifest per beurt, `<blind id>-p<poging>-t<beurt>.json`, en de extra body van elke probe
+  (`probe-<label>.extra-body.json`, met het label);
+- `harness/`: wat de harness schreef: `probe-<modelnaam>/probe.json` (de naam van het model in kleine letters en
+  opgeschoond, bijv. `probe-qwen-qwen3.6-35b-a3b`; niet het label) en per beurt `<blind id>-p<poging>-t<beurt>/` met
+  `result.json`, `trace.jsonl` en, alleen bij een vastgelegd toolresultaat, `tools/`.
 
 `score.py` schrijft `summary.csv`, print per variant een tabel en draait heuristische checks: A1 taal (alleen wélke
 taal, niet hoe goed), A2 vraagvorm, A3 rondes, A4 eindvorm, A5 terughoudendheid (een vlag; pas diskwalificerend na
