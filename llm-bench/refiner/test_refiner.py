@@ -3,6 +3,7 @@ and the frozen docset with its freezer and check.
 
   python3 -m unittest llm-bench/refiner/test_refiner.py
 """
+import argparse
 import contextlib
 import csv
 import functools
@@ -1872,6 +1873,31 @@ class LoadRunTest(RunDirTest):
         self.assertTrue(convs[("m-a", "R07", 1)]["cost_reported"])   # an explicit 0 is a known amount
 
 
+class JsonlLinesTest(RunDirTest):
+    """raw.jsonl is written with ensure_ascii=False: U+2028, U+2029 and U+0085 stay raw inside a string, and
+    str.splitlines() would cut a row at each of them."""
+
+    TEXT = "een\u2028twee\u2029drie\u0085vier"
+
+    def test_a_row_with_such_a_character_is_one_row(self):
+        rows = conv_rows("m-a", "R06", "b00001", [self.TEXT, FENCE_REPLY])
+        run_dir = self.make_run(rows)
+        self.assertEqual(score.read_rows(run_dir), rows)
+        convs = score.load_run(run_dir)
+        self.assertEqual(convs[("m-a", "R06", 1)]["turns"], [self.TEXT, FENCE_REPLY])
+
+    def test_a_probe_row_with_such_a_character_in_a_reason_is_one_row(self):
+        row = probe_row("m-a", verdict="unreliable", reasons={"c_two_tools": f"turn 2: {self.TEXT}"})
+        meta = score.load_meta(self.make_run([row]))
+        self.assertEqual(meta["m-a"]["probe"], row)
+        self.assertEqual(score.probe_reasons(row), ["probe-oordeel unreliable", f"c_two_tools: turn 2: {self.TEXT}"])
+
+    def test_a_run_with_such_a_character_is_scored(self):
+        run_dir = self.make_run(conv_rows("m-a", "R06", "b00001", [self.TEXT, FENCE_REPLY]))
+        self.assertIn("m-a", self.score_main(run_dir))
+        self.assertEqual([r["turns"] for r in self.summary(run_dir)], ["2"])
+
+
 class LoadMetaTest(RunDirTest):
     """load_meta: the plan, probe and stop row of each model."""
 
@@ -2812,6 +2838,28 @@ class FakeHarnessTest(unittest.TestCase):
         self.assertEqual(done.returncode, 0, done.stderr)
         self.assertEqual(self.trace()[0]["manifest"]["history"], history)
 
+    def test_its_files_have_the_key_lists_of_a_real_harness_run(self):
+        # REAL_RUN is the sanitized output of a real run: the stand-in has to write the same keys in the same order
+        real_events = [json.loads(line) for line in (REAL_RUN / "trace.jsonl").read_text(encoding="utf-8").split("\n") if line]
+        manifest = real_events[0]["manifest"]                      # the manifest of that run, as the real trace has it
+        self.assertEqual(self.probe(manifest["model"]["name"]).returncode, 0)
+        calls = [{"name": "search_product_docs", "arguments": {"query": "x"}}, {"name": "get_product_doc", "arguments": {}}]
+        response = {"calls": calls, "providers": ["AkashML"], "reasoning": "denk",
+                    "usage": {"cachedTokens": 1, "costUsd": 0.0001, "reasoningTokens": 2}}
+        done = self.run_manifest(manifest, config={"run": [{"response": response}]})
+        self.assertEqual(done.returncode, 0, done.stderr)
+        # the same events in the same order, each with the same keys in the same order
+        self.assertEqual([(e["type"], list(e)) for e in self.trace(manifest["id"])],
+                         [(e["type"], list(e)) for e in real_events])
+        real_result = json.loads((REAL_RUN / "result.json").read_text(encoding="utf-8"))
+        result = self.result(manifest["id"])
+        self.assertEqual((list(result), list(result["model"]), list(result["usage"])),
+                         (list(real_result), list(real_result["model"]), list(real_result["usage"])))
+        real_probe = json.loads((REAL_PROBE / "probe.json").read_text(encoding="utf-8"))
+        probe = json.loads((self.out / REAL_PROBE.name / "probe.json").read_text(encoding="utf-8"))
+        self.assertEqual((list(probe), list(probe["steps"])), (list(real_probe), list(real_probe["steps"])))
+        self.assertEqual({k: list(v) for k, v in probe["steps"].items()}, {k: list(v) for k, v in real_probe["steps"].items()})
+
     def test_every_invocation_is_logged_with_its_argv(self):
         self.probe()
         self.run_manifest(sample_manifest("tools"))
@@ -2922,7 +2970,8 @@ class HarnessRunBase(unittest.TestCase):
         return done
 
     def rows(self):
-        return [json.loads(line) for line in (self.out / "raw.jsonl").read_text(encoding="utf-8").splitlines()]
+        text = (self.out / "raw.jsonl").read_text(encoding="utf-8")
+        return [json.loads(line) for line in text.split("\n") if line.strip()]       # not splitlines(): see read_rows
 
     def turn_rows(self):
         return [r for r in self.rows() if isinstance(r["turn"], int)]
@@ -3023,6 +3072,21 @@ class ModelsFileTest(unittest.TestCase):
                     self.assertNotIn(text, str(caught.exception))
         path.write_text(json.dumps({"x": {**self.models["gsq-lokaal"], "api_key_env": "SOME_OTHER_KEY_2"}}))
         self.assertEqual(run.load_models(path, ["x"])["x"]["api_key_env"], "SOME_OTHER_KEY_2")
+
+    def test_api_key_env_is_an_upper_case_variable_name_and_nothing_else(self):
+        # ^[A-Z_][A-Z0-9_]*$ : whatever stands there goes into argv, so it has to read as the name of a variable
+        path = Path(tempfile.mkdtemp()) / "models.json"
+        self.addCleanup(shutil.rmtree, path.parent, ignore_errors=True)
+        for value in ("openrouter_api_key", "OpenRouter_Key", "OPENROUTER-API-KEY", "1KEY", "KEY NAME", "KEY\n", "KEY.NAME",
+                      "", 5, None, ["KEY"]):
+            with self.subTest(value):
+                path.write_text(json.dumps({"x": {**self.models["gsq-lokaal"], "api_key_env": value}}))
+                with self.assertRaisesRegex(run.RunError, "x.*api_key_env"):
+                    run.load_models(path, ["x"])
+        for value in ("OPENROUTER_API_KEY", "_KEY", "K", "KEY_2", "A1_B2"):
+            with self.subTest(value):
+                path.write_text(json.dumps({"x": {**self.models["gsq-lokaal"], "api_key_env": value}}))
+                self.assertEqual(run.load_models(path, ["x"])["x"]["api_key_env"], value)
 
     def test_a_models_file_that_is_no_object_of_labels_is_refused(self):
         path = Path(tempfile.mkdtemp()) / "models.json"
@@ -3183,6 +3247,38 @@ class TurnRowTest(unittest.TestCase):
         self.assertEqual((row["output_tokens"], row["reasoning_tokens"]), (300, 120))
 
 
+class MaskTest(unittest.TestCase):
+    """run.py masks the key value itself in what it quotes of the harness, on top of the harness's own maskKey."""
+
+    def test_every_occurrence_and_the_trimmed_form_of_a_value_is_masked(self):
+        text = f"a {DUMMY_KEY} b {DUMMY_KEY} c {DUMMY_KEY.upper()}"
+        self.assertEqual(run.mask_secrets(text, [DUMMY_KEY]), f"a <redacted> b <redacted> c {DUMMY_KEY.upper()}")
+        # undici trims a header value, so the server echoes the trimmed form of a value that has whitespace around it
+        padded = f" {DUMMY_KEY}\n"
+        self.assertEqual(run.mask_secrets(f"echo: {DUMMY_KEY}", [padded]), "echo: <redacted>")
+        self.assertEqual(run.mask_secrets(f"echo:{padded}!", [padded]), "echo:<redacted>!")
+
+    def test_nothing_is_masked_without_a_value_and_a_value_below_eight_characters_is_a_placeholder(self):
+        self.assertEqual(run.mask_secrets("plain text", []), "plain text")
+        self.assertEqual(run.mask_secrets("plain text", [""]), "plain text")
+        self.assertEqual(run.mask_secrets("a key of 7 chars: abcdefg", ["abcdefg"]), "a key of 7 chars: abcdefg")
+        self.assertEqual(run.mask_secrets("a key of 8 chars: abcdefgh", ["abcdefgh"]), "a key of 8 chars: <redacted>")
+
+    def test_of_two_values_that_overlap_the_longer_goes_first(self):
+        self.assertEqual(run.mask_secrets("abcdefghijkl", ["abcdefgh", "abcdefghijkl"]), "<redacted>")
+        self.assertEqual(run.mask_secrets("abcdefghijkl", ["abcdefghijkl", "abcdefgh"]), "<redacted>")
+
+    def test_an_excerpt_is_masked_before_it_is_cut(self):
+        # cut first and a value that straddles the limit would leave its first characters in the excerpt
+        text = "x" * 295 + DUMMY_KEY + " and more"
+        excerpt = run.excerpt(text, [DUMMY_KEY])
+        self.assertEqual(len(excerpt), 300)
+        self.assertTrue(excerpt.startswith("x" * 295 + "<reda"))
+        self.assertNotIn("dummy", excerpt)
+        self.assertEqual(run.excerpt("", [DUMMY_KEY]), "no output")
+        self.assertEqual(run.excerpt("  two\n lines  ", []), "two lines")
+
+
 class HarnessFilesTest(unittest.TestCase):
     """Reading what the harness wrote: a file that is not there or not usable is an error of its own, never an empty turn."""
 
@@ -3215,6 +3311,17 @@ class HarnessFilesTest(unittest.TestCase):
         (self.dir / "trace.jsonl").write_text('{"type": "run_start"}\n{broken\n')
         with self.assertRaisesRegex(run.HarnessError, r"trace\.jsonl.*line 2"):
             run.read_trace(self.dir)
+
+    def test_a_line_break_that_json_leaves_raw_inside_a_string_does_not_cut_a_trace_line(self):
+        # JSON.stringify writes U+2028, U+2029 and U+0085 as they are, and str.splitlines() cuts a line at each of them
+        text = "een\u2028twee\u2029drie\u0085vier"
+        events = [{"ts": "t", "type": "model_response", "turn": 1, "content": text, "toolCalls": [], "finishReason": "stop",
+                   "usage": {"source": "provider_reported", "inputTokens": 1, "outputTokens": 1}, "durationMs": 5,
+                   "reasoning": f"denk {text} na"},
+                  {"ts": "t", "type": "run_end", "status": "completed"}]
+        (self.dir / "trace.jsonl").write_text("".join(json.dumps(e, ensure_ascii=False) + "\n" for e in events),
+                                              encoding="utf-8")
+        self.assertEqual(run.read_trace(self.dir), events)
 
     def test_a_trace_is_read_in_order_and_blank_lines_are_skipped(self):
         (self.dir / "trace.jsonl").write_text('{"type": "run_start"}\n\n{"type": "run_end", "status": "completed"}\n')
@@ -3258,6 +3365,102 @@ class ProbeRowTest(unittest.TestCase):
                             ("nvidia/nemotron-3-super-120b-a12b", "probe-nvidia-nemotron-3-super-120b-a12b"),
                             ("Google/Gemma-4-31B-IT", "probe-google-gemma-4-31b-it")):
             self.assertEqual(run.probe_dir_name(model), name)
+
+
+# Fix round 1: the parser contract on REAL output. fixtures/real-harness/ is a sanitized copy of what the harness itself wrote
+# in its first run against OpenRouter (the docs run of Task 7: qwen/qwen3.6-35b-a3b, 30 September 2026, two doc-tool calls) and of
+# the probe of that model. Sanitized, nothing else: the local paths in the traced manifest became /path/to/agent-harness/..., and
+# a free-text string (content, reasoning, answer, system, prompt) of more than 80 characters was cut to its first 60 characters
+# and an ellipsis. Every key, the key order, the value types, the event order, the call ids, the numbers, the provider names and
+# the finish reasons are as the harness wrote them. The expected values below are read off those files, not derived by run.py.
+REAL = HERE / "fixtures" / "real-harness"
+REAL_RUN = REAL / "m5-task7-docs-first-run"
+REAL_PROBE = REAL / "probe-qwen-qwen3.6-35b-a3b"
+REAL_EVENTS = ["run_start", "tool_snapshot", "model_request", "model_response", "tool_call", "tool_result", "model_request",
+               "model_response", "tool_call", "tool_result", "model_request", "model_response", "run_end"]
+REAL_CALLS = [
+    {"name": "search_product_docs", "ok": True, "error_code": None,
+     "arguments": {"query": "probe ontwerp aanpak", "product_id": "fixture-docs", "limit": 10}},
+    {"name": "get_product_doc", "ok": True, "error_code": None,
+     "arguments": {"heading": "Aanpak", "product_id": "fixture-docs", "folder": "specs", "slug": "probe-design"}}]
+
+
+class RealHarnessOutputTest(unittest.TestCase):
+    """read_result, read_trace, tool_calls, turn_row and probe_row on what a real harness run wrote."""
+
+    def test_the_result_json_of_a_real_run_is_read(self):
+        result = run.read_result(REAL_RUN)
+        self.assertEqual(list(result), ["runId", "status", "answer", "model", "usage", "durationMs", "toolSnapshotHash"])
+        self.assertEqual((result["runId"], result["status"], result["durationMs"]), ("m5-task7-docs-first-run", "completed", 4727))
+        self.assertEqual(result["usage"], {"source": "provider_reported", "inputTokens": 5319, "outputTokens": 388, "turns": 3,
+                                           "toolCalls": 2, "toolErrors": 0, "cachedTokens": 1728, "costUsd": 0.0007947,
+                                           "reasoningTokens": 169})
+        self.assertTrue(result["answer"].startswith("\n\n"))        # a real answer can start with blank lines
+
+    def test_the_trace_of_a_real_run_is_read_in_order(self):
+        events = run.read_trace(REAL_RUN)
+        self.assertEqual([e["type"] for e in events], REAL_EVENTS)
+        self.assertEqual([e["finishReason"] for e in events if e["type"] == "model_response"],
+                         ["tool_calls", "tool_calls", "stop"])
+        self.assertEqual([e["content"] for e in events if e["type"] == "model_response"][:2], [None, None])
+        self.assertEqual([e["provider"] for e in events if e["type"] == "model_response"], ["AkashML"] * 3)
+
+    def test_the_tool_calls_of_a_real_run_are_paired_with_their_results(self):
+        self.assertEqual(run.tool_calls(run.read_trace(REAL_RUN)), REAL_CALLS)
+
+    def test_the_row_of_a_real_run(self):
+        result, events = run.read_result(REAL_RUN), run.read_trace(REAL_RUN)
+        row = run.turn_row(result, events, 1, "m5-task7-docs-first-run", "0" * 64, ROW_LIMITS)
+        expected = {
+            "turn": 1, "content": result["answer"], "status": "completed", "error_code": None, "model_turns": 3,
+            "tool_calls": REAL_CALLS, "input_tokens": 5319, "output_tokens": 388, "cached_tokens": 1728,
+            "reasoning_tokens": 169, "cost_usd": 0.0007947, "providers": ["AkashML"], "finish_reason": "stop", "wall_s": 4.727,
+            "harness_run": "harness/m5-task7-docs-first-run", "prompt_sha256": "0" * 64, "limits": ROW_LIMITS}
+        self.assertEqual(row, expected)
+        self.assertEqual(list(row), list(expected))
+
+    def test_score_py_reads_the_row_of_a_real_run(self):
+        result, events = run.read_result(REAL_RUN), run.read_trace(REAL_RUN)
+        base = {"model": "qwen3.6-openrouter", "case": "D01", "seed": 1, "blind_id": "a1b2c3", "backend": "harness",
+                "variant": "docs", "poging": 1}
+        rows = [{**base, **run.turn_row(result, events, 1, "m5-task7-docs-first-run", "0" * 64, ROW_LIMITS)}]
+        self.assertEqual(score.check_d1(rows), ("pass", []))             # a successful doc-tool call in turn 1
+        self.assertEqual(score.check_d6(rows), ("pass", []))
+        self.assertEqual(score.attempt_facts(rows), {"status": None, "failed": None, "cost_usd": 0.0007947})
+
+    def test_the_probe_json_of_a_real_probe_is_read(self):
+        probe = json.loads((REAL_PROBE / "probe.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(probe), ["baseUrl", "model", "reportedModel", "ranAt", "steps", "tool_calling", "usage_reported"])
+        self.assertEqual(run.probe_row("qwen3.6-openrouter", "docs", probe),
+                         probe_row("qwen3.6-openrouter", "reliable", None, {}, "docs"))
+        # the directory the real harness gave this probe is the one run.py looks in
+        self.assertEqual(run.probe_dir_name(probe["model"]), REAL_PROBE.name)
+
+    def test_the_fixture_is_sanitized(self):
+        files = sorted(p for p in REAL.rglob("*") if p.is_file())
+        self.assertEqual([p.relative_to(REAL).as_posix() for p in files],
+                         ["m5-task7-docs-first-run/result.json", "m5-task7-docs-first-run/trace.jsonl",
+                          "probe-qwen-qwen3.6-35b-a3b/probe.json"])
+        for path in files:
+            text = path.read_text(encoding="utf-8")
+            with self.subTest(path.name):
+                self.assertNotIn("/Users/", text)
+                self.assertNotIn("/home/", text)
+                self.assertEqual(freeze_docset.scan(text), (0, 0))        # no key shape, no Bearer value
+                values = ([json.loads(line) for line in text.split("\n") if line.strip()] if path.suffix == ".jsonl"
+                          else [json.loads(text)])
+                strings = []
+                stack = list(values)
+                while stack:
+                    item = stack.pop()
+                    if isinstance(item, dict):
+                        stack.extend(item.values())
+                    elif isinstance(item, list):
+                        stack.extend(item)
+                    elif isinstance(item, str):
+                        strings.append(item)
+                self.assertTrue(strings)
+                self.assertLessEqual(max(map(len, strings)), 100)         # the free text is cut; the longest left is a path
 
 
 class HarnessConversationTest(HarnessRunBase):
@@ -3380,6 +3583,18 @@ class HarnessConversationTest(HarnessRunBase):
                          ["blind-key.json", "harness", "manifests", "raw.jsonl", "transcripts"])
         self.assertEqual(sorted(p.name for p in (self.out / "harness").iterdir()),
                          [f"{bid}-p1-t1", "probe-qwen-qwen3.6-35b-a3b"])
+
+    def test_an_answer_with_line_breaks_that_json_leaves_raw_survives_the_trace_the_rows_and_the_scorer(self):
+        text = "```\n<task>\nSchrijf\u2028iets\u2029voor\u0085mij.\n</task>\n```\nAannames:\n- geen\nInstellingen: effort medium."
+        self.run_py("--models", LOCAL, "--cases", "R09", config=script(text, reasoning="denk\u2028na\u0085nog"))
+        (turn,) = self.turn_rows()
+        self.assertEqual(turn["content"], text)
+        self.assertEqual(self.end_rows()[0]["status"], "final")
+        done = subprocess.run([sys.executable, str(HERE / "score.py"), str(self.out)], capture_output=True, text=True)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        with (self.out / "summary.csv").open(newline="", encoding="utf-8") as f:
+            (summary,) = list(csv.DictReader(f))
+        self.assertEqual((summary["case"], summary["status"], summary["turns"]), ("R09", "final", "1"))
 
     def test_the_prompt_hash_is_that_of_the_text_in_the_manifest_and_equals_the_ollama_backends(self):
         self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT)
@@ -3559,11 +3774,20 @@ class HarnessProbeTest(HarnessRunBase):
     def test_the_probe_runs_once_per_model_before_the_conversations_of_that_model(self):
         self.run_py("--models", LOCAL, REMOTE, "--cases", "R09", "--seeds", "1", "2", config=DIRECT,
                     **{KEY_VARIABLE: DUMMY_KEY})
-        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "run", "run", "probe", "run", "run"])
-        self.assertEqual([(r["model"], r["turn"]) for r in self.rows()],
-                         [(LOCAL, "probe"), (LOCAL, 1), (LOCAL, "end"), (LOCAL, 1), (LOCAL, "end"),
-                          (REMOTE, "probe"), (REMOTE, 1), (REMOTE, "end"), (REMOTE, 1), (REMOTE, "end")])
-        self.assertEqual(self.rows()[0], probe_row(LOCAL, "reliable", None, {}, "nodocs"))
+        names = {LOCAL: LOCAL_MODELS[LOCAL], REMOTE: OPENROUTER_MODELS[REMOTE]}
+        calls = self.invocations()
+        for label, name in names.items():
+            with self.subTest(label):
+                probes = [i for i, argv in enumerate(calls) if argv[0] == "probe" and argv[argv.index("--model") + 1] == name]
+                runs = [i for i, argv in enumerate(calls)
+                        if argv[0] == "run" and json.loads(Path(argv[1]).read_text())["model"]["name"] == name]
+                self.assertEqual(len(probes), 1)                        # probed once, whatever the number of conversations
+                self.assertEqual(len(runs), 2)
+                self.assertLess(probes[0], min(runs))                   # and before the first of its conversations
+                rows = [i for i, r in enumerate(self.rows()) if r["model"] == label]
+                probe_rows = [i for i, r in enumerate(self.rows()) if r["model"] == label and r["turn"] == "probe"]
+                self.assertEqual(probe_rows, [rows[0]])                 # one probe row, ahead of every other row of the model
+        self.assertEqual(self.rows()[probe_rows[0]], probe_row(REMOTE, "reliable", None, {}, "nodocs"))
 
     def test_the_probe_call_carries_the_endpoint_the_model_the_key_variable_name_and_the_extra_body_file(self):
         self.run_py("--models", LOCAL, REMOTE, "--cases", "R09", config=DIRECT, **{KEY_VARIABLE: DUMMY_KEY})
@@ -3610,7 +3834,7 @@ class HarnessProbeTest(HarnessRunBase):
         self.assertEqual(rows[0], probe_row(REMOTE, "unreliable", None, {"c_two_tools": "no second call"}, "docs"))
         self.assertEqual(rows[1], probe_row("qwen3.8-openrouter", "reliable", None, {}, "docs"))
         self.assertEqual({r["model"] for r in rows[2:]}, {"qwen3.8-openrouter"})
-        self.assertEqual([argv[0] for argv in self.invocations()], ["probe", "probe", "run"])      # no run for REMOTE
+        self.assertEqual(sorted(argv[0] for argv in self.invocations()), ["probe", "probe", "run"])     # no run for REMOTE
         self.assertEqual({m["model"]["name"] for m in self.manifests().values()}, {"qwen/qwen3.8-27b"})
         self.assertEqual([who["model"] for who in json.loads((self.out / "blind-key.json").read_text()).values()],
                          ["qwen3.8-openrouter"])
@@ -3662,6 +3886,35 @@ class HarnessKeyTest(HarnessRunBase):
         for manifest in self.manifests().values():
             self.assertNotIn("apiKey", manifest["model"])
         self.assertIn(KEY_VARIABLE, self.log.read_text())        # the name does appear
+
+    def test_a_key_in_api_key_env_is_refused_naming_the_label_and_not_the_value_and_before_any_call(self):
+        pasted = "sk-or-v1-" + "0123456789abcdef"            # key-shaped, built here so no such text is in the source
+        models = {"x-test": {**json.loads(MODELS_FILE.read_text())[REMOTE], "api_key_env": pasted}}
+        path = self.tmp / "models.json"
+        path.write_text(json.dumps(models))
+        done = self.run_py("--models", "x-test", "--cases", "R09", "--models-file", path, config=DIRECT, check=False,
+                           **{pasted: DUMMY_KEY})            # even a variable of that very name does not make it pass
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("x-test", done.stderr)
+        self.assertIn("api_key_env", done.stderr)
+        self.assertNotIn(pasted, done.stdout + done.stderr)
+        self.assertNotIn("is not set", done.stderr)          # the message that would print a name is not reachable
+        self.assertEqual(self.invocations(), [])
+
+    def test_the_key_value_is_masked_in_what_the_harness_said_when_a_run_fails(self):
+        said = f"fetch failed: Authorization: Bearer {DUMMY_KEY} rejected"
+        config = {"run": [{"response": {"no_result": True, "stderr": said}}]}
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config=config, check=False, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("fetch failed: Authorization: Bearer <redacted> rejected", done.stderr)
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
+
+    def test_the_key_value_is_masked_in_what_the_harness_said_when_a_probe_fails(self):
+        config = {"probe": [{"response": {"crash": f"connect ECONNREFUSED for key {DUMMY_KEY}"}}]}
+        done = self.run_py("--models", REMOTE, "--cases", "R09", config=config, check=False, **{KEY_VARIABLE: DUMMY_KEY})
+        self.assertNotEqual(done.returncode, 0)
+        self.assertIn("connect ECONNREFUSED for key <redacted>", done.stderr)
+        self.assertNotIn(DUMMY_KEY, done.stdout + done.stderr)
 
     def test_a_key_variable_that_is_not_set_stops_the_run_before_any_call_and_names_the_variable(self):
         done = self.run_py("--models", REMOTE, "--cases", "R09", config=DIRECT, check=False)
@@ -3807,6 +4060,21 @@ class HarnessSelectionTest(HarnessRunBase):
                                       capture_output=True, text=True)
                 self.assertEqual(done.returncode, 2)
                 self.assertIn(args[0], done.stderr)
+
+    def test_a_harness_command_with_an_unbalanced_quote_is_an_error_and_not_a_traceback(self):
+        self.harness = 'node "cli.js'
+        done = self.run_py("--models", LOCAL, "--cases", "R09", config=DIRECT, check=False)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("--harness", done.stderr)
+        self.assertNotIn("Traceback", done.stderr)
+        self.assertEqual(self.invocations(), [])
+
+    def test_the_example_in_the_usage_text_works_as_typed(self):
+        # a ~ is not expanded inside quotes: the example has to name the harness by an absolute path
+        examples = re.findall(r'--harness "node (\S+)"', run.__doc__)
+        self.assertTrue(examples)
+        for path in examples:
+            self.assertTrue(path.startswith("/") and "~" not in path, path)
 
     def test_a_limit_that_is_not_a_positive_number_is_refused_before_anything_runs(self):
         for args in (["--max-output-tokens", "0"], ["--max-wall-seconds", "-5"], ["--max-output-tokens", "many"]):
@@ -3977,6 +4245,20 @@ class OllamaBackendTest(unittest.TestCase):
         self.assertEqual((turn["options"], turn["think"], turn["ollama"], turn["tei_on"] in (True, False, None)),
                          ({"num_ctx": 16384, "temperature": 0.7}, False, "0.0-test", True))
         self.assertEqual((end["status"], end["turn"]), ("final", "end"))
+
+    def test_the_ids_come_from_blind_ids(self):
+        # one generator for both backends: the same stamp gives the same ids
+        FakeOllama.behaviour, FakeOllama.calls = "direct", []
+        out = Path(tempfile.mkdtemp())
+        self.addCleanup(shutil.rmtree, out, ignore_errors=True)
+        args = argparse.Namespace(prompt=None, cases="R08,R09", out=str(out), host=self.host, num_ctx=None, think=None,
+                                  models=["fake:model"], seeds=[1], temperature=0.7)
+        with mock.patch.object(run, "blind_ids", lambda stamp: iter(["aaaaaa", "bbbbbb"])), \
+                contextlib.redirect_stdout(io.StringIO()):
+            run.run_ollama(args)
+        rows = [json.loads(line) for line in (out / "raw.jsonl").read_text().splitlines()]
+        self.assertEqual([(r["case"], r["blind_id"]) for r in rows if r["turn"] == "end"], [("R08", "aaaaaa"), ("R09", "bbbbbb")])
+        self.assertEqual(sorted(json.loads((out / "blind-key.json").read_text())), ["aaaaaa", "bbbbbb"])
 
     def test_the_prompt_is_the_prompt_file_unless_prompt_names_another(self):
         text = PROMPT_FILE.read_text()

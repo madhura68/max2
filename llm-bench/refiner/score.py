@@ -381,7 +381,9 @@ def score_conversation(case, turns, rows=None, docset=None):
 def read_rows(rundir):
     """De rijen van raw.jsonl in de run-map."""
     text = (Path(rundir) / "raw.jsonl").read_text(encoding="utf-8")
-    return [json.loads(line) for line in text.splitlines() if line.strip()]
+    # split on "\n" only: the rows are written with ensure_ascii=False, so U+2028, U+2029 and U+0085 stay raw inside a string,
+    # and str.splitlines() would cut a row at each of them
+    return [json.loads(line) for line in text.split("\n") if line.strip()]
 
 
 def end_status(rows):

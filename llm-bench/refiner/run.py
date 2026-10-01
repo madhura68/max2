@@ -23,8 +23,9 @@ Two backends send the conversations, with one conversation flow (converse) for b
 
 Stdlib only. Usage:
   ./run.py --models qwen3.8-gsq-rco:27b-iq3_s-text qwen3.6:35b-a3b-coding --seeds 1
-  ./run.py --backend harness --harness "node ~/Development/agent-harness/dist/cli.js" --variant nodocs \\
+  ./run.py --backend harness --harness "node /path/to/agent-harness/dist/cli.js" --variant nodocs \\
       --models gsq-lokaal qwen3.6-openrouter --seeds 1 2 3
+  (name the harness by its full path: a ~ is not expanded inside the quotes)
 """
 import argparse
 import hashlib
@@ -51,6 +52,7 @@ MAX_USER_TURNS = 4
 MAX_TURNS, MAX_TOOL_ERRORS, CONTEXT_TOKENS = 8, 2, 65536
 MAX_OUTPUT_TOKENS, MAX_WALL_SECONDS = 4096, 240
 DOC_TOOLS = ["search_product_docs", "get_product_doc", "list_product_docs", "related_product_docs"]
+MASK, MIN_MASKED_LENGTH = "<redacted>", 8     # as in the harness (model-client.ts): a shorter value is a placeholder
 RUN_STATUSES = ("completed", "failed", "budget_exceeded", "timed_out")
 VERDICTS = ("reliable", "unreliable", "none")
 OLLAMA_ONLY = ("num_ctx", "think", "host")     # the options the backend harness does not have
@@ -202,9 +204,10 @@ def load_models(path, labels):
         for field in ("base_url", "name"):
             if not (isinstance(cfg.get(field), str) and cfg[field]):
                 raise RunError(f"label {label} has no {field} in {path}")
-        # a value in this field would end up in argv: it must read as a variable name, and it is never quoted back
+        # a value in this field would end up in argv: it must read as the name of a variable (^[A-Z_][A-Z0-9_]*$), and it
+        # is never quoted back
         if "api_key_env" in cfg and not (isinstance(cfg["api_key_env"], str)
-                                         and re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]{0,63}", cfg["api_key_env"])):
+                                         and re.fullmatch(r"[A-Z_][A-Z0-9_]*", cfg["api_key_env"])):
             raise RunError(f"label {label}: api_key_env in {path} must be the name of an environment variable")
         for variant in ("nodocs", "docs", "probe"):
             block = cfg.get(variant)
@@ -240,9 +243,20 @@ def probe_dir_name(model):
     return "probe-" + re.sub(r"[^a-z0-9.-]+", "-", model.lower())
 
 
-def excerpt(text, limit=300):
-    """The start of text on one line, for an error message."""
-    return " ".join(text.split())[:limit] or "no output"
+def mask_secrets(text, secrets):
+    """text with every occurrence of a secret replaced by MASK, on top of the masking the harness does itself. The trimmed
+    form of a secret counts too (undici trims a header value, so that is what a server echoes), the longest form goes first
+    (one can contain another), and a value shorter than MIN_MASKED_LENGTH is a placeholder that is left alone."""
+    forms = {form for secret in secrets for form in (secret, secret.strip()) if len(form) >= MIN_MASKED_LENGTH}
+    for form in sorted(forms, key=len, reverse=True):
+        text = text.replace(form, MASK)
+    return text
+
+
+def excerpt(text, secrets=(), limit=300):
+    """The start of text on one line, for an error message, with the secrets masked first and the cut made second: a value
+    that straddles the limit would otherwise leave its first characters behind."""
+    return " ".join(mask_secrets(text, secrets).split())[:limit] or "no output"
 
 
 def read_result(run_dir):
@@ -267,7 +281,8 @@ def read_trace(run_dir):
     except OSError:
         raise HarnessError(f"{run_dir}: the harness wrote no trace.jsonl") from None
     events = []
-    for n, line in enumerate(text.splitlines(), start=1):
+    # split on "\n" only: str.splitlines() also cuts at U+2028, U+2029 and U+0085, which JSON.stringify leaves raw in a string
+    for n, line in enumerate(text.split("\n"), start=1):
         if line.strip():
             try:
                 event = json.loads(line)
@@ -352,8 +367,9 @@ def key_args(cfg):
 class Harness:
     """The harness CLI as a subprocess: `node .../dist/cli.js`, or any command with probe and run (the tests use a fake)."""
 
-    def __init__(self, command, out):
-        self.command, self.out = command, Path(out)
+    def __init__(self, command, out, secrets=()):
+        """secrets: the key values of the models in use. They are masked in everything quoted from the harness."""
+        self.command, self.out, self.secrets = command, Path(out), list(secrets)
 
     def call(self, *args):
         try:
@@ -372,7 +388,7 @@ class Harness:
             return json.loads(path.read_text(encoding="utf-8"))
         except (OSError, ValueError):
             raise HarnessError(f"no usable probe.json for {cfg['name']} at {path} "
-                               f"(harness exit status {done.returncode}: {excerpt(done.stderr)})") from None
+                               f"(harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})") from None
 
     def run(self, manifest_path, run_id, cfg):
         """harness run of a manifest, without --skip-probe; (result, trace events) from the files it wrote. Its exit
@@ -382,7 +398,7 @@ class Harness:
         try:
             result = read_result(run_dir)
         except HarnessError as e:
-            raise HarnessError(f"{e} (harness exit status {done.returncode}: {excerpt(done.stderr)})") from None
+            raise HarnessError(f"{e} (harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})") from None
         return result, read_trace(run_dir)
 
 
@@ -473,17 +489,13 @@ def run_ollama(args):
     tei = tei_state()
     opts = {"num_ctx": 16384 if args.num_ctx is None else args.num_ctx, "temperature": args.temperature}
     think = args.think == "true"
-    rng = random.Random(stamp)
-    key, used = {}, set()
+    ids, key = blind_ids(stamp), {}
 
     with open(out / "raw.jsonl", "a") as raw:
         for model in args.models:
             for case in cases:
                 for seed in args.seeds:
-                    bid = f"{rng.randrange(16**6):06x}"
-                    while bid in used:
-                        bid = f"{rng.randrange(16**6):06x}"
-                    used.add(bid)
+                    bid = next(ids)
                     ps = [m["name"] for m in api.call("/api/ps").get("models", [])]
                     base = {"model": model, "case": case["id"], "seed": seed, "blind_id": bid,
                             "ps_before": ps, "tei_on": tei, "ollama": version,
@@ -506,7 +518,10 @@ def run_ollama(args):
 
 
 def run_harness(args):
-    command = shlex.split(args.harness)
+    try:
+        command = shlex.split(args.harness)
+    except ValueError as e:
+        raise RunError(f"--harness is not a command: {e}") from None
     if not command:
         raise RunError("--harness is empty")
     variant = args.variant
@@ -520,6 +535,7 @@ def run_harness(args):
     unset = sorted(name for name in names if not os.environ.get(name))
     if unset:
         raise RunError(f"environment variable {', '.join(unset)} is not set (the harness reads the key from it)")
+    secrets = [os.environ[name] for name in sorted(names)]       # for masking only: never printed, never written
     docset_dir, product_id = Path(args.docset or DOCSET).resolve(), None
     if variant == "docs":
         product_id = read_product_id(docset_dir)
@@ -530,7 +546,7 @@ def run_harness(args):
         raise RunError(f"{out} already holds files: one invocation has a run directory of its own")
     (out / "transcripts").mkdir(parents=True)
     (out / "manifests").mkdir()
-    backend = HarnessBackend(Harness(command, out / "harness"), out, variant, system, models, args.temperature,
+    backend = HarnessBackend(Harness(command, out / "harness", secrets), out, variant, system, models, args.temperature,
                              tools_block(command, docset_dir, product_id) if variant == "docs" else None)
     limits = {"maxTurns": MAX_TURNS, "maxOutputTokens": args.max_output_tokens or MAX_OUTPUT_TOKENS,
               "maxWallSeconds": args.max_wall_seconds or MAX_WALL_SECONDS, "maxToolErrors": MAX_TOOL_ERRORS,

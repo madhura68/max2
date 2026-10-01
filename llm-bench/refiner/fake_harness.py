@@ -33,8 +33,9 @@ shallow merge of the response of every rule whose "when" holds, in file order; a
                    cachedTokens, costUsd, reasoningTokens. The last model response in the trace holds the tokens, cost
                    included; run.py reads the totals from result.json.
     duration_ms    result.durationMs (default 1500)
-    reasoning      the reasoning text of the last model response
+    reasoning      the reasoning text of every model response
     no_result      stop with exit 1 before result.json is written
+    stderr         text the run writes to stderr, whatever its status (a test puts a key value in it to see it masked)
   response, probe (all optional):
     fail           {step: reason} for the steps that do not pass
     crash          a message: stop with exit 1 and no probe.json
@@ -315,6 +316,8 @@ def cmd_run(opts, config):
              "poging": poging_of(manifest["id"]), "seed": (manifest["model"].get("extraBody") or {}).get("seed"),
              "profile": manifest["profile"], "prompt": manifest["prompt"]}
     spec = respond(config.get("run") or [], facts)
+    if spec.get("stderr"):
+        sys.stderr.write(str(spec["stderr"]).rstrip("\n") + "\n")
 
     status = spec.get("status", "completed")
     calls = spec.get("calls") or []
@@ -338,6 +341,11 @@ def cmd_run(opts, config):
     def provider(turn):
         return {"provider": providers[min(turn - 1, len(providers) - 1)]} if providers else {}
 
+    def estimate(turn):      # the real harness adds promptEstimate to model_request whenever limits.contextTokens is set
+        return {"promptEstimate": 1000 + 100 * turn} if "contextTokens" in manifest["limits"] else {}
+
+    reasoned = {"reasoning": spec["reasoning"]} if spec.get("reasoning") else {}
+
     event("run_start", manifest=redact(manifest), **({"probeSkipped": True} if tools_profile and opts.skip_probe else {}))
     allow = sorted((manifest.get("tools") or {}).get("allow") or [])
     if tools_profile:
@@ -349,9 +357,10 @@ def cmd_run(opts, config):
         arguments = call.get("arguments", {})
         text = arguments if isinstance(arguments, str) else json.dumps(arguments)
         tool_call = {"id": call_id, "name": call["name"], "arguments": text, "argumentsWasObject": False}
-        event("model_request", turn=turn, messages=2 * turn, tools=len(allow), maxTokens=max_tokens)
+        event("model_request", turn=turn, messages=2 * turn, tools=len(allow), maxTokens=max_tokens, **estimate(turn))
         event("model_response", turn=turn, content=None, toolCalls=[tool_call], finishReason="tool_calls",
-              usage={"source": usage["source"], "inputTokens": 0, "outputTokens": 0}, durationMs=100, **provider(turn))
+              usage={"source": usage["source"], "inputTokens": 0, "outputTokens": 0}, durationMs=100, **reasoned,
+              **provider(turn))
         event("tool_call", callId=call_id, name=call["name"], arguments=text, argumentsWasObject=False)
         content = f"fake result of {call['name']}"
         tools_dir = run_dir / "tools"
@@ -362,11 +371,10 @@ def cmd_run(opts, config):
         event("tool_result", callId=call_id, ok=ok, **({"errorCode": call["error_code"]} if call.get("error_code") else {}),
               truncated=False, sha256=hashlib.sha256(content.encode()).hexdigest(), bytes=len(content.encode()))
     last = len(calls) + 1
-    event("model_request", turn=last, messages=2 * last, tools=len(allow), maxTokens=max_tokens)
+    event("model_request", turn=last, messages=2 * last, tools=len(allow), maxTokens=max_tokens, **estimate(last))
     if final_response:
         event("model_response", turn=last, content=answer, toolCalls=[], finishReason=spec.get("finish_reason", "stop"),
-              usage={k: usage[k] for k in TRACE_USAGE if k in usage}, durationMs=100,
-              **({"reasoning": spec["reasoning"]} if spec.get("reasoning") else {}), **provider(last))
+              usage={k: usage[k] for k in TRACE_USAGE if k in usage}, durationMs=100, **reasoned, **provider(last))
     error = spec.get("error")
     event("run_end", status=status, **({"error": error} if error else {}))
     with open(run_dir / "trace.jsonl", "w", encoding="utf-8") as f:

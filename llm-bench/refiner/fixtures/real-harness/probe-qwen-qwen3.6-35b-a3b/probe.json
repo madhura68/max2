@@ -1,0 +1,139 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "qwen/qwen3.6-35b-a3b",
+  "reportedModel": "qwen/qwen3.6-35b-a3b",
+  "ranAt": "2026-09-30T22:00:24.384Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 21,
+          "outputTokens": 2,
+          "cachedTokens": 0,
+          "costUsd": 0.000004,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.6-35b-a3b",
+        "durationMs": 693,
+        "provider": "DeepInfra"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "call_1d21ac13593f49498f074f43",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 357,
+          "outputTokens": 25,
+          "cachedTokens": 0,
+          "costUsd": 0.0000582,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.6-35b-a3b",
+        "durationMs": 594,
+        "provider": "AkashML"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "call_850793850f594aeaa110abe6",
+                "name": "echo",
+                "arguments": "{\"text\": \"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 357,
+            "outputTokens": 25,
+            "cachedTokens": 320,
+            "costUsd": 0.0000422,
+            "reasoningTokens": 0
+          },
+          "model": "qwen/qwen3.6-35b-a3b",
+          "durationMs": 471,
+          "provider": "AkashML"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "call_86b502e749a845909f1614f9",
+                "name": "echo",
+                "arguments": "{\"text\": \"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 417,
+            "outputTokens": 25,
+            "cachedTokens": 320,
+            "costUsd": 0.0000482,
+            "reasoningTokens": 0
+          },
+          "model": "qwen/qwen3.6-35b-a3b",
+          "durationMs": 454,
+          "provider": "AkashML"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Er is geen tool genaamd `delete_everything` beschikbaar. Als…",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 355,
+          "outputTokens": 32,
+          "cachedTokens": 0,
+          "costUsd": 0.0000643,
+          "reasoningTokens": 0
+        },
+        "model": "qwen/qwen3.6-35b-a3b",
+        "durationMs": 518,
+        "provider": "AkashML"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}
