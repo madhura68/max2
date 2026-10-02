@@ -1,0 +1,8 @@
+# ollama pull qwen3.8:27b-q8_0 (ingekort: per laag de laatste voortgangsregel; het volledige log staat in ~/m6-runs op max2)
+pulling ac3714bfddde: 100% ▕█████████████████ ▏ 930 MB/931 MB  100 MB/s      0s
+pulling 2bb227142898: 100% ▕█████████████████ ▏  29 GB/ 29 GB   66 MB/s      0s
+pulling 448d29437397: 100% ▕██████████████████▏   92 B
+verifying sha256 digest
+writing manifest
+success
+exit=0

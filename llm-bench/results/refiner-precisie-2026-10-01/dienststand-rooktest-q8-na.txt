@@ -1,0 +1,10 @@
+## agent-harness-worker
+active
+## containers (tei-gpu, open-webui, dsh)
+dsh
+open-webui
+## gpu
+memory.used [MiB], memory.total [MiB]
+14666 MiB, 16303 MiB
+## api/ps
+{"models":[{"name":"qwen3.8:27b-q8_0","model":"qwen3.8:27b-q8_0","size":32051696759,"digest":"8f5fb6b71ea00052cbe8545738c55ce61112c4e571cb60ca4dad00b131766039","details":{"parent_model":"","format":"gguf","family":"qwen35","families":["qwen35"],"parameter_size":"27.3B","quantization_level":"Q8_0"},"expires_at":"2026-10-01T20:48:07.101641225+02:00","size_vram":13822507088,"context_length":65536}]}

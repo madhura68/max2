@@ -1,0 +1,4 @@
+qwen3.8-q8-lokaal probe: reliable
+qwen3.8-q8-lokaal D03 seed 1: final in 1344.1s
+done: /home/janpeter/m6-runs/refiner-precisie-2026-10-01/rooktest-q8
+exit=0

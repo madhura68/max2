@@ -1,0 +1,7 @@
+{
+ "33990f": {
+  "model": "qwen3.8-q8-lokaal",
+  "case": "D03",
+  "seed": 1
+ }
+}
