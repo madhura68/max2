@@ -142,8 +142,9 @@ extra case × extra seed toe in dezelfde run-map, zodat de zeef één keer over 
 R02 en R04 nog twee keer), met docs `--seeds 1 2 3`. Een extra case moet bij de variant horen, de twee opties gaan
 samen, en een paar dat `--cases` × `--seeds` al heeft wordt geweigerd, net als een waarde die je twee keer noemt.
 
-`refiner/models.json` (`--models-file`) kent zeven labels: `gsq-lokaal` en `qwen3.6-lokaal` (via Ollama's
-OpenAI-endpoint) en vijf via OpenRouter. Een label heeft `base_url`, `name`, eventueel `api_key_env`, en per variant
+`refiner/models.json` (`--models-file`) kent negen labels: vier lokaal via Ollama's OpenAI-endpoint (`gsq-lokaal`,
+`qwen3.6-lokaal`, en voor M6 `qwen3.8-q8-lokaal` en `qwen3.8-q4-lokaal`, de officiële tags `qwen3.8:27b-q8_0` en
+`qwen3.8:27b-q4_K_M`) en vijf via OpenRouter. Een label heeft `base_url`, `name`, eventueel `api_key_env`, en per variant
 (`nodocs`, `docs`, `probe`) een blok met `extraBody`. Elk OpenRouter-blok, ook dat van de probe, heeft
 `provider: {data_collection: "deny", require_parameters: true}`; ontbreekt dat in een van de drie blokken, dan weigert
 run.py het label (met label en blok in de melding) voordat er iets draait. Reasoning staat zonder docs en in de probe

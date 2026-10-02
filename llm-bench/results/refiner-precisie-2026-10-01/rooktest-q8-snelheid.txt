@@ -1,0 +1,3 @@
+uitvoertokens=3895 wall_s=1343.5 snelheid=2.90 tok/s
+W=8520
+duur_s=20888

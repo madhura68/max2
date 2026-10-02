@@ -1,0 +1,17 @@
+### Variant docs
+
+| Model | Backend | Probe | A1 | A2 | A3 | A4 | A5 | A6 | A7 | A8 | D1 | D2 | D3 | D4 | D5 | D6 | Afgerond | Eerste poging | Mediaan s | Tokens in | Tokens uit | Kosten $ (alle pogingen) | Aanbieders | Zeef |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| qwen3.8-q8-lokaal | harness | reliable | 13/15 | 15/15 | 12/15 | 12/15 | - | 12/15 | 12/15 | - | 15/15 | 10/12 | 15/15 | 3/3* | 3/3 | 12/15 | 12/15 | 12 | 1031 | 1048425 | 56214 | - | - | gezakt |
+
+* minder dan vijf gesprekken in de noemer: getoond, telt niet mee in de zeef.
+D6 telt niet mee in de zeef (spec 5.8): de eindstatus staat al in Afgerond.
+Tokens (en in summary.csv modelbeurten en toolaanroepen): van de poging die telt; kosten: van alle pogingen.
+
+Zeef (voorlopig, spec 5.8):
+- qwen3.8-q8-lokaal (gezakt): afgerond: 12 van 15 (80.0%), minder dan 90%; niet afgerond: error 3x (D01/1, D01/3, D04/1)
+
+Pogingen en niet afgeronde gesprekken:
+- qwen3.8-q8-lokaal: D01/1 (21f5ea): poging 1 error (beurt 1 budget_exceeded) -> poging 2 error (beurt 1 budget_exceeded)
+- qwen3.8-q8-lokaal: D01/3 (beec98): poging 1 error (beurt 1 budget_exceeded) -> poging 2 error (beurt 1 budget_exceeded)
+- qwen3.8-q8-lokaal: D04/1 (b46f20): poging 1 error (beurt 2 failed, TOO_MANY_TOOL_ERRORS) -> poging 2 error (beurt 2 failed, TOO_MANY_TOOL_ERRORS)

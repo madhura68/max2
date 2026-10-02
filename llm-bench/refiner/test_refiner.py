@@ -2985,7 +2985,8 @@ MODELS_FILE = HERE / "models.json"
 PROMPT_FILE = PROMPTS / "promptverfijner-systeem.txt"
 ADDENDUM_FILE = PROMPTS / "promptverfijner-docs-addendum.txt"
 PROVIDER_BLOCK = {"data_collection": "deny", "require_parameters": True}
-LOCAL_MODELS = {"gsq-lokaal": "qwen3.8-gsq-rco:27b-iq3_s-text", "qwen3.6-lokaal": "qwen3.6:35b-a3b-coding"}
+LOCAL_MODELS = {"gsq-lokaal": "qwen3.8-gsq-rco:27b-iq3_s-text", "qwen3.6-lokaal": "qwen3.6:35b-a3b-coding",
+                "qwen3.8-q8-lokaal": "qwen3.8:27b-q8_0", "qwen3.8-q4-lokaal": "qwen3.8:27b-q4_K_M"}
 OPENROUTER_MODELS = {"qwen3.6-openrouter": "qwen/qwen3.6-35b-a3b", "qwen3.8-openrouter": "qwen/qwen3.8-27b",
                      "gemma-openrouter": "google/gemma-4-31b-it", "qwen3.5-122b-openrouter": "qwen/qwen3.5-122b-a10b",
                      "nemotron-openrouter": "nvidia/nemotron-3-super-120b-a12b"}
@@ -3099,16 +3100,18 @@ class BlindIdsTest(unittest.TestCase):
 
 
 class ModelsFileTest(unittest.TestCase):
-    """models.json: the seven labels of the spec, with the settings of Task 2 and no key."""
+    """models.json: the seven labels of the M5 spec and the two of M6 (Q8 and Q4), with the settings of Task 2 and no
+    key."""
 
     def setUp(self):
         self.models = json.loads(MODELS_FILE.read_text(encoding="utf-8"))
 
-    def test_it_holds_the_seven_labels_in_the_order_of_the_plan(self):
-        self.assertEqual(list(self.models), ["gsq-lokaal", "qwen3.6-lokaal", "qwen3.6-openrouter", "qwen3.8-openrouter",
-                                             "gemma-openrouter", "qwen3.5-122b-openrouter", "nemotron-openrouter"])
+    def test_it_holds_the_nine_labels_in_the_order_of_the_plans(self):
+        self.assertEqual(list(self.models), ["gsq-lokaal", "qwen3.6-lokaal", "qwen3.8-q8-lokaal", "qwen3.8-q4-lokaal",
+                                             "qwen3.6-openrouter", "qwen3.8-openrouter", "gemma-openrouter",
+                                             "qwen3.5-122b-openrouter", "nemotron-openrouter"])
 
-    def test_the_local_labels_are_the_two_installed_models_with_reasoning_off_without_docs_only(self):
+    def test_the_local_labels_have_reasoning_off_without_docs_only(self):
         for label, name in LOCAL_MODELS.items():
             with self.subTest(label):
                 self.assertEqual(self.models[label], {

@@ -13,6 +13,20 @@
     "docs": { "extraBody": {} },
     "probe": { "extraBody": { "reasoning_effort": "none" } }
   },
+  "qwen3.8-q8-lokaal": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "name": "qwen3.8:27b-q8_0",
+    "nodocs": { "reasoningEffort": "none", "extraBody": {} },
+    "docs": { "extraBody": {} },
+    "probe": { "extraBody": { "reasoning_effort": "none" } }
+  },
+  "qwen3.8-q4-lokaal": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "name": "qwen3.8:27b-q4_K_M",
+    "nodocs": { "reasoningEffort": "none", "extraBody": {} },
+    "docs": { "extraBody": {} },
+    "probe": { "extraBody": { "reasoning_effort": "none" } }
+  },
   "qwen3.6-openrouter": {
     "base_url": "https://openrouter.ai/api/v1",
     "name": "qwen/qwen3.6-35b-a3b",
