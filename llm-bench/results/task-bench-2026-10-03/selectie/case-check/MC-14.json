@@ -1,0 +1,38 @@
+{
+  "caseId": "MC-14",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; geen enkele test in __tests__/branch-safety.test.ts",
+    "files": [
+      {
+        "file": "__tests__/branch-safety.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": false,
+    "reason": "exitcode 1; 2 falende test(s) in __tests__/branch-safety.test.ts",
+    "files": [
+      {
+        "file": "__tests__/branch-safety.test.ts",
+        "ran": true,
+        "passed": 13,
+        "failed": 2,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 308,
+  "problems": [
+    "verify rood op base_commit",
+    "verborgen toets slaagt niet op ref_commit"
+  ]
+}

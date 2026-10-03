@@ -1,0 +1,12 @@
+{
+  "pins": {
+    "agent-harness": "67377014d1583fd3179c65dc573011978cef5986",
+    "scrum4me-mcp": "a6b3fe0b74140e987542fac301b0648c22fdd161"
+  },
+  "since": {
+    "agent-harness": "2026-08-01",
+    "scrum4me-mcp": "2026-05-01 (verbreed op JP's besluit, 2026-10-03; tot 2026-08-01 aanvullend gezocht)"
+  },
+  "filter": "no-merges; src/ + __tests__/**/*.test.ts (A/M); geen package.json/lockfile/prisma; geen runnerconfig; geen gitlink; 20-400 regels (--no-renames shortstat)",
+  "koppeling": "COMMIT-logs van de story (prefix-match op hash), de commitregel in het taakplan (`git commit -m \"…\"` of Commit: `…`), of de titel; alleen DONE-taken; taaktekst exact via get_sprint_context"
+}

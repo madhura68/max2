@@ -1,0 +1,49 @@
+{
+  "caseId": "AH-07",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 1 falende test(s) in __tests__/cli-worker.test.ts; geen enkele test in __tests__/doc-tools.test.ts",
+    "files": [
+      {
+        "file": "__tests__/cli-worker.test.ts",
+        "ran": true,
+        "passed": 9,
+        "failed": 1,
+        "other": 0
+      },
+      {
+        "file": "__tests__/doc-tools.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 16 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/cli-worker.test.ts",
+        "ran": true,
+        "passed": 10,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/doc-tools.test.ts",
+        "ran": true,
+        "passed": 6,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 112,
+  "problems": []
+}

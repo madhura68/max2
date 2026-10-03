@@ -1,0 +1,37 @@
+{
+  "caseId": "MC-25",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; geen enkele test in __tests__/idea-materialize.test.ts",
+    "files": [
+      {
+        "file": "__tests__/idea-materialize.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 4 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/idea-materialize.test.ts",
+        "ran": true,
+        "passed": 4,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 311,
+  "problems": [
+    "verify rood op base_commit"
+  ]
+}

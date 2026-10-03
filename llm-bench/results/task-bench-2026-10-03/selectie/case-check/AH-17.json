@@ -1,0 +1,49 @@
+{
+  "caseId": "AH-17",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; geen enkele test in __tests__/idea-chat-prompt.test.ts; geen enkele test in __tests__/worker-config.test.ts",
+    "files": [
+      {
+        "file": "__tests__/idea-chat-prompt.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker-config.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 21 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/idea-chat-prompt.test.ts",
+        "ran": true,
+        "passed": 9,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker-config.test.ts",
+        "ran": true,
+        "passed": 12,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 336,
+  "problems": []
+}

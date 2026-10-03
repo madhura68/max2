@@ -1,0 +1,49 @@
+{
+  "caseId": "MC-11",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; geen enkele test in __tests__/queue-archive.test.ts; 1 falende test(s) in __tests__/queue-registration.test.ts",
+    "files": [
+      {
+        "file": "__tests__/queue-archive.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/queue-registration.test.ts",
+        "ran": true,
+        "passed": 3,
+        "failed": 1,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 8 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/queue-archive.test.ts",
+        "ran": true,
+        "passed": 4,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/queue-registration.test.ts",
+        "ran": true,
+        "passed": 4,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 198,
+  "problems": []
+}

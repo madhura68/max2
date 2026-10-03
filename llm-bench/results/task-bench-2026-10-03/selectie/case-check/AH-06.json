@@ -1,0 +1,35 @@
+{
+  "caseId": "AH-06",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 4 falende test(s) in __tests__/run-tools.test.ts",
+    "files": [
+      {
+        "file": "__tests__/run-tools.test.ts",
+        "ran": true,
+        "passed": 20,
+        "failed": 4,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 24 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/run-tools.test.ts",
+        "ran": true,
+        "passed": 24,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 121,
+  "problems": []
+}
