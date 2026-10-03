@@ -1,0 +1,37 @@
+{
+  "caseId": "MC-24",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 1 falende test(s) in __tests__/update-job-status-idea-review.test.ts",
+    "files": [
+      {
+        "file": "__tests__/update-job-status-idea-review.test.ts",
+        "ran": true,
+        "passed": 1,
+        "failed": 1,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 2 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/update-job-status-idea-review.test.ts",
+        "ran": true,
+        "passed": 2,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 28,
+  "problems": [
+    "verify rood op base_commit"
+  ]
+}

@@ -1,0 +1,30 @@
+{
+  "limits": {
+    "maxTurns": 40,
+    "maxOutputTokens": 80000,
+    "maxWallSeconds": 2400,
+    "maxToolErrors": 8,
+    "contextTokens": 65536
+  },
+  "image": "node:24-bookworm",
+  "uid": 1000,
+  "gid": 1000,
+  "npmCacheDir": "/var/lib/agent-harness/npm-cache",
+  "recipes": [
+    {
+      "repoUrl": "https://git.jp-visser.nl/janpeter/agent-harness.git",
+      "prepare": [
+        "npm ci"
+      ],
+      "verify": "npm run verify"
+    },
+    {
+      "repoUrl": "https://git.jp-visser.nl/janpeter/scrum4me-mcp.git",
+      "prepare": [
+        "npm ci",
+        "npm run prisma:generate"
+      ],
+      "verify": "npm run typecheck && npm run typecheck:tests && npx vitest run --exclude __tests__/ppe-bundle1-parity.test.ts --exclude __tests__/branch-safety.test.ts --exclude __tests__/default-branch.test.ts --exclude __tests__/worktree-branch-safety.test.ts --exclude __tests__/update-job-status-local-llm-chain.test.ts --exclude __tests__/update-job-status-local-llm-done-gitlink.test.ts --exclude __tests__/git/local-llm.test.ts"
+    }
+  ]
+}

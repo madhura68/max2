@@ -1,0 +1,35 @@
+{
+  "caseId": "AH-08",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; geen enkele test in __tests__/policy.test.ts",
+    "files": [
+      {
+        "file": "__tests__/policy.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 11 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/policy.test.ts",
+        "ran": true,
+        "passed": 11,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 115,
+  "problems": []
+}

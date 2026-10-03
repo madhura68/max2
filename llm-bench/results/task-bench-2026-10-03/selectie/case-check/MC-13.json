@@ -1,0 +1,37 @@
+{
+  "caseId": "MC-13",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 4 falende test(s) in __tests__/wait-for-job-worktree.test.ts",
+    "files": [
+      {
+        "file": "__tests__/wait-for-job-worktree.test.ts",
+        "ran": true,
+        "passed": 8,
+        "failed": 4,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 12 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/wait-for-job-worktree.test.ts",
+        "ran": true,
+        "passed": 12,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 230,
+  "problems": [
+    "verify rood op base_commit"
+  ]
+}

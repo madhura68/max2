@@ -1,0 +1,38 @@
+{
+  "caseId": "MC-10",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 4 falende test(s) in __tests__/worktree-branch-safety.test.ts",
+    "files": [
+      {
+        "file": "__tests__/worktree-branch-safety.test.ts",
+        "ran": true,
+        "passed": 2,
+        "failed": 4,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": false,
+    "reason": "exitcode 1; 2 falende test(s) in __tests__/worktree-branch-safety.test.ts",
+    "files": [
+      {
+        "file": "__tests__/worktree-branch-safety.test.ts",
+        "ran": true,
+        "passed": 4,
+        "failed": 2,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 189,
+  "problems": [
+    "verify rood op base_commit",
+    "verborgen toets slaagt niet op ref_commit"
+  ]
+}

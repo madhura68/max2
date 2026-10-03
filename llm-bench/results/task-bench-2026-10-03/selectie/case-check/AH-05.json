@@ -1,0 +1,51 @@
+{
+  "caseId": "AH-05",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 4 falende test(s) in __tests__/model-client.test.ts; 1 falende test(s) in __tests__/run-answer.test.ts",
+    "files": [
+      {
+        "file": "__tests__/model-client.test.ts",
+        "ran": true,
+        "passed": 21,
+        "failed": 4,
+        "other": 0
+      },
+      {
+        "file": "__tests__/run-answer.test.ts",
+        "ran": true,
+        "passed": 17,
+        "failed": 1,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 43 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/model-client.test.ts",
+        "ran": true,
+        "passed": 25,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/run-answer.test.ts",
+        "ran": true,
+        "passed": 18,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 140,
+  "problems": [
+    "verify rood op base_commit"
+  ]
+}

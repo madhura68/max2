@@ -1,0 +1,37 @@
+{
+  "caseId": "MC-09",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 2 falende test(s) in __tests__/update-task-execution.test.ts",
+    "files": [
+      {
+        "file": "__tests__/update-task-execution.test.ts",
+        "ran": true,
+        "passed": 11,
+        "failed": 2,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 13 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/update-task-execution.test.ts",
+        "ran": true,
+        "passed": 13,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 160,
+  "problems": [
+    "verify rood op base_commit"
+  ]
+}

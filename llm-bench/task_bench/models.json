@@ -1,0 +1,17 @@
+{
+  "gsq-lokaal": {
+    "base_url": "http://127.0.0.1:11434/v1",
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "retry_transient": false
+  },
+  "qwen3.8-openrouter": {
+    "base_url": "https://openrouter.ai/api/v1",
+    "name": "qwen/qwen3.8-27b",
+    "api_key_env": "OPENROUTER_API_KEY",
+    "retry_transient": true,
+    "extraBody": {
+      "provider": { "data_collection": "deny", "require_parameters": true, "quantizations": ["bf16", "fp16"] },
+      "reasoning": { "effort": "medium" }
+    }
+  }
+}

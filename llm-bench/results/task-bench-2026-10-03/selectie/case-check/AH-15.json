@@ -1,0 +1,65 @@
+{
+  "caseId": "AH-15",
+  "ok": false,
+  "baseVerifyGreen": false,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 2 falende test(s) in __tests__/cli-worker.test.ts; 9 falende test(s) in __tests__/worker.test.ts",
+    "files": [
+      {
+        "file": "__tests__/cli-worker.test.ts",
+        "ran": true,
+        "passed": 7,
+        "failed": 2,
+        "other": 0
+      },
+      {
+        "file": "__tests__/task-impl.test.ts",
+        "ran": true,
+        "passed": 34,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker.test.ts",
+        "ran": true,
+        "passed": 46,
+        "failed": 9,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 98 tests in 3 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/cli-worker.test.ts",
+        "ran": true,
+        "passed": 9,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/task-impl.test.ts",
+        "ran": true,
+        "passed": 34,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker.test.ts",
+        "ran": true,
+        "passed": 55,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 341,
+  "problems": [
+    "verify rood op base_commit"
+  ]
+}

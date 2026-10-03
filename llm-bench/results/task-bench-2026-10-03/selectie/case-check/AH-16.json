@@ -1,0 +1,49 @@
+{
+  "caseId": "AH-16",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 9 falende test(s) in __tests__/worker-config.test.ts; 7 falende test(s) in __tests__/worker.test.ts",
+    "files": [
+      {
+        "file": "__tests__/worker-config.test.ts",
+        "ran": true,
+        "passed": 17,
+        "failed": 9,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker.test.ts",
+        "ran": true,
+        "passed": 33,
+        "failed": 7,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 66 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/worker-config.test.ts",
+        "ran": true,
+        "passed": 26,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker.test.ts",
+        "ran": true,
+        "passed": 40,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 347,
+  "problems": []
+}

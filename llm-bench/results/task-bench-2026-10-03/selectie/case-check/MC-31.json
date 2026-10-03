@@ -1,0 +1,35 @@
+{
+  "caseId": "MC-31",
+  "ok": true,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": false,
+    "reason": "exitcode 1; 10 falende test(s) in __tests__/sprint-batch-auto-deploy.test.ts",
+    "files": [
+      {
+        "file": "__tests__/sprint-batch-auto-deploy.test.ts",
+        "ran": true,
+        "passed": 0,
+        "failed": 10,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 10 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/sprint-batch-auto-deploy.test.ts",
+        "ran": true,
+        "passed": 10,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 234,
+  "problems": []
+}

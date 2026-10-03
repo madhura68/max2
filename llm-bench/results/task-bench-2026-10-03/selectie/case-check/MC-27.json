@@ -1,0 +1,37 @@
+{
+  "caseId": "MC-27",
+  "ok": false,
+  "baseVerifyGreen": true,
+  "hiddenOnBase": {
+    "pass": true,
+    "reason": "geslaagd: 5 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/flow/effects.test.ts",
+        "ran": true,
+        "passed": 5,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "hiddenOnRef": {
+    "pass": true,
+    "reason": "geslaagd: 5 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/flow/effects.test.ts",
+        "ran": true,
+        "passed": 5,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "refChangesRunnerConfig": false,
+  "hiddenMatchesRef": true,
+  "lines": 29,
+  "problems": [
+    "verborgen test slaagt al op base_commit"
+  ]
+}
