@@ -25,6 +25,10 @@ The config is {"probe": {...}, "probe_by_model": {model: {...}}, "default": {...
                     With the verdict none the second turn of c_two_tools does not happen, as in the real probe.
     crash           a message: stop with exit 1 and no probe.json
     sigint_parent   send SIGINT to the parent (the driver) during the probe and end normally
+    wait_for_signal wait for SIGINT or SIGTERM without a handler, as the real probe does (src/cli.ts installs none): the signal
+                    ends it where it stands and there is no probe.json. The file marker is written first; wait_timeout
+                    (default 30) ends a wait that nobody answers, with exit 3
+    marker          the file written once the probe waits
     stderr          text the probe writes to stderr
   a case answer is one attempt, or a list of them: the n-th call for a (label, case) uses the n-th attempt, and the last
   one goes on repeating. "default" is merged under every attempt. An attempt (all optional):
@@ -322,6 +326,12 @@ def probe(args):
         sys.stderr.write(setting["stderr"] + "\n")
     if setting.get("crash"):
         die(setting["crash"])
+    if setting.get("wait_for_signal"):
+        signal.signal(signal.SIGINT, signal.SIG_DFL)      # like node without a handler: the signal ends the process, no traceback
+        if setting.get("marker"):
+            Path(setting["marker"]).write_text("running\n", encoding="utf-8")
+        time.sleep(setting.get("wait_timeout", 30))
+        die("fake_task_bench: no stop signal came", 3)
     if setting.get("sigint_parent"):
         os.kill(os.getppid(), signal.SIGINT)
     result = probe_json(args.base_url, args.model, setting)

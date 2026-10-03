@@ -274,7 +274,8 @@ uitvoer van de praktijkproef van 2026-10-03.
 | Code | Betekenis |
 |---|---|
 | 0 | klaar |
-| 2 | gebruiksfout: de aanroep of een configuratie klopt niet, ook een ontbrekende sleutelvariabele; er is niets gestart |
+| 1 | een onverwachte fout in de driver zelf: een Python-traceback op stderr; dit is geen stopcode van de regels hieronder |
+| 2 | gebruiksfout: de aanroep of een configuratie klopt niet, ook een ontbrekende sleutelvariabele. Meestal valt dit vóór er iets draait, maar het kan ook midden in een venster vallen (een grootboek dat onleesbaar is geworden, een harness die niet start); wat dan al klaar was staat in het grootboek |
 | 3 | een tweede benchfout bij dezelfde taak: de driver stopt voor JP |
 | 4 | het grootboek staat op `--budget-stop` (14 dollar) of meer: er start geen run meer |
 | 5 | de probe is niet `reliable`, of de endpointlijst toont geen 16-bit-endpoint met tools |
@@ -292,13 +293,17 @@ waarin modelcode draaide, en een named pipe daarin laat een `open()` hangen.
 **Grootboek.** Elke probe en elke run is een regel in `--ledger`: `{"id", "kind": "probe", "label", "cost_usd"}` of `{"id", "kind":
 "run", "label", "case", "cost_usd"}`. De kosten van een run zijn `usage.costUsd` van zijn `bench-result.json`; die van een probe de
 som van elke `usage.costUsd` onder `steps` in `probe.json`. Een bedrag dat er niet is, is `null`: het telt als 0 in het totaal
-(`math.fsum`), en `score.py --ledger` noemt hoeveel het er zijn. De limiet van de sleutel (20 dollar) blijft de enige harde grens.
+(`math.fsum`), en `score.py --ledger` noemt hoeveel het er zijn. Staat het totaal op de stop of erboven, dan start er niets meer: geen
+run en ook geen probe, want die kost ook geld (gecontroleerd aan het begin van elk label en vóór elke run en herhaling). De limiet van
+de sleutel (20 dollar) blijft de enige harde grens.
 
 **Stoppen en de sleutel.** SIGINT en SIGTERM zetten alleen een stopvlag. De driver wacht de lopende harness-aanroep af (die kreeg
 hetzelfde signaal, bijvoorbeeld via `pkill -s`, en ruimt zijn containers zelf op), boekt de kosten en stopt met 6, zonder nieuwe run;
-hij doodt de bench nooit. De sleutel (`OPENROUTER_API_KEY`) komt alleen via de omgeving binnen: in argv staat `--api-key-env
-OPENROUTER_API_KEY`, nooit de waarde. Een gevraagd label met een sleutelvariabele die leeg of afwezig is geeft exit 2 vóór er iets
-start. De sleutelcontrole (`refiner/check_key.py`) draait niet in de driver maar als vensterstap op de kopie zonder `ws*/`.
+hij doodt de bench nooit. Een probe die door het signaal sterft (`harness probe` heeft geen handler en laat dan geen `probe.json` na)
+is ook een stop, 6, en geen mislukte probe, 5; de probe staat dan met een onbekend bedrag (`null`) in het grootboek. De sleutel
+(`OPENROUTER_API_KEY`) komt alleen via de omgeving binnen: in argv staat `--api-key-env OPENROUTER_API_KEY`, nooit de waarde. Een
+gevraagd label met een sleutelvariabele die leeg of afwezig is geeft exit 2 vóór er iets start. De sleutelcontrole
+(`refiner/check_key.py`) draait niet in de driver maar als vensterstap op de kopie zonder `ws*/`.
 
 **Beslisregel** (spec §1): een model kan het werk aan bij minstens 9 van de 12 taken geslaagd.
 
@@ -317,7 +322,9 @@ Grens: een oordeel is ook `onbeslist` als het steunt op een telling op de grens 
 **De scorer** scoort alleen een volledige set: elk label heeft precies 12 verschillende taken, dezelfde 12 voor beide labels, en de
 laatste status van elke taak (het resultaat met de nieuwste mtime van `bench-result.json`) is een modelstatus. Anders weigert hij met
 exit 2 en schrijft hij niets. Hij zoekt de resultaten onder `<map>/**/<label>/<run>/`, dus de map mag boven de `--out` van de vensters
-liggen; een run buiten een map met de naam van zijn label (zoals de praktijkproef in `proef/`) telt niet mee.
+liggen; een run buiten een map met de naam van zijn label (zoals de praktijkproef in `proef/`) telt niet mee. Een run-map wordt nooit
+doorlopen, ook niet als er geen resultaat in staat (een bench die afbrak): alleen zijn `bench-result.json` wordt gelezen, en links
+worden niet gevolgd. `--ledger` moet een bestaand bestand zijn (anders exit 2, zonder totaalregel).
 
 ## Resultaten 2026-09-25/26
 

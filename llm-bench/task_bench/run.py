@@ -11,10 +11,13 @@ environment variable that holds the key) and extraBody. The driver hands the har
 is all that goes into argv, and the value travels in the environment the driver inherited.
 
 For each label, in the order of --models:
-  1. stop flag; for an OpenRouter label the public endpoint list (no key), saved as <out>/endpoints-<label>-<ts>.json; it has to
-     show a 16-bit (bf16 or fp16) endpoint that takes tools, or the driver stops (5);
+  1. stop flag and budget stop (at the stop nothing more is paid for, the probe included); for an OpenRouter label the public
+     endpoint list (no key), saved as <out>/endpoints-<label>-<ts>.json; it has to show a 16-bit (bf16 or fp16) endpoint that
+     takes tools, or the driver stops (5);
   2. stop flag; `harness probe` with the extraBody of the label, in a directory of its own, <out>/probes/<label>-<ts>/; its cost
-     goes into the ledger as probe-<label>-<ts> at once, and a probe that is not `reliable` stops the driver (5);
+     goes into the ledger as probe-<label>-<ts> at once. Then the stop flag again, before anything is concluded from the probe:
+     the real probe has no signal handler, so a signal kills it without a probe.json, and that is a stop (6). Only then a probe
+     that is missing or not `reliable` stops the driver (5);
   3. for each case of cases.jsonl: stop flag; resume or skip (below); the budget stop; `harness task-bench --label <label>
      --out <out>/<label>` with --api-key-env and --retry-transient as the label says; read the result; book it in the ledger;
      the benchfout rule. The model config of a label is <out>/model-<label>.json (baseUrl, name, extraBody; no key), a case is
@@ -37,8 +40,10 @@ cost_usd of a run is usage.costUsd of its bench-result.json; of a probe the sum 
 and score.py --ledger says how many there are. From --budget-stop (14) dollars on, no run starts (4); the ledger of the practice
 run counts, as it is the same file.
 
-Exit status: 0 done, 2 the call or a configuration is wrong (nothing started), 3 a second benchfout of one case, 4 the budget,
-5 a probe or an endpoint list that does not do, 6 stopped by SIGINT or SIGTERM. Reasons go to stderr.
+Exit status: 0 done, 2 the call or a configuration is wrong (almost always before anything runs, but a RunError can also fall
+mid-run: a ledger that has become unreadable, a harness that cannot be started), 3 a second benchfout of one case, 4 the budget,
+5 a probe or an endpoint list that does not do, 6 stopped by SIGINT or SIGTERM. Reasons go to stderr. An unexpected error in the
+driver itself is a traceback and exit status 1.
 
 Stopping: the handlers for SIGINT and SIGTERM only set a flag. They do not raise, so subprocess.run keeps waiting for the
 harness, which got the same signal (pkill -s in the window), cleans up its containers and writes a bench-result.json with
@@ -472,6 +477,7 @@ class Driver:
     def label(self, label):
         cfg = self.models[label]
         self.check_flag()
+        self.check_budget()         # at the stop nothing more is paid for: not the probe either
         stamp = self.free_stamp(label)
         if on_openrouter(cfg["base_url"]):
             self.endpoints(label, cfg, stamp)
@@ -506,6 +512,9 @@ class Driver:
         probe = read_json_object(directory / probe_dir_name(cfg["name"]) / "probe.json")
         cost = probe_cost(probe) if probe is not None else None
         append_ledger(self.ledger, {"id": f"probe-{label}-{stamp}", "kind": "probe", "label": label, "cost_usd": cost})
+        # before the verdicts: the real probe has no signal handler, so a SIGINT or SIGTERM kills it where it stands, with no
+        # probe.json, and that is a stop (6) and not a probe that failed (5)
+        self.check_flag()
         if probe is None:
             self.say(f"{label} probe: no probe.json (harness exit status {done.returncode}: {excerpt(done.stderr, self.secrets)})")
             raise Stop(EXIT_PROBE, f"{label}: the probe left no probe.json; no run starts")
@@ -529,10 +538,10 @@ class Driver:
         # the benchfouten so far; one aborted by a stop is no benchfout (it is run again), and a second one ends the driver
         failures = [result for _, result in seen if result["status"] == "benchfout" and result.get("benchError") != ABORTED]
         while True:
+            self.check_flag()           # first: a signal during the last attempt is a stop (6), also if that was the second benchfout
             if len(failures) >= 2:
                 raise Stop(EXIT_BENCH, f"{label} {case_id}: {len(failures)} benchfouten, the one repeat is used up; the last: "
                                        f"{excerpt(failure_reason(failures[-1]), self.secrets)}. The driver stops for JP")
-            self.check_flag()
             self.check_budget()
             outcome = self.attempt(label, cfg, case)
             if outcome.kind == "aborted":

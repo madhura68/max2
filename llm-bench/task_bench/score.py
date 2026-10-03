@@ -6,8 +6,10 @@
 <dir> is the --out of a window of run.py, or any directory above it (the copy of a whole window directory, say). A result counts
 when it is <dir>/**/<label>/<run>/bench-result.json, with <label> a directory named after the label in its own bench-result.json,
 as run.py lays them out. A run that sits anywhere else, like the practice run in proef/, is not the driver's and is not read.
-Only bench-result.json of a run is ever opened: ws/ and ws-deps/ hold work trees, where a named pipe would hang a read, and they
-are not walked.
+Only bench-result.json of a run is ever opened, and a run is never walked into: it is a directory of work trees and logs (ws/,
+ws-deps/, containers/, tools/), where a named pipe would hang a read and a node_modules makes a walk long. In a label directory a
+subdirectory named like a run id, <case>-<label>-<8 hex>, is a run with a result or without one (a bench that broke off), and so is
+any that holds a bench-result.json; the rest is walked on. ws/ and ws-deps/ are skipped wherever they are, and links are not followed.
 
 --models are the two labels, the hosted one first: verdict(h, g) wants h of the hosted label and g of the other. The scorer only
 scores a complete set: it refuses (exit 2, and nothing is written) unless each label has exactly 12 different cases, the same 12
@@ -17,13 +19,15 @@ one, the benchfout counts as the later, so a case whose last status cannot be to
 an aborted run included, means the set is not complete.
 
 It writes <dir>/summary.csv (a row per case and label, from the result that counts), prints the table, the counts and the verdict, and
-with --ledger the total of the ledger (math.fsum, a missing amount counted as 0) and how many amounts are missing.
+with --ledger the total of the ledger (math.fsum, a missing amount counted as 0) and how many amounts are missing. A --ledger that is
+not an existing file is refused (exit 2): a total over nothing would read as a set that cost nothing.
 
 Stdlib only.
 """
 import argparse
 import csv
 import os
+import re
 import sys
 from collections import namedtuple
 from pathlib import Path
@@ -58,10 +62,12 @@ def verdict(h, g):
 
 def find_results(root, labels):
     """{label: {case id: [Attempt, ...]}} for every result of the labels under root. A directory named like a label is a label
-    directory; each of its subdirectories that holds a bench-result.json is a run (and not walked into: its work trees are in there),
-    the others are walked on. A result counts when it has a status of the six, says the label of its directory, and names a case."""
+    directory. Of its subdirectories, one named like a run id (<case>-<label>-<8 hex>) or holding a bench-result.json is a run: it is
+    never walked into, and only its bench-result.json is read, when it is a regular file. The other subdirectories are walked on.
+    A result counts when it has a status of the six, says the label of its directory, and names a case."""
     found = {label: {} for label in labels}
-    for here, dirs, _ in os.walk(root):
+    run_ids = {label: re.compile(r".+-" + re.escape(label) + r"-[0-9a-f]{8}") for label in labels}
+    for here, dirs, _ in os.walk(root, followlinks=False):
         dirs[:] = [d for d in dirs if d not in PRUNED]
         label = os.path.basename(here)
         if label not in found:
@@ -69,13 +75,13 @@ def find_results(root, labels):
         for name in list(dirs):
             path = Path(here, name, "bench-result.json")
             try:
-                is_run = path.is_file()          # False for a named pipe, which is never opened
+                has_result = path.is_file()          # False for a named pipe, which is never opened
             except OSError:
-                is_run = False
-            if not is_run:
-                continue
-            dirs.remove(name)
-            result = load_bench_result(path)
+                has_result = False
+            if not (has_result or run_ids[label].fullmatch(name)):
+                continue                             # no run: the walk goes on into it
+            dirs.remove(name)                        # a run: not the walk, only its bench-result.json
+            result = load_bench_result(path) if has_result else None
             case_id = result.get("caseId") if result is not None else None
             if result is None or result.get("label") != label or not (isinstance(case_id, str) and case_id):
                 continue
@@ -164,11 +170,15 @@ def score(root, labels, ledger_path=None):
         raise RunError(f"{root} is not a directory")
     if labels[0] == labels[1]:
         raise RunError("--models names the same label twice: it takes the hosted label and the gsq label")
+    # run.py can start without a ledger, but a scorer that is told which one to add up must find it: a total of $0.0000 over a
+    # path that is not there would read as a set that cost nothing
+    if ledger_path is not None and not Path(ledger_path).is_file():
+        raise RunError(f"--ledger {ledger_path} is not a file")
     found = find_results(root, labels)
     problems = refusals(found, labels)
     if problems:
         raise RunError("\n".join(problems))
-    ledger = read_ledger(ledger_path) if ledger_path else None
+    ledger = read_ledger(ledger_path) if ledger_path is not None else None
     counts = {label: {status: 0 for status in MODEL_STATUSES} for label in labels}
     rows = []
     for label in labels:

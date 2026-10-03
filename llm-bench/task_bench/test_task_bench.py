@@ -1053,7 +1053,7 @@ class LedgerTest(DriverBase):
                 self.preload(total)
                 done = self.drive([LOCAL])
                 self.assertEqual(done.returncode, 4, done.stderr)
-                self.assertEqual(self.ran(), [])
+                self.assertEqual(self.calls(), [])                  # not one call of the harness: not even the probe, which is paid
                 self.assertIn("14", done.stderr)
 
     def test_a_total_under_14_dollars_does_not_stop_it(self):
@@ -1068,7 +1068,7 @@ class LedgerTest(DriverBase):
             f.write(json.dumps({"id": "x", "kind": "run", "label": HOSTED, "case": "AH-09", "cost_usd": 13.95}) + "\n")
         done = self.drive([LOCAL])                                            # 13.95 alone is under 14, with the practice run it is not
         self.assertEqual(done.returncode, 4, done.stderr)
-        self.assertEqual(self.ran(), [])
+        self.assertEqual(self.calls(), [])
 
     def test_a_missing_amount_counts_as_zero_in_the_total(self):
         self.preload(13.5, None, None, 0.25)
@@ -1097,6 +1097,7 @@ class LedgerTest(DriverBase):
         self.preload(5.0)
         done = self.drive([LOCAL], args=("--budget-stop", "5"))
         self.assertEqual(done.returncode, 4, done.stderr)
+        self.assertEqual(self.calls(), [])
         self.reset()
         self.preload(5.0)
         self.assertEqual(self.drive([LOCAL], args=("--budget-stop", "5.01")).returncode, 0)
@@ -1105,7 +1106,15 @@ class LedgerTest(DriverBase):
         self.preload(14.0)
         done = self.drive([LOCAL, HOSTED], env={KEY_VARIABLE: DUMMY_KEY})
         self.assertEqual(done.returncode, 4, done.stderr)
-        self.assertEqual(self.ran(), [])
+        self.assertEqual(self.calls(), [])                  # no probe of the local label, no endpoint list and no probe of the hosted one
+
+    def test_a_budget_reached_by_the_last_run_of_a_label_stops_before_the_next_label_is_probed(self):
+        self.preload(13.9)
+        done = self.drive([LOCAL, HOSTED], env={KEY_VARIABLE: DUMMY_KEY}, ids=("AH-01",),
+                          config={"cases": {f"{LOCAL}/AH-01": {"status": "geslaagd", "cost": 0.2}}})
+        self.assertEqual(done.returncode, 4, done.stderr)
+        self.assertEqual([c["command"] for c in self.calls()], ["probe", "task-bench"])         # the local label only
+        self.assertEqual(self.ledger_rows()[-1]["cost_usd"], 0.2)                                 # that run is booked
 
 
 class ProbeEndpointsTest(DriverBase):
@@ -1318,6 +1327,25 @@ class StopTest(DriverBase):
         [row] = self.ledger_rows()
         self.assertEqual((row["kind"], row["cost_usd"]), ("probe", math.fsum([0.001] * 5)))       # the probe is booked
 
+    def stop_during_the_probe(self, signum):
+        marker = self.tmp / "probing"
+        proc = self.start([LOCAL], config={"probe": {"wait_for_signal": True, "marker": str(marker)}})
+        self.wait_for(marker, proc)
+        os.killpg(proc.pid, signum)       # to the group, as pkill -s does: the real probe has no handler either, so it dies of it
+        stdout, stderr = proc.communicate(timeout=60)
+        self.assertEqual(proc.returncode, 6, stderr)             # a stop, and not a probe that failed (5)
+        self.assertIn(signal.Signals(signum).name, stderr)
+        [row] = self.ledger_rows()
+        self.assertEqual((row["kind"], row["label"], row["cost_usd"]), ("probe", LOCAL, None))      # booked, its cost unknown
+        self.assertEqual([c["command"] for c in self.calls()], ["probe"])                              # and no run
+        self.assertEqual(list(self.out.glob("probes/*/probe-*/probe.json")), [])                       # the killed probe wrote none
+
+    def test_sigint_that_kills_the_probe_is_a_stop_with_6_and_no_failed_probe(self):
+        self.stop_during_the_probe(signal.SIGINT)
+
+    def test_sigterm_that_kills_the_probe_is_a_stop_with_6_and_no_failed_probe(self):
+        self.stop_during_the_probe(signal.SIGTERM)
+
     def test_a_signal_during_a_run_that_ends_normally_stops_before_the_next_case(self):
         done = self.drive([LOCAL], config={"cases": {"AH-01": {"sigint_parent": True, "status": "geslaagd", "cost": 0.1}}})
         self.assertEqual(done.returncode, 6, done.stderr)
@@ -1328,6 +1356,14 @@ class StopTest(DriverBase):
         done = self.drive([LOCAL], config={"cases": {"AH-01": {"sigint_parent": True, "status": "benchfout", "cost": 0.1}}})
         self.assertEqual(done.returncode, 6, done.stderr)               # not 3 and not a second attempt
         self.assertEqual(self.ran(), [(LOCAL, "AH-01")])
+
+    def test_a_signal_during_the_repeat_that_ends_in_a_second_benchfout_is_a_stop_with_6_and_not_3(self):
+        attempts = [{"status": "benchfout", "benchError": "clone faalde", "cost": 0.1},
+                    {"status": "benchfout", "benchError": "clone faalde", "cost": 0.1, "sigint_parent": True}]
+        done = self.drive([LOCAL], config={"cases": {"AH-01": attempts}}, ids=("AH-01", "AH-02"))
+        self.assertEqual(done.returncode, 6, done.stderr)               # the signal comes first, so not the stop for JP (3)
+        self.assertEqual(self.ran(), [(LOCAL, "AH-01"), (LOCAL, "AH-01")])
+        self.assertEqual([r["cost_usd"] for r in self.ledger_rows() if r["kind"] == "run"], [0.1, 0.1])      # both attempts are booked
 
     def test_a_signal_during_the_last_run_of_a_label_stops_before_the_next_label(self):
         done = self.drive([LOCAL, HOSTED], env={KEY_VARIABLE: DUMMY_KEY},
@@ -1598,6 +1634,20 @@ class ScoreTest(ScoreBase):
         bad.write_text("no entry\n", encoding="utf-8")
         self.assertEqual(self.score(self.tmp, HOSTED, LOCAL, args=("--ledger", bad)).returncode, 2)
 
+    def test_a_ledger_that_is_not_there_is_refused_and_no_total_is_printed(self):
+        # run.py starts without a ledger (the first window has none yet); a scorer that is told which ledger to add up needs it
+        self.full_set(self.tmp, HOSTED, 10)
+        self.full_set(self.tmp, LOCAL, 4)
+        for what, path in (("a file that does not exist", self.tmp / "nothing.jsonl"), ("a directory", self.tmp), ("an empty path", "")):
+            with self.subTest(what):
+                done = self.score(self.tmp, HOSTED, LOCAL, args=("--ledger", path))
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("--ledger", done.stderr)
+                self.assertIn(Path(path).name, done.stderr)
+                self.assertNotIn("Grootboek", done.stdout)
+                self.assertNotIn("Oordeel", done.stdout)
+                self.assertFalse((self.tmp / "summary.csv").exists())        # nothing is written
+
     def test_the_ledger_of_the_practice_run_adds_up_in_the_report(self):
         self.full_set(self.tmp, HOSTED, 10)
         self.full_set(self.tmp, LOCAL, 4)
@@ -1626,6 +1676,65 @@ class ScoreTest(ScoreBase):
         os.mkfifo(directory / "bench-result.json")
         done = self.score(self.tmp, HOSTED, LOCAL, timeout=60)
         self.assertEqual(done.returncode, 2, done.stderr)
+
+
+class WalkTest(ScoreBase):
+    """What the scorer lists on disk. A run is a directory of work trees and logs, up to node_modules, and nothing in it is its business
+    but bench-result.json, whether that is there or not."""
+
+    def walk(self, root, labels):
+        """(what find_results found, the directories it listed): every os.scandir call os.walk makes is recorded."""
+        listed, real = [], os.scandir
+
+        def recording(*args, **kwargs):
+            listed.append(os.fspath(args[0]) if args else ".")
+            return real(*args, **kwargs)
+
+        with mock.patch.object(os, "scandir", recording):
+            found = score.find_results(root, labels)
+        return found, listed
+
+    def test_a_run_directory_is_never_listed_whether_it_has_a_result_or_not(self):
+        self.full_set(self.tmp, HOSTED, 10)
+        for run_dir in list((self.tmp / HOSTED).iterdir()):
+            (run_dir / "containers" / "deep").mkdir(parents=True)             # below a run that has a result
+        crashed = self.tmp / HOSTED / f"SM-07-{HOSTED}-0000beef"                # a run that left no result: the bench broke off
+        (crashed / "containers" / "deep" / "deeper").mkdir(parents=True)
+        (crashed / "tools").mkdir()
+        (crashed / "some-dir").mkdir()
+        found, listed = self.walk(self.tmp, [HOSTED, LOCAL])
+        label_dir = str(self.tmp / HOSTED)
+        self.assertIn(label_dir, listed)                                        # the recording works: the label directory was listed
+        self.assertEqual([path for path in listed if path.startswith(label_dir + os.sep)], [])        # and nothing in any run of it
+        self.assertEqual(sorted(found[HOSTED]), sorted(CASES_12))               # the runs with a result were found all the same
+
+    def test_ws_and_ws_deps_are_not_listed_wherever_they_are(self):
+        shutil.copytree(REAL / "AH-01-qwen3.8-openrouter-d6c19fec", self.tmp / "proef" / "AH-01-qwen3.8-openrouter-d6c19fec")
+        for name in ("ws", "ws-deps"):
+            (self.tmp / "proef" / "AH-01-qwen3.8-openrouter-d6c19fec" / name / "node_modules").mkdir(parents=True)
+            (self.tmp / "gehost" / name / "node_modules").mkdir(parents=True)
+        found, listed = self.walk(self.tmp, [HOSTED, LOCAL])
+        self.assertIn(str(self.tmp / "proef" / "AH-01-qwen3.8-openrouter-d6c19fec"), listed)      # a run outside a label directory is walked ...
+        self.assertEqual([path for path in listed if os.sep + "ws" in path], [])                    # ... but never into ws or ws-deps
+
+    def test_a_label_directory_inside_a_directory_of_the_same_name_is_still_walked(self):
+        self.full_set(self.tmp / HOSTED, HOSTED, 10)               # <tmp>/<label>/<label>/<run>: an --out that is named like its label
+        self.full_set(self.tmp / "gsq", LOCAL, 4)
+        done = self.score(self.tmp, HOSTED, LOCAL)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertIn("Oordeel: meerwaarde", done.stdout)
+
+    def test_a_linked_directory_is_not_followed(self):
+        elsewhere = self.tmp / "elsewhere"
+        self.full_set(elsewhere, HOSTED, 10)
+        self.full_set(elsewhere, LOCAL, 4)
+        root = self.tmp / "root"
+        root.mkdir()
+        (root / "linked").symlink_to(elsewhere, target_is_directory=True)
+        found, listed = self.walk(root, [HOSTED, LOCAL])
+        self.assertEqual((found[HOSTED], found[LOCAL]), ({}, {}))             # nothing is found behind the link
+        self.assertEqual([path for path in listed if "elsewhere" in path], [])
+        self.assertEqual(self.score(root, HOSTED, LOCAL).returncode, 2)
 
 
 # ---------------------------------------------------------------------------------------------------------------------
