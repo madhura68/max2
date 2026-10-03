@@ -1,0 +1,2 @@
+{"id": "probe-qwen3.8-openrouter-20261003T081726Z", "kind": "probe", "label": "qwen3.8-openrouter", "cost_usd": 0.00077981}
+{"id": "AH-01-qwen3.8-openrouter-d6c19fec", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-01", "cost_usd": 0.065849775}

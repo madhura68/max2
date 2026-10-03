@@ -1,0 +1,17 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "name": "qwen/qwen3.8-27b",
+  "extraBody": {
+    "provider": {
+      "data_collection": "deny",
+      "require_parameters": true,
+      "quantizations": [
+        "bf16",
+        "fp16"
+      ]
+    },
+    "reasoning": {
+      "effort": "medium"
+    }
+  }
+}

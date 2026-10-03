@@ -242,6 +242,83 @@ cel betekent minder dan vijf gesprekken (getoond, niet meegeteld). De stops van 
 weggegooide eerste poging is betaald; meldt een poging geen kosten terwijl een andere dat wel doet, dan telt die als
 `$0.0000`, en meldt geen enkele beurt kosten (een lokaal model), dan is `cost_usd` leeg: onbekend is niet gratis.
 
+## Task-bench (task_bench/)
+
+Meet of Qwen 3.8, zoals hij op een machine van 96 GB zou draaien, ons echte werk aankan, en of hij meer kan dan wat max2 nu al lokaal
+doet (M7, IDEA-229). Echt werk: 12 oude, afgeronde Scrum4Me-taken, 6 uit agent-harness en 6 uit scrum4me-mcp. `harness task-bench`
+(agent-harness) voert elke taak uit vanaf zijn begincommit, met dezelfde lus, tools, gate en limieten als de productieworker, alleen
+zonder doc-tools. Een run is **geslaagd** als de verify-gate van de repo groen is én de verborgen tests uit de echte oplossing slagen.
+Twee modellen, één run per taak: `qwen3.8-openrouter` (`qwen/qwen3.8-27b` via OpenRouter, alleen op een 16-bit-route: BF16 of FP16) en
+`gsq-lokaal` (`qwen3.8-gsq-rco:27b-iq3_s-text` op max2). Het bindende ontwerp is de spec `docs/specs/2026-10-02-task-bench-design.md`
+in agent-harness (rev 5), het plan `docs/plans/M7-task-bench.md`; de betekenis van een oordeel voor de aankoop staat in spec §1.
+
+```bash
+# een venster op max2 (in tmux): de driver. Het grootboek is één bestand voor alle vensters, ook dat van de praktijkproef.
+./task_bench/run.py --harness "node /home/janpeter/Development/agent-harness-m7/dist/cli.js" --models qwen3.8-openrouter \
+  --cases task_bench/cases.jsonl --task-config task_bench/task-config.json --out $R/gehost --ledger $R/ledger.jsonl [--budget-stop 14]
+# daarna op de kopie van de vensters (rsync -a): tabel, tellingen en oordeel; schrijft summary.csv in die map
+./task_bench/score.py $M --models qwen3.8-openrouter gsq-lokaal [--ledger $M/ledger.jsonl]
+python3 -m unittest discover -s llm-bench/task_bench -p 'test_*.py'    # vanuit de repo-root; nep-harness: geen model, netwerk of sleutel
+```
+
+`--harness` is het commando met het volledige pad (geen `~`). `models.json` (`--models-file`) heeft de twee labels: `base_url`, `name`,
+`retry_transient` (herhalen bij storingen van de aanbieder: aan voor het gehoste label, uit voor `gsq-lokaal`), eventueel `api_key_env`
+(de *naam* van de variabele) en `extraBody`. Het gehoste label draagt `provider: {data_collection: "deny", require_parameters: true,
+quantizations: ["bf16", "fp16"]}` en `reasoning: {effort: "medium"}`; ontbreekt het provider-blok of wijkt `quantizations` af, dan weigert
+`run.py` het label voordat er iets draait. `task-config.json` is een letterlijke kopie van het `task`-blok van
+`/etc/agent-harness/worker.json`. `fake_task_bench.py` is de nep-harness van de tests en `fixtures/real-harness/` bevat ongewijzigde
+uitvoer van de praktijkproef van 2026-10-03.
+
+**Stopcodes van `run.py`** (de reden staat op stderr):
+
+| Code | Betekenis |
+|---|---|
+| 0 | klaar |
+| 2 | gebruiksfout: de aanroep of een configuratie klopt niet, ook een ontbrekende sleutelvariabele; er is niets gestart |
+| 3 | een tweede benchfout bij dezelfde taak: de driver stopt voor JP |
+| 4 | het grootboek staat op `--budget-stop` (14 dollar) of meer: er start geen run meer |
+| 5 | de probe is niet `reliable`, of de endpointlijst toont geen 16-bit-endpoint met tools |
+| 6 | afgebroken met SIGINT of SIGTERM |
+
+**Wat de driver doet.** Per label, in de volgorde van `--models`: bij OpenRouter eerst de publieke endpointlijst
+(`<out>/endpoints-<label>-<ts>.json`, het bewijs van de precisie), dan `harness probe` met de `extraBody` van het label (in
+`<out>/probes/<label>-<ts>/`), dan de taken van `cases.jsonl` in volgorde, met de uitvoer van het label in `<out>/<label>/`. Een taak
+die al een geldig resultaat van een modelstatus heeft (`geslaagd`, `verborgen_tests_rood`, `verify_rood`, `limiet`,
+`geen_wijzigingen`) draait niet opnieuw, dus een volgend venster hervat de set. Een benchfout draait één keer opnieuw; de tweede stopt de
+driver (3), ook als de eerste uit een eerder venster komt. Een resultaat met `benchError: "afgebroken"` telt niet als benchfout: die taak
+draait bij hervatten gewoon opnieuw. Alleen `bench-result.json` van een run wordt gelezen: `ws/` en `ws-deps/` bevatten werkbomen
+waarin modelcode draaide, en een named pipe daarin laat een `open()` hangen.
+
+**Grootboek.** Elke probe en elke run is een regel in `--ledger`: `{"id", "kind": "probe", "label", "cost_usd"}` of `{"id", "kind":
+"run", "label", "case", "cost_usd"}`. De kosten van een run zijn `usage.costUsd` van zijn `bench-result.json`; die van een probe de
+som van elke `usage.costUsd` onder `steps` in `probe.json`. Een bedrag dat er niet is, is `null`: het telt als 0 in het totaal
+(`math.fsum`), en `score.py --ledger` noemt hoeveel het er zijn. De limiet van de sleutel (20 dollar) blijft de enige harde grens.
+
+**Stoppen en de sleutel.** SIGINT en SIGTERM zetten alleen een stopvlag. De driver wacht de lopende harness-aanroep af (die kreeg
+hetzelfde signaal, bijvoorbeeld via `pkill -s`, en ruimt zijn containers zelf op), boekt de kosten en stopt met 6, zonder nieuwe run;
+hij doodt de bench nooit. De sleutel (`OPENROUTER_API_KEY`) komt alleen via de omgeving binnen: in argv staat `--api-key-env
+OPENROUTER_API_KEY`, nooit de waarde. Een gevraagd label met een sleutelvariabele die leeg of afwezig is geeft exit 2 vóór er iets
+start. De sleutelcontrole (`refiner/check_key.py`) draait niet in de driver maar als vensterstap op de kopie zonder `ws*/`.
+
+**Beslisregel** (spec §1): een model kan het werk aan bij minstens 9 van de 12 taken geslaagd.
+
+| Gehost (van 12) | gsq (van 12) | Oordeel |
+|---|---|---|
+| 8 of minder | – | `gezakt` |
+| 9 of meer | 9 of meer | `max2 volstaat` |
+| 9 of meer | 8 of minder, minstens 3 minder dan gehost | `meerwaarde` |
+| 9 of meer | 8 of minder, hooguit 2 minder dan gehost | `onbeslist` |
+
+Grens: een oordeel is ook `onbeslist` als het steunt op een telling op de grens of één eronder: gehost precies 9 of 8, gsq precies 9 of 8
+(als die telling het oordeel bepaalt: de rijen `max2 volstaat` en `meerwaarde`), of een verschil van precies 3 (alleen bij
+`meerwaarde`). `score.verdict(h, g)` is die regel; de test telt over alle 169 paren 104 `gezakt`, 33 `onbeslist`, 23 `meerwaarde` en
+9 `max2 volstaat`.
+
+**De scorer** scoort alleen een volledige set: elk label heeft precies 12 verschillende taken, dezelfde 12 voor beide labels, en de
+laatste status van elke taak (het resultaat met de nieuwste mtime van `bench-result.json`) is een modelstatus. Anders weigert hij met
+exit 2 en schrijft hij niets. Hij zoekt de resultaten onder `<map>/**/<label>/<run>/`, dus de map mag boven de `--out` van de vensters
+liggen; een run buiten een map met de naam van zijn label (zoals de praktijkproef in `proef/`) telt niet mee.
+
 ## Resultaten 2026-09-25/26
 
 `results/fit-2026-09-25.md`, `results/speed-2026-09-25.md`, `results/evalplus-2026-09-25.md`,
