@@ -1,0 +1,28 @@
+{"id": "probe-qwen3.8-openrouter-20261003T081726Z", "kind": "probe", "label": "qwen3.8-openrouter", "cost_usd": 0.00077981}
+{"id": "AH-01-qwen3.8-openrouter-d6c19fec", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-01", "cost_usd": 0.065849775}
+{"id": "probe-qwen3.8-openrouter-20261003T121905Z", "kind": "probe", "label": "qwen3.8-openrouter", "cost_usd": 0.000773625}
+{"id": "AH-01-qwen3.8-openrouter-20b181df", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-01", "cost_usd": 0.1216644}
+{"id": "AH-02-qwen3.8-openrouter-63521b1b", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-02", "cost_usd": 0.02394735}
+{"id": "AH-04-qwen3.8-openrouter-4adc30ad", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-04", "cost_usd": 0.11462084999999998}
+{"id": "AH-07-qwen3.8-openrouter-0c807a08", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-07", "cost_usd": 0.013092824999999999}
+{"id": "AH-08-qwen3.8-openrouter-d6f92cfe", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-08", "cost_usd": 0.05842545}
+{"id": "AH-12-qwen3.8-openrouter-d39eadf2", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-12", "cost_usd": 0.067757475}
+{"id": "AH-16-qwen3.8-openrouter-1a49fe8e", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-16", "cost_usd": 0.17172112499999997}
+{"id": "AH-17-qwen3.8-openrouter-5ce4f18c", "kind": "run", "label": "qwen3.8-openrouter", "case": "AH-17", "cost_usd": 0.029213624999999997}
+{"id": "MC-11-qwen3.8-openrouter-a0b3bf4f", "kind": "run", "label": "qwen3.8-openrouter", "case": "MC-11", "cost_usd": 0.14406375}
+{"id": "MC-19-qwen3.8-openrouter-f09fb357", "kind": "run", "label": "qwen3.8-openrouter", "case": "MC-19", "cost_usd": 0.04218150000000001}
+{"id": "MC-29-qwen3.8-openrouter-6a27240d", "kind": "run", "label": "qwen3.8-openrouter", "case": "MC-29", "cost_usd": 0.076094475}
+{"id": "MC-31-qwen3.8-openrouter-e166e57d", "kind": "run", "label": "qwen3.8-openrouter", "case": "MC-31", "cost_usd": 0.24454627499999998}
+{"id": "probe-gsq-lokaal-20261003T200008Z", "kind": "probe", "label": "gsq-lokaal", "cost_usd": null}
+{"id": "AH-01-gsq-lokaal-fed246f1", "kind": "run", "label": "gsq-lokaal", "case": "AH-01", "cost_usd": null}
+{"id": "AH-02-gsq-lokaal-c78a382f", "kind": "run", "label": "gsq-lokaal", "case": "AH-02", "cost_usd": null}
+{"id": "AH-04-gsq-lokaal-dce362ca", "kind": "run", "label": "gsq-lokaal", "case": "AH-04", "cost_usd": null}
+{"id": "AH-07-gsq-lokaal-25a2bb69", "kind": "run", "label": "gsq-lokaal", "case": "AH-07", "cost_usd": null}
+{"id": "AH-08-gsq-lokaal-186cdf5a", "kind": "run", "label": "gsq-lokaal", "case": "AH-08", "cost_usd": null}
+{"id": "AH-12-gsq-lokaal-146089e2", "kind": "run", "label": "gsq-lokaal", "case": "AH-12", "cost_usd": null}
+{"id": "AH-16-gsq-lokaal-83e1be39", "kind": "run", "label": "gsq-lokaal", "case": "AH-16", "cost_usd": null}
+{"id": "AH-17-gsq-lokaal-24a5ddda", "kind": "run", "label": "gsq-lokaal", "case": "AH-17", "cost_usd": null}
+{"id": "MC-11-gsq-lokaal-b9c11a61", "kind": "run", "label": "gsq-lokaal", "case": "MC-11", "cost_usd": null}
+{"id": "MC-19-gsq-lokaal-f90220d3", "kind": "run", "label": "gsq-lokaal", "case": "MC-19", "cost_usd": null}
+{"id": "MC-29-gsq-lokaal-f2fe1216", "kind": "run", "label": "gsq-lokaal", "case": "MC-29", "cost_usd": null}
+{"id": "MC-31-gsq-lokaal-41c88881", "kind": "run", "label": "gsq-lokaal", "case": "MC-31", "cost_usd": null}

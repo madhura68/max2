@@ -1,0 +1,41 @@
+12 cases, labels qwen3.8-openrouter; ledger $0.0666 of $14.00 (2 entries)
+qwen3.8-openrouter endpoints: 16-bit with tools: DeepInfra -> /home/janpeter/m7-runs/task-bench-2026-10-03/gehost/endpoints-qwen3.8-openrouter-20261003T121905Z.json
+qwen3.8-openrouter probe: reliable ($0.000774)
+qwen3.8-openrouter AH-01: running
+qwen3.8-openrouter AH-01: geslaagd in 611.7s, $0.121664 (AH-01-qwen3.8-openrouter-20b181df)
+ledger total $0.1891 of $14.00
+qwen3.8-openrouter AH-02: running
+qwen3.8-openrouter AH-02: geslaagd in 152.0s, $0.023947 (AH-02-qwen3.8-openrouter-63521b1b)
+ledger total $0.2130 of $14.00
+qwen3.8-openrouter AH-04: running
+qwen3.8-openrouter AH-04: geslaagd in 651.0s, $0.114621 (AH-04-qwen3.8-openrouter-4adc30ad)
+ledger total $0.3276 of $14.00
+qwen3.8-openrouter AH-07: running
+qwen3.8-openrouter AH-07: geslaagd in 126.9s, $0.013093 (AH-07-qwen3.8-openrouter-0c807a08)
+ledger total $0.3407 of $14.00
+qwen3.8-openrouter AH-08: running
+qwen3.8-openrouter AH-08: geslaagd in 377.3s, $0.058425 (AH-08-qwen3.8-openrouter-d6f92cfe)
+ledger total $0.3992 of $14.00
+qwen3.8-openrouter AH-12: running
+qwen3.8-openrouter AH-12: geslaagd in 290.3s, $0.067757 (AH-12-qwen3.8-openrouter-d39eadf2)
+ledger total $0.4669 of $14.00
+qwen3.8-openrouter AH-16: running
+qwen3.8-openrouter AH-16: limiet in 834.5s, $0.171721 (AH-16-qwen3.8-openrouter-1a49fe8e)
+ledger total $0.6386 of $14.00
+qwen3.8-openrouter AH-17: running
+qwen3.8-openrouter AH-17: verborgen_tests_rood in 221.0s, $0.029214 (AH-17-qwen3.8-openrouter-5ce4f18c)
+ledger total $0.6678 of $14.00
+qwen3.8-openrouter MC-11: running
+qwen3.8-openrouter MC-11: limiet in 646.3s, $0.144064 (MC-11-qwen3.8-openrouter-a0b3bf4f)
+ledger total $0.8119 of $14.00
+qwen3.8-openrouter MC-19: running
+qwen3.8-openrouter MC-19: geslaagd in 389.0s, $0.042182 (MC-19-qwen3.8-openrouter-f09fb357)
+ledger total $0.8541 of $14.00
+qwen3.8-openrouter MC-29: running
+qwen3.8-openrouter MC-29: geslaagd in 683.2s, $0.076094 (MC-29-qwen3.8-openrouter-6a27240d)
+ledger total $0.9302 of $14.00
+qwen3.8-openrouter MC-31: running
+qwen3.8-openrouter MC-31: limiet in 1702.8s, $0.244546 (MC-31-qwen3.8-openrouter-e166e57d)
+ledger total $1.1747 of $14.00
+done: /home/janpeter/m7-runs/task-bench-2026-10-03/gehost; ledger $1.1747 of $14.00 (15 entries, 0 without an amount)
+exit=0

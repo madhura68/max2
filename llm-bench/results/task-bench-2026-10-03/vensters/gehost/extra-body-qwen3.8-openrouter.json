@@ -1,0 +1,13 @@
+{
+  "provider": {
+    "data_collection": "deny",
+    "require_parameters": true,
+    "quantizations": [
+      "bf16",
+      "fp16"
+    ]
+  },
+  "reasoning": {
+    "effort": "medium"
+  }
+}

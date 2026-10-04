@@ -1,0 +1,27 @@
+{
+  "caseId": "MC-31",
+  "label": "gsq-lokaal",
+  "runId": "MC-31-gsq-lokaal-41c88881",
+  "model": {
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "baseUrl": "http://127.0.0.1:11434/v1"
+  },
+  "status": "limiet",
+  "runStatus": "budget_exceeded",
+  "gate": {
+    "reds": 0
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 1368345,
+    "outputTokens": 63391,
+    "turns": 40,
+    "toolCalls": 63,
+    "toolErrors": 2,
+    "cachedTokens": 803386
+  },
+  "providers": [],
+  "retries": [],
+  "patchBytes": 0,
+  "durationMs": 1963900
+}

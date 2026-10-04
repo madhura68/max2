@@ -1,0 +1,6 @@
+PASS a_plain: content: pong
+PASS b_single_tool: echo("ping")
+PASS c_two_tools: turn 1 echo("ping"); turn 2 echo("pong")
+PASS d_nonexistent_tool: no foreign tool call (0 echo calls)
+tool_calling: reliable (usage_reported: true) → /home/janpeter/m7-runs/task-bench-2026-10-03/probes/probe-qwen-qwen3.8-27b/probe.json
+exit=0

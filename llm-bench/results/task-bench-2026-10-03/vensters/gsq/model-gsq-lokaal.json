@@ -1,0 +1,4 @@
+{
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "name": "qwen3.8-gsq-rco:27b-iq3_s-text"
+}

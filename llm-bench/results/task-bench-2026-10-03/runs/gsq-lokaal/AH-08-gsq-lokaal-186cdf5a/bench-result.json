@@ -1,0 +1,41 @@
+{
+  "caseId": "AH-08",
+  "label": "gsq-lokaal",
+  "runId": "AH-08-gsq-lokaal-186cdf5a",
+  "model": {
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "baseUrl": "http://127.0.0.1:11434/v1"
+  },
+  "status": "verborgen_tests_rood",
+  "runStatus": "completed",
+  "gate": {
+    "reds": 0,
+    "lastTail": "exitcode 0\n\n> agent-harness@0.1.0 verify\n> npm run lint && npm run typecheck && npm test\n\n\n> agent-harness@0.1.0 lint\n> eslint .\n\n\n> agent-harness@0.1.0 typecheck\n> tsc --noEmit\n\n\n> agent-harness@0.1.0 test\n> vitest run\n\n\n\u001b[1m\u001b[30m\u001b[46m RUN \u001b[49m\u001b[39m\u001b[22m \u001b[36mv5.0.2 \u001b[39m\u001b[90m/home/janpeter/m7-runs/task-bench-2026-10-03/gsq/gsq-lokaal/AH-08-gsq-lokaal-186cdf5a/ws/work\u001b[39m\n\n \u001b[32m✓\u001b[39m __tests__/trace.test.ts \u001b[2m(\u001b[22m\u001b[2m7 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 11\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/manifest.test.ts \u001b[2m(\u001b[22m\u001b[2m12 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 11\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/model-client.test.ts \u001b[2m(\u001b[22m\u001b[2m15 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 109\u001b[2mms\u001b[22m\u001b[39m\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nPASS d_nonexistent_tool: no foreign tool call (0 echo calls)\ntool_calling: reliable (usage_reported: true) → /tmp/harness-probe-WyDlXx/probe-qwen3-8b/probe.json\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nFAIL d_nonexistent_tool: called: delete_everything\ntool_calling: unreliable (usage_reported: true) → /tmp/harness-probe-rc6r5l/probe-m/probe.json\n--api-key-env: environment variable HARNESS_UNSET_VAR is not set\nharness — agent-harness v0\n\nUsage:\n  harness probe --base-url <url> --model <name> [--out <runs-dir>] [--api-key-env <VAR>] [--step-timeout <sec>]\n  harness run <manifest.json> --out <dir> [--skip-probe]\n \u001b[32m✓\u001b[39m __tests__/probe.test.ts \u001b[2m(\u001b[22m\u001b[2m10 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 70\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/policy.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 24\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/smoke.test.ts \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 3\u001b[2mms\u001b[22m\u001b[39m\n[mcp] stdio-env server ready\n[mcp] stdio-env server ready\n \u001b[32m✓\u001b[39m __tests__/registry.test.ts \u001b[2m(\u001b[22m\u001b[2m15 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 614\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-answer.test.ts \u001b[2m(\u001b[22m\u001b[2m13 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 1825\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — answer profile \u001b[2m(10)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out on a model call that outlives maxWallSeconds, after exactly one request\u001b[33m 1006\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m harness run CLI \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m exits 1 on an invalid manifest or an existing run dir\u001b[33m 396\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m8 passed\u001b[39m\u001b[22m\u001b[90m (8)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m82 passed\u001b[39m\u001b[22m\u001b[90m (82)\u001b[39m\n\u001b[2m   Start at \u001b[22m 20:33:04\n\u001b[2m   Duration \u001b[22m 1.99s\u001b[2m (tests 75%, import 13%, transform 11%, worker 1%)\u001b[22m\n\n"
+  },
+  "hidden": {
+    "pass": false,
+    "reason": "exitcode 1; 1 falende test(s) in __tests__/policy.test.ts",
+    "files": [
+      {
+        "file": "__tests__/policy.test.ts",
+        "ran": true,
+        "passed": 10,
+        "failed": 1,
+        "other": 0
+      }
+    ]
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 386117,
+    "outputTokens": 8384,
+    "turns": 23,
+    "toolCalls": 30,
+    "toolErrors": 1,
+    "cachedTokens": 357902
+  },
+  "providers": [],
+  "retries": [],
+  "patchBytes": 6410,
+  "durationMs": 219435
+}

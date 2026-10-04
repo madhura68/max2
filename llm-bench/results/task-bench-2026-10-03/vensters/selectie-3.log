@@ -1,0 +1,33 @@
+== MC-23 10:47:32Z
+niet ok — MC-23 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-23/MC-23-check-*/case-check.json
+  - verify rood op base_commit
+exit-MC-23=1
+== MC-24 10:49:05Z
+niet ok — MC-24 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-24/MC-24-check-*/case-check.json
+  - verify rood op base_commit
+exit-MC-24=1
+== MC-25 10:50:38Z
+niet ok — MC-25 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-25/MC-25-check-*/case-check.json
+  - verify rood op base_commit
+exit-MC-25=1
+== MC-26 10:52:11Z
+niet ok — MC-26 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-26/MC-26-check-*/case-check.json
+  - verify rood op base_commit
+exit-MC-26=1
+== MC-27 10:53:46Z
+niet ok — MC-27 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-27/MC-27-check-*/case-check.json
+  - verborgen test slaagt al op base_commit
+exit-MC-27=1
+== MC-28 10:55:23Z
+ok — MC-28 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-28/MC-28-check-*/case-check.json
+exit-MC-28=0
+== MC-29 10:57:00Z
+ok — MC-29 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-29/MC-29-check-*/case-check.json
+exit-MC-29=0
+== MC-30 10:58:34Z
+ok — MC-30 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-30/MC-30-check-*/case-check.json
+exit-MC-30=0
+== MC-31 11:00:07Z
+ok — MC-31 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-31/MC-31-check-*/case-check.json
+exit-MC-31=0
+exit=0

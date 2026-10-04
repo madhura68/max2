@@ -1,0 +1,40 @@
+12 cases, labels gsq-lokaal; ledger $1.1747 of $14.00 (15 entries)
+gsq-lokaal probe: reliable
+gsq-lokaal AH-01: running
+gsq-lokaal AH-01: geslaagd in 577.5s, no amount (AH-01-gsq-lokaal-fed246f1)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-02: running
+gsq-lokaal AH-02: geslaagd in 197.9s, no amount (AH-02-gsq-lokaal-c78a382f)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-04: running
+gsq-lokaal AH-04: geslaagd in 828.0s, no amount (AH-04-gsq-lokaal-dce362ca)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-07: running
+gsq-lokaal AH-07: geslaagd in 123.5s, no amount (AH-07-gsq-lokaal-25a2bb69)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-08: running
+gsq-lokaal AH-08: verborgen_tests_rood in 219.4s, no amount (AH-08-gsq-lokaal-186cdf5a)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-12: running
+gsq-lokaal AH-12: geslaagd in 483.1s, no amount (AH-12-gsq-lokaal-146089e2)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-16: running
+gsq-lokaal AH-16: geslaagd in 1288.0s, no amount (AH-16-gsq-lokaal-83e1be39)
+ledger total $1.1747 of $14.00
+gsq-lokaal AH-17: running
+gsq-lokaal AH-17: verborgen_tests_rood in 259.4s, no amount (AH-17-gsq-lokaal-24a5ddda)
+ledger total $1.1747 of $14.00
+gsq-lokaal MC-11: running
+gsq-lokaal MC-11: limiet in 1359.1s, no amount (MC-11-gsq-lokaal-b9c11a61)
+ledger total $1.1747 of $14.00
+gsq-lokaal MC-19: running
+gsq-lokaal MC-19: geslaagd in 421.5s, no amount (MC-19-gsq-lokaal-f90220d3)
+ledger total $1.1747 of $14.00
+gsq-lokaal MC-29: running
+gsq-lokaal MC-29: geslaagd in 607.4s, no amount (MC-29-gsq-lokaal-f2fe1216)
+ledger total $1.1747 of $14.00
+gsq-lokaal MC-31: running
+gsq-lokaal MC-31: limiet in 1963.9s, no amount (MC-31-gsq-lokaal-41c88881)
+ledger total $1.1747 of $14.00
+done: /home/janpeter/m7-runs/task-bench-2026-10-03/gsq; ledger $1.1747 of $14.00 (28 entries, 13 without an amount)
+exit=0

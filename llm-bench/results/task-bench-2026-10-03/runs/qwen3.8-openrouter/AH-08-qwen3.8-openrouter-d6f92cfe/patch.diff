@@ -1,0 +1,178 @@
+diff --git a/__tests__/policy.test.ts b/__tests__/policy.test.ts
+new file mode 100644
+index 0000000..6df7974
+--- /dev/null
++++ b/__tests__/policy.test.ts
+@@ -0,0 +1,102 @@
++import { afterEach, describe, expect, it } from 'vitest'
++import { createPolicy } from '../src/tools/policy.js'
++import type { ToolCall, ToolSnapshot, ToolSnapshotEntry } from '../src/types.js'
++import { connectRegistry } from '../src/tools/registry.js'
++import { startFakeMcp } from './fakes/fake-mcp-server.js'
++
++const open: Array<{ close(): Promise<void> }> = []
++afterEach(async () => {
++  for (const o of open.splice(0)) await o.close().catch(() => undefined)
++})
++
++function call(name: string, arguments_: string): ToolCall {
++  return { id: 'c1', name, arguments: arguments_, argumentsWasObject: false }
++}
++
++describe('createPolicy — hand-built snapshot', () => {
++  const entries: ToolSnapshotEntry[] = [
++    { name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
++    { name: 'noop', inputSchema: { type: 'object', properties: { note: { type: 'string' } } } },
++  ]
++  const snapshot: ToolSnapshot = { entries, hash: 'test' }
++  const { check } = createPolicy(snapshot)
++
++  it('rejects a name that is not in the snapshot with UNKNOWN_TOOL', () => {
++    const d = check(call('delete_everything', '{}'))
++    expect(d.ok).toBe(false)
++    if (!d.ok) expect(d.errorCode).toBe('UNKNOWN_TOOL')
++  })
++
++  it('rejects unparseable arguments with MALFORMED_ARGS', () => {
++    const d = check(call('echo', '{"text": '))
++    expect(d.ok).toBe(false)
++    if (!d.ok) expect(d.errorCode).toBe('MALFORMED_ARGS')
++  })
++
++  it('rejects JSON that parses to a non-object with MALFORMED_ARGS', () => {
++    expect(check(call('noop', '42'))).toMatchObject({ ok: false, errorCode: 'MALFORMED_ARGS' })
++    expect(check(call('noop', '"hi"'))).toMatchObject({ ok: false, errorCode: 'MALFORMED_ARGS' })
++    expect(check(call('noop', 'null'))).toMatchObject({ ok: false, errorCode: 'MALFORMED_ARGS' })
++    expect(check(call('noop', '[]'))).toMatchObject({ ok: false, errorCode: 'MALFORMED_ARGS' })
++  })
++
++  it('treats an empty arguments string as {} when the schema has no required', () => {
++    const d = check(call('noop', ''))
++    expect(d).toEqual({ ok: true, name: 'noop', args: {} })
++  })
++
++  it('rejects an empty arguments string with MALFORMED_ARGS when the schema has required', () => {
++    const d = check(call('echo', ''))
++    expect(d.ok).toBe(false)
++    if (!d.ok) expect(d.errorCode).toBe('MALFORMED_ARGS')
++  })
++
++  it('rejects schema violations with SCHEMA_MISMATCH and the ajv errorsText message', () => {
++    const d = check(call('echo', '{"text": 42}'))
++    expect(d.ok).toBe(false)
++    if (!d.ok) {
++      expect(d.errorCode).toBe('SCHEMA_MISMATCH')
++      expect(d.message).toContain('text')
++      expect(d.message).toContain('must be string')
++    }
++  })
++
++  it('accepts a valid call with the parsed arguments', () => {
++    expect(check(call('echo', '{"text":"hoi"}'))).toEqual({ ok: true, name: 'echo', args: { text: 'hoi' } })
++  })
++
++  it('allows extra properties when additionalProperties is not set', () => {
++    const d = check(call('echo', '{"text":"hoi","extra":true}'))
++    expect(d.ok).toBe(true)
++  })
++
++  it('compiles a schema carrying the draft-07 $schema the SDK emits', () => {
++    const snap: ToolSnapshot = {
++      entries: [{ name: 'x', inputSchema: { $schema: 'http://json-schema.org/draft-07/schema#', type: 'object', properties: { a: { type: 'number' } } } }],
++      hash: 'x',
++    }
++    const p = createPolicy(snap)
++    expect(p.check(call('x', '{"a":1}')).ok).toBe(true)
++  })
++})
++
++describe('createPolicy — schema as the SDK really emits it', () => {
++  it('compiles the real registerTool output (draft-07, with $schema) and rejects {} with must have required property', async () => {
++    const fake = await startFakeMcp()
++    open.push(fake)
++    const reg = await connectRegistry(fake.client, ['echo'])
++    open.push(reg)
++    const entry = reg.snapshot.entries.find((e) => e.name === 'echo')!
++    // The SDK emits a draft-07 schema with the $schema key.
++    expect(entry.inputSchema.$schema).toBe('http://json-schema.org/draft-07/schema#')
++
++    const { check } = createPolicy(reg.snapshot)
++    const d = check(call('echo', '{}'))
++    expect(d.ok).toBe(false)
++    if (!d.ok) {
++      expect(d.errorCode).toBe('SCHEMA_MISMATCH')
++      expect(d.message).toContain('must have required property')
++      expect(d.message).toContain('text')
++    }
++  })
++})
+diff --git a/src/tools/policy.ts b/src/tools/policy.ts
+new file mode 100644
+index 0000000..1ab2b0c
+--- /dev/null
++++ b/src/tools/policy.ts
+@@ -0,0 +1,64 @@
++import { Ajv } from 'ajv'
++import type { AnyValidateFunction } from 'ajv/dist/core.js'
++import type { ToolCall, ToolSnapshot } from '../types.js'
++
++// Ajv (default) validates draft-07, which is what MCP SDK 1.29 emits:
++// registerTool → toJsonSchemaCompat without a target → mapMiniTarget ⇒ 'draft-7'
++// (server/zod-json-schema-compat.js:9-16), so every inputSchema carries
++// `$schema: http://json-schema.org/draft-07/schema#`. Ajv2020 rejects that
++// `$schema` ("no schema with key or ref"); do not use it.
++export type PolicyDecision =
++  | { ok: true; name: string; args: Record<string, unknown> }
++  | { ok: false; errorCode: 'UNKNOWN_TOOL' | 'MALFORMED_ARGS' | 'SCHEMA_MISMATCH'; message: string }
++
++/**
++ * Strips `$schema` from a copy of the schema before compiling, so a later
++ * SDK bump to 2020-12 does not break the draft-07 validator immediately.
++ */
++function stripSchemaKey(schema: Record<string, unknown>): Record<string, unknown> {
++  const copy = { ...schema }
++  delete copy.$schema
++  return copy
++}
++
++export function createPolicy(snapshot: ToolSnapshot): { check(call: ToolCall): PolicyDecision } {
++  const ajv = new Ajv({ strict: false, allErrors: false })
++  const validators = new Map<string, AnyValidateFunction>()
++  const hasRequired = new Map<string, boolean>()
++  for (const entry of snapshot.entries) {
++    validators.set(entry.name, ajv.compile(stripSchemaKey(entry.inputSchema)))
++    const required = entry.inputSchema.required
++    hasRequired.set(entry.name, Array.isArray(required) && required.length > 0)
++  }
++
++  function check(call: ToolCall): PolicyDecision {
++    const validate = validators.get(call.name)
++    if (!validate) return { ok: false, errorCode: 'UNKNOWN_TOOL', message: `tool not in snapshot: ${call.name}` }
++
++    let args: unknown
++    if (call.arguments === '') {
++      // An empty arguments string means "no arguments" per the OpenAI contract.
++      // It is only acceptable when the schema demands nothing.
++      if (hasRequired.get(call.name)) {
++        return { ok: false, errorCode: 'MALFORMED_ARGS', message: `empty arguments for tool ${call.name} whose schema has required properties` }
++      }
++      args = {}
++    } else {
++      try {
++        args = JSON.parse(call.arguments)
++      } catch {
++        return { ok: false, errorCode: 'MALFORMED_ARGS', message: `arguments are not valid JSON: ${call.arguments}` }
++      }
++      if (typeof args !== 'object' || args === null || Array.isArray(args)) {
++        return { ok: false, errorCode: 'MALFORMED_ARGS', message: 'arguments are not a JSON object' }
++      }
++    }
++
++    if (!validate(args)) {
++      return { ok: false, errorCode: 'SCHEMA_MISMATCH', message: ajv.errorsText(validate.errors) }
++    }
++    return { ok: true, name: call.name, args: args as Record<string, unknown> }
++  }
++
++  return { check }
++}

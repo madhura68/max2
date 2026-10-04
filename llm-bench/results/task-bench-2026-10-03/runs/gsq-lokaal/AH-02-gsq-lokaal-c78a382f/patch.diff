@@ -1,0 +1,117 @@
+diff --git a/__tests__/task-impl.test.ts b/__tests__/task-impl.test.ts
+index 8c4b57d..5d594df 100644
+--- a/__tests__/task-impl.test.ts
++++ b/__tests__/task-impl.test.ts
+@@ -325,6 +325,11 @@ describe('runTaskJob — green path', () => {
+     expect(t.docker.runs().map((a) => a[a.indexOf('--name') + 1])).toEqual(['harness-job1-prepare-1', 'harness-job1-verify-2'])
+     const containers = traceOf(t.out).filter((e) => e.type === 'container')
+     expect(containers.map((e) => [e.kind, e.source])).toEqual([['prepare', 'prepare'], ['verify', 'gate']])
++    const runDir = join(t.out, readdirSync(t.out)[0])
++    const outputs = containers.map((e) => [e.n, e.outputBytes] as const)
++    expect(outputs).toEqual([[1, 0], [2, 0]])
++    expect(readFileSync(join(runDir, 'containers', '1.txt'), 'utf8')).toBe('')
++    expect(readFileSync(join(runDir, 'containers', '2.txt'), 'utf8')).toBe('')
+   })
+ 
+   it('red → repair → green: the retry message reaches the model', async () => {
+@@ -438,7 +443,9 @@ describe('runTaskJob — failures', () => {
+     expect(error).toContain('npm ERR! kapot')
+     expect(error).toMatch(/; git-administratie ongewijzigd$/)
+     expect(error.length).toBeLessThanOrEqual(2000)
+-    expect(traceOf(t.out).find((e) => e.type === 'container')).toMatchObject({ kind: 'prepare', source: 'prepare', exitCode: 1 })
++    const output = 'x'.repeat(5000) + 'npm ERR! kapot'
++    expect(traceOf(t.out).find((e) => e.type === 'container')).toMatchObject({ kind: 'prepare', source: 'prepare', exitCode: 1, n: 1, outputBytes: Buffer.byteLength(output) })
++    expect(readFileSync(join(t.out, readdirSync(t.out)[0], 'containers', '1.txt'), 'utf8')).toBe(output)
+     expect(taskUpdates(t.mcp)).toEqual(['in_progress'])
+   })
+ 
+diff --git a/__tests__/trace.test.ts b/__tests__/trace.test.ts
+index 82b5db9..3308418 100644
+--- a/__tests__/trace.test.ts
++++ b/__tests__/trace.test.ts
+@@ -2,6 +2,7 @@ import { mkdtempSync, readFileSync, readdirSync, statSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { beforeEach, describe, expect, it } from 'vitest'
++import { readTrace } from './helpers.js'
+ import { openTrace, redactManifest, type RunResult } from '../src/trace.js'
+ 
+ let out: string
+@@ -50,6 +51,23 @@ describe('openTrace', () => {
+     for (const l of lines) expect(new Date(l.ts).toISOString()).toBe(l.ts)
+   })
+ 
++  it('writes container output to containers/<n>.txt', () => {
++    const t = openTrace(out, 'r1')
++    t.containerOutput(1, 'hallo wereld')
++    t.containerOutput(2, 'tweede uitvoer')
++    expect(readFileSync(join(t.dir, 'containers', '1.txt'), 'utf8')).toBe('hallo wereld')
++    expect(readFileSync(join(t.dir, 'containers', '2.txt'), 'utf8')).toBe('tweede uitvoer')
++  })
++
++  it('writes a container event with n and outputBytes, with the output before the event', () => {
++    const t = openTrace(out, 'r1')
++    const output = 'uitvoer'
++    t.containerOutput(3, output)
++    t.event({ type: 'container', kind: 'verify', source: 'gate', n: 3, exitCode: 0, timedOut: false, durationMs: 5, outputBytes: Buffer.byteLength(output) })
++    expect(readFileSync(join(t.dir, 'containers', '3.txt'), 'utf8')).toBe(output)
++    expect(readTrace(t.dir).find((e) => e.type === 'container')).toMatchObject({ n: 3, outputBytes: Buffer.byteLength(output) })
++  })
++
+   it('writes tool content and result.json', () => {
+     const t = openTrace(out, 'r1')
+     t.toolContent('call_1_0', 'hello')
+diff --git a/src/trace.ts b/src/trace.ts
+index 0e76d79..170a2d9 100644
+--- a/src/trace.ts
++++ b/src/trace.ts
+@@ -12,7 +12,8 @@ export type TraceEvent =
+   | { type: 'tool_result'; callId: string; ok: boolean; errorCode?: ErrorCode; truncated: boolean; sha256: string; bytes: number }
+   | { type: 'after_answer'; turn: number; outcome: 'accept' | 'retry' | 'fail' }
+   // Written by the Task 11 task handler on the same trace as the run (prepare/verify containers around the gate).
+-  | { type: 'container'; kind: 'prepare' | 'verify'; source: 'prepare' | 'run_tests' | 'gate'; exitCode: number | null; timedOut: boolean; durationMs: number }
++  // n is the per-run container number; the full output tail (see TraceWriter.containerOutput) goes to containers/<n>.txt.
++  | { type: 'container'; kind: 'prepare' | 'verify'; source: 'prepare' | 'run_tests' | 'gate'; n: number; outputBytes: number; exitCode: number | null; timedOut: boolean; durationMs: number }
+   | { type: 'run_end'; status: RunStatus; error?: { code: ErrorCode | 'HARNESS_ERROR'; message: string } }
+ 
+ // Exact spec §4.
+@@ -39,6 +40,8 @@ export interface TraceWriter {
+   readonly dir: string
+   event(e: TraceEvent): void
+   toolContent(callId: string, text: string): void
++  /** Full output tail of container <n> (`runInContainer`'s 64 KiB tail) into containers/<n>.txt. */
++  containerOutput(n: number, text: string): void
+   result(r: RunResult): void
+ }
+ 
+@@ -64,6 +67,11 @@ export function openTrace(outDir: string, runId: string): TraceWriter {
+       mkdirSync(toolsDir, { recursive: true })
+       writeFileSync(join(toolsDir, `${safeFileName(callId)}.txt`), text)
+     },
++    containerOutput(n, text) {
++      const containersDir = join(dir, 'containers')
++      mkdirSync(containersDir, { recursive: true })
++      writeFileSync(join(containersDir, `${n}.txt`), text)
++    },
+     result(r) {
+       writeFileSync(join(dir, 'result.json'), JSON.stringify(r, null, 2) + '\n')
+     },
+diff --git a/src/worker/task-impl.ts b/src/worker/task-impl.ts
+index 015814d..792737c 100644
+--- a/src/worker/task-impl.ts
++++ b/src/worker/task-impl.ts
+@@ -233,10 +233,12 @@ export async function runTaskJob(deps: WorkerDeps, claim: Claim, ctx: TaskJobCon
+   const runContainer = async (kind: 'prepare' | 'verify', source: 'prepare' | 'run_tests' | 'gate', script: string, signal: AbortSignal): Promise<VerifyRun> => {
+     // Never another container once one was not provably stopped.
+     if (uncertain) return { exitCode: null, output: '', timedOut: false, runnerError: `container ${uncertain} niet aantoonbaar gestopt` }
+-    const name = containerName(jobId, kind, ++containerNo)
++    const n = ++containerNo
++    const name = containerName(jobId, kind, n)
+     const started = Date.now()
+     const run = await runInContainer(kind, { name, worktree, task, script, signal }, deps.taskDeps)
+-    trace.event({ type: 'container', kind, source, exitCode: run.exitCode, timedOut: run.timedOut, durationMs: Date.now() - started })
++    trace.containerOutput(n, run.output) // before the event, so the output is on disk first
++    trace.event({ type: 'container', kind, source, n, outputBytes: Buffer.byteLength(run.output), exitCode: run.exitCode, timedOut: run.timedOut, durationMs: Date.now() - started })
+     if (run.cleanup === 'uncertain') {
+       uncertain = name
+       inner.abort() // so runManifest cannot turn this into an ordinary failure and nothing else starts

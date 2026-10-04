@@ -1,0 +1,48 @@
+{
+  "caseId": "AH-16",
+  "label": "gsq-lokaal",
+  "runId": "AH-16-gsq-lokaal-83e1be39",
+  "model": {
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "baseUrl": "http://127.0.0.1:11434/v1"
+  },
+  "status": "geslaagd",
+  "runStatus": "completed",
+  "gate": {
+    "reds": 0,
+    "lastTail": "exitcode 0\n\n> agent-harness@0.1.0 verify\n> npm run lint && npm run typecheck && npm test\n\n\n> agent-harness@0.1.0 lint\n> eslint .\n\n\n> agent-harness@0.1.0 typecheck\n> tsc --noEmit\n\n\n> agent-harness@0.1.0 test\n> vitest run\n\n\n\u001b[1m\u001b[30m\u001b[46m RUN \u001b[49m\u001b[39m\u001b[22m \u001b[36mv5.0.2 \u001b[39m\u001b[90m/home/janpeter/m7-runs/task-bench-2026-10-03/gsq/gsq-lokaal/AH-16-gsq-lokaal-83e1be39/ws/work\u001b[39m\n\ncompleted — turns 2, tokens in/out 20/10 (provider_reported), tool calls 1, tool errors 0, 50 ms → /tmp/harness-cli-tools-TAnyto/runs/cli-tools/result.json\n\nklaar\ncompleted — turns 1, tokens in/out 10/5 (provider_reported), tool calls 0, tool errors 0, 16 ms → /tmp/harness-cli-tools-jtBtKd/runs/cli-tools/result.json\n\nok\nfailed (TOOL_NOT_AVAILABLE: allowed tools not offered by the MCP server: missing) — turns 0, tokens in/out 0/0 (missing), tool calls 0, tool errors 0, 1 ms → /tmp/harness-cli-tools-Zzap3i/runs/cli-tools/result.json\ncompleted — turns 1, tokens in/out 10/5 (provider_reported), tool calls 0, tool errors 0, 2 ms → /tmp/harness-cli-answer-Ms4kKd/runs/cli-answer/result.json\n\nok\n \u001b[32m✓\u001b[39m __tests__/cli.test.ts \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 88\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/cli-worker.test.ts \u001b[2m(\u001b[22m\u001b[2m6 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 91\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/worker-config.test.ts \u001b[2m(\u001b[22m\u001b[2m27 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 12\u001b[2mms\u001b[22m\u001b[39m\n[mcp] stdio-env server ready\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nPASS d_nonexistent_tool: no foreign tool call (0 echo calls)\ntool_calling: reliable (usage_reported: true) → /tmp/harness-probe-reWCP6/probe-qwen3-8b/probe.json\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nFAIL d_nonexistent_tool: called: delete_everything\ntool_calling: unreliable (usage_reported: true) → /tmp/harness-probe-ZpecF8/probe-m/probe.json\n--api-key-env: environment variable HARNESS_UNSET_VAR is not set\nharness — agent-harness v0\n\nUsage:\n  harness probe --base-url <url> --model <name> [--out <runs-dir>] [--api-key-env <VAR>] [--step-timeout <sec>]\n  harness run <manifest.json> --out <dir> [--skip-probe]\n  harness worker --config <worker.json> [--out <runs-dir>] [--once] [--skip-probe]\n \u001b[32m✓\u001b[39m __tests__/probe.test.ts \u001b[2m(\u001b[22m\u001b[2m10 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 69\u001b[2mms\u001b[22m\u001b[39m\n[mcp] stdio-env server ready\n \u001b[32m✓\u001b[39m __tests__/policy.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 27\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/manifest.test.ts \u001b[2m(\u001b[22m\u001b[2m14 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 13\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/idea-chat-prompt.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/trace.test.ts \u001b[2m(\u001b[22m\u001b[2m7 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/smoke.test.ts \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 2\u001b[2mms\u001b[22m\u001b[39m\n[mcp] stdio-env server ready\n \u001b[32m✓\u001b[39m __tests__/registry.test.ts \u001b[2m(\u001b[22m\u001b[2m18 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 1328\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m connectStdioRegistry \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m kills a child that never speaks MCP when the signal aborts\u001b[33m 503\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/model-client.test.ts \u001b[2m(\u001b[22m\u001b[2m20 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 1819\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m transport timeouts \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m applies an explicit headersTimeoutMs to the request\u001b[33m 844\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m waits for a slow response when no timeout is set\u001b[33m 802\u001b[2mms\u001b[22m\u001b[39m\nlog_implementation mislukt (genegeerd): weg\n \u001b[32m✓\u001b[39m __tests__/worker.test.ts \u001b[2m(\u001b[22m\u001b[2m38 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 2413\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runWorker — ownership and failures \u001b[2m(14)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m fails with timed_out when the model is slower than maxWallSeconds\u001b[33m 1007\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m sends heartbeats during a long run\u001b[33m 309\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runWorker — review fixes \u001b[2m(5)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m survives one heartbeat exception but abandons after two in a row\u001b[33m 473\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-answer.test.ts \u001b[2m(\u001b[22m\u001b[2m16 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 2557\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — answer profile \u001b[2m(10)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out on a model call that outlives maxWallSeconds, after exactly one request\u001b[33m 1005\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m harness run CLI \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m exits 0 on completed and prints a summary\u001b[33m 344\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m exits 1 on an invalid manifest or an existing run dir\u001b[33m 785\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-tools.test.ts \u001b[2m(\u001b[22m\u001b[2m26 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 4774\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — tools profile \u001b[2m(15)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out during a slow tool and makes no further request\u001b[33m 1003\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m bounds MCP startup by maxWallSeconds and aborts the connect signal\u001b[33m 1002\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m closes a registry that connects after the startup deadline\u001b[33m 1512\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m afterAnswer hook \u001b[2m(7)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m an abort during the hook ends the run without a further model call\u001b[33m 1004\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m14 passed\u001b[39m\u001b[22m\u001b[90m (14)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m211 passed\u001b[39m\u001b[22m\u001b[90m (211)\u001b[39m\n\u001b[2m   Start at \u001b[22m 21:02:29\n\u001b[2m   Duration \u001b[22m 5.13s\u001b[2m (tests 85%, import 11%, transform 4%)\u001b[22m\n\n"
+  },
+  "hidden": {
+    "pass": true,
+    "reason": "geslaagd: 66 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/worker-config.test.ts",
+        "ran": true,
+        "passed": 26,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker.test.ts",
+        "ran": true,
+        "passed": 40,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 799484,
+    "outputTokens": 52214,
+    "turns": 27,
+    "toolCalls": 41,
+    "toolErrors": 0,
+    "cachedTokens": 707560
+  },
+  "providers": [],
+  "retries": [],
+  "patchBytes": 24214,
+  "durationMs": 1287952
+}

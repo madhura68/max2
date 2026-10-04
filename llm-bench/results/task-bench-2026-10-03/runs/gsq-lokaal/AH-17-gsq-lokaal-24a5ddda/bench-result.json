@@ -1,0 +1,48 @@
+{
+  "caseId": "AH-17",
+  "label": "gsq-lokaal",
+  "runId": "AH-17-gsq-lokaal-24a5ddda",
+  "model": {
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "baseUrl": "http://127.0.0.1:11434/v1"
+  },
+  "status": "verborgen_tests_rood",
+  "runStatus": "completed",
+  "gate": {
+    "reds": 0,
+    "lastTail": "exitcode 0\n\n> agent-harness@0.1.0 verify\n> npm run lint && npm run typecheck && npm test\n\n\n> agent-harness@0.1.0 lint\n> eslint .\n\n\n> agent-harness@0.1.0 typecheck\n> tsc --noEmit\n\n\n> agent-harness@0.1.0 test\n> vitest run\n\n\n\u001b[1m\u001b[30m\u001b[46m RUN \u001b[49m\u001b[39m\u001b[22m \u001b[36mv5.0.2 \u001b[39m\u001b[90m/home/janpeter/m7-runs/task-bench-2026-10-03/gsq/gsq-lokaal/AH-17-gsq-lokaal-24a5ddda/ws/work\u001b[39m\n\n \u001b[32m✓\u001b[39m __tests__/model-client.test.ts \u001b[2m(\u001b[22m\u001b[2m15 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 106\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/policy.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 24\u001b[2mms\u001b[22m\u001b[39m\ncompleted — turns 2, tokens in/out 20/10 (provider_reported), tool calls 1, tool errors 0, 66 ms → /tmp/harness-cli-tools-kgJEX0/runs/cli-tools/result.json\n\nklaar\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nPASS d_nonexistent_tool: no foreign tool call (0 echo calls)\ntool_calling: reliable (usage_reported: true) → /tmp/harness-probe-Ey3gbY/probe-qwen3-8b/probe.json\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nFAIL d_nonexistent_tool: called: delete_everything\ntool_calling: unreliable (usage_reported: true) → /tmp/harness-probe-ScQpnw/probe-m/probe.json\n--api-key-env: environment variable HARNESS_UNSET_VAR is not set\nharness — agent-harness v0\n\nUsage:\n  harness probe --base-url <url> --model <name> [--out <runs-dir>] [--api-key-env <VAR>] [--step-timeout <sec>]\n  harness run <manifest.json> --out <dir> [--skip-probe]\n \u001b[32m✓\u001b[39m __tests__/probe.test.ts \u001b[2m(\u001b[22m\u001b[2m10 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 91\u001b[2mms\u001b[22m\u001b[39m\ncompleted — turns 1, tokens in/out 10/5 (provider_reported), tool calls 0, tool errors 0, 13 ms → /tmp/harness-cli-tools-iIEyYj/runs/cli-tools/result.json\n\nok\nfailed (TOOL_NOT_AVAILABLE: allowed tools not offered by the MCP server: missing) — turns 0, tokens in/out 0/0 (missing), tool calls 0, tool errors 0, 2 ms → /tmp/harness-cli-tools-Ac1S9r/runs/cli-tools/result.json\ncompleted — turns 1, tokens in/out 10/5 (provider_reported), tool calls 0, tool errors 0, 2 ms → /tmp/harness-cli-answer-JSjALW/runs/cli-answer/result.json\n\nok\n \u001b[32m✓\u001b[39m __tests__/cli.test.ts \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 102\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/trace.test.ts \u001b[2m(\u001b[22m\u001b[2m7 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/manifest.test.ts \u001b[2m(\u001b[22m\u001b[2m12 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 11\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/worker-config.test.ts \u001b[2m(\u001b[22m\u001b[2m12 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 9\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/idea-chat-prompt.test.ts \u001b[2m(\u001b[22m\u001b[2m13 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/smoke.test.ts \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 2\u001b[2mms\u001b[22m\u001b[39m\n[mcp] stdio-env server ready\n[mcp] stdio-env server ready\n[mcp] stdio-env server ready\n \u001b[32m✓\u001b[39m __tests__/registry.test.ts \u001b[2m(\u001b[22m\u001b[2m18 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 1300\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m connectStdioRegistry \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m kills a child that never speaks MCP when the signal aborts\u001b[33m 503\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-answer.test.ts \u001b[2m(\u001b[22m\u001b[2m13 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 2161\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — answer profile \u001b[2m(10)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out on a model call that outlives maxWallSeconds, after exactly one request\u001b[33m 1008\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m harness run CLI \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m exits 1 on an invalid manifest or an existing run dir\u001b[33m 602\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-tools.test.ts \u001b[2m(\u001b[22m\u001b[2m15 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 3701\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — tools profile \u001b[2m(15)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out during a slow tool and makes no further request\u001b[33m 1004\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m bounds MCP startup by maxWallSeconds and aborts the connect signal\u001b[33m 1003\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m closes a registry that connects after the startup deadline\u001b[33m 1506\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m12 passed\u001b[39m\u001b[22m\u001b[90m (12)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m135 passed\u001b[39m\u001b[22m\u001b[90m (135)\u001b[39m\n\u001b[2m   Start at \u001b[22m 21:06:53\n\u001b[2m   Duration \u001b[22m 3.99s\u001b[2m (tests 84%, import 11%, transform 5%)\u001b[22m\n\n"
+  },
+  "hidden": {
+    "pass": false,
+    "reason": "exitcode 1; 1 falende test(s) in __tests__/idea-chat-prompt.test.ts",
+    "files": [
+      {
+        "file": "__tests__/idea-chat-prompt.test.ts",
+        "ran": true,
+        "passed": 8,
+        "failed": 1,
+        "other": 0
+      },
+      {
+        "file": "__tests__/worker-config.test.ts",
+        "ran": true,
+        "passed": 12,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 439297,
+    "outputTokens": 9342,
+    "turns": 18,
+    "toolCalls": 24,
+    "toolErrors": 1,
+    "cachedTokens": 402286
+  },
+  "providers": [],
+  "retries": [],
+  "patchBytes": 18329,
+  "durationMs": 259360
+}

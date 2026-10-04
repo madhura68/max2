@@ -1,0 +1,206 @@
+diff --git a/__tests__/cli.test.ts b/__tests__/cli.test.ts
+index 886f036..874eca9 100644
+--- a/__tests__/cli.test.ts
++++ b/__tests__/cli.test.ts
+@@ -1,4 +1,4 @@
+-import { existsSync, mkdirSync, writeFileSync } from 'node:fs'
++import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs'
+ import { join } from 'node:path'
+ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+ import type { ServerSpec } from '../src/types.js'
+@@ -137,6 +137,28 @@ describe('harness run — tools profile', () => {
+   })
+ })
+ 
++describe('harness probe — key masking', () => {
++  it('keeps the key echoed in a 401 body out of probe.json, stdout and stderr', async () => {
++    const key = 'sk-dummy-0123456789abcdef0123456789abcde'
++    const turn = { status: 401, body: { error: { message: `invalid API key: ${key}` } } }
++    fake = await startFakeModelServer(Array(5).fill(turn))
++    const dir = tmp('cli-probe-key')
++    const out = join(dir, 'runs')
++    process.env.DUMMY_KEY = key
++    const stdout = vi.spyOn(process.stdout, 'write').mockImplementation(() => true)
++    const stderr = vi.spyOn(process.stderr, 'write').mockImplementation(() => true)
++    const code = await main(['probe', '--base-url', fake.baseUrl, '--model', 'm', '--out', out, '--api-key-env', 'DUMMY_KEY', '--step-timeout', '5'])
++    stdout.mockRestore()
++    stderr.mockRestore()
++    delete process.env.DUMMY_KEY
++    expect(code).toBe(1)
++    const printed = [...stdout.mock.calls, ...stderr.mock.calls].map((c) => String(c[0])).join('')
++    const probeJson = readFileSync(join(probeDir(out, 'm'), 'probe.json'), 'utf8')
++    expect(probeJson).not.toContain(key)
++    expect(printed).not.toContain(key)
++  })
++})
++
+ describe('harness run — answer profile', () => {
+   it('never starts an MCP process', async () => {
+     fake = await startFakeModelServer([{ body: completion({ content: 'ok' }) }])
+diff --git a/__tests__/model-client.test.ts b/__tests__/model-client.test.ts
+index ccc2849..92b95a3 100644
+--- a/__tests__/model-client.test.ts
++++ b/__tests__/model-client.test.ts
+@@ -1,7 +1,7 @@
+ import { readFileSync } from 'node:fs'
+ import { join } from 'node:path'
+ import { afterEach, describe, expect, it } from 'vitest'
+-import { createModelClient, ModelError, transportTimeouts } from '../src/model-client.js'
++import { createModelClient, maskKey, ModelError, transportTimeouts } from '../src/model-client.js'
+ import { completion, startFakeModelServer } from './fakes/fake-model-server.js'
+ 
+ type Fake = Awaited<ReturnType<typeof startFakeModelServer>>
+@@ -131,6 +131,53 @@ describe('createModelClient', () => {
+   })
+ })
+ 
++describe('maskKey', () => {
++  it('replaces every occurrence of the key with <redacted>', () => {
++    expect(maskKey(`a ${'sk-0123456789ab'} b ${'sk-0123456789ab'} c`, 'sk-0123456789ab')).toBe('a <redacted> b <redacted> c')
++  })
++
++  it('leaves the text unchanged without a key or for a key shorter than 8 characters', () => {
++    const text = 'some text'
++    expect(maskKey(text, undefined)).toBe(text)
++    expect(maskKey(text, '')).toBe(text)
++    expect(maskKey(`has ${'seven7'}`, 'seven7')).toBe(`has ${'seven7'}`)
++    expect(maskKey(`has ${'seven'}`, 'seven')).toBe(`has ${'seven'}`)
++  })
++})
++
++// 40 characters, per the plan: long enough that a 200-char excerpt cut across it would leak a 6-char fragment.
++const DUMMY_KEY = 'sk-dummy-0123456789abcdef0123456789abcde'
++const keyFragments = (key: string, min = 6) => {
++  const parts: string[] = []
++  for (let len = min; len <= key.length; len++) for (let i = 0; i + len <= key.length; i++) parts.push(key.slice(i, i + len))
++  return parts
++}
++
++describe('key masking in error messages', () => {
++  it('masks the key in a 401 whose body echoes it', async () => {
++    fake = await startFakeModelServer([{ status: 401, body: { error: { message: `invalid API key: ${DUMMY_KEY}` } } }])
++    const c = createModelClient({ baseUrl: fake.baseUrl, name: 'm', apiKey: DUMMY_KEY })
++    const err = (await c.complete(msgs, opts()).catch((e: unknown) => e)) as Error
++    expect(err).toBeInstanceOf(ModelError)
++    expect(err.message).toContain('<redacted>')
++    expect(err.message).not.toContain(DUMMY_KEY)
++  })
++
++  it.each([
++    ['a 401 whose body has 190 characters before the key', { status: 401, body: `${'x'.repeat(190)}${DUMMY_KEY} post` }],
++    ['a 401 with a non-JSON body containing the key', { status: 401, body: `${'y'.repeat(190)}${DUMMY_KEY} tail` }],
++    ['a 200 with an error object containing the key', { body: { error: { message: `${'z'.repeat(190)}${DUMMY_KEY}` } } }],
++    ['a 200 without choices whose body contains the key', { body: { id: 'x', blob: `${'w'.repeat(190)}${DUMMY_KEY}` } }],
++    ['a 200 whose body is not JSON and contains the key', { body: `${'v'.repeat(190)}${DUMMY_KEY}` }],
++  ])('leaks no 6-char fragment of the key for %s', async (_label, turn) => {
++    fake = await startFakeModelServer([turn])
++    const c = createModelClient({ baseUrl: fake.baseUrl, name: 'm', apiKey: DUMMY_KEY })
++    const err = (await c.complete(msgs, opts()).catch((e: unknown) => e)) as Error
++    expect(err).toBeInstanceOf(ModelError)
++    for (const fragment of keyFragments(DUMMY_KEY)) expect(err.message).not.toContain(fragment)
++  })
++})
++
+ describe('reasoningEffort', () => {
+   it('sends reasoning_effort when set', async () => {
+     fake = await startFakeModelServer([{ body: completion({ content: 'x' }) }])
+diff --git a/__tests__/probe.test.ts b/__tests__/probe.test.ts
+index 74cd680..aeebe6d 100644
+--- a/__tests__/probe.test.ts
++++ b/__tests__/probe.test.ts
+@@ -86,6 +86,18 @@ describe('runProbe', () => {
+   })
+ })
+ 
++describe('key masking in probe results', () => {
++  it('keeps the echoed key out of every reason', async () => {
++    const key = 'sk-dummy-0123456789abcdef0123456789abcde'
++    const script: FakeTurn[] = Array(5).fill({ status: 401, body: { error: { message: `invalid API key: ${key}` } } })
++    fake = await startFakeModelServer(script)
++    const client = createModelClient({ baseUrl: fake.baseUrl, name: 'm', apiKey: key })
++    const r = await runProbe(client, { baseUrl: fake.baseUrl, model: 'm', stepTimeoutMs: 2000 })
++    for (const s of Object.values(r.steps)) expect(s.reason).not.toContain(key)
++    expect(JSON.stringify(r)).not.toContain(key)
++  })
++})
++
+ describe('probeDir', () => {
+   it('slugs model names with colons', () => {
+     expect(probeDir('runs', 'qwen3:8b')).toBe(join('runs', 'probe-qwen3-8b'))
+diff --git a/__tests__/run-answer.test.ts b/__tests__/run-answer.test.ts
+index 0b770e3..9ed4f2c 100644
+--- a/__tests__/run-answer.test.ts
++++ b/__tests__/run-answer.test.ts
+@@ -65,6 +65,18 @@ describe('runManifest — answer profile', () => {
+     expect(events.at(-1)).toMatchObject({ type: 'run_end', status: 'failed', error: { code: 'MODEL_ERROR' } })
+   })
+ 
++  it('keeps the key echoed in a failed response out of run_end and the result error', async () => {
++    const key = 'sk-dummy-0123456789abcdef0123456789abcde'
++    const { result, trace } = await run([{ status: 500, body: { error: { message: `invalid API key: ${key}` } } }], () => ({ model: { baseUrl: fake!.baseUrl, name: 'm', apiKey: key } }))
++    expect(result.status).toBe('failed')
++    expect(result.error?.code).toBe('MODEL_ERROR')
++    expect(result.error?.message).not.toContain(key)
++    expect(dirContains(trace.dir, key)).toBe(false)
++    const runEnd = readTrace(trace.dir).at(-1)
++    expect(runEnd).toMatchObject({ type: 'run_end', status: 'failed' })
++    expect(JSON.stringify(runEnd)).not.toContain(key)
++  })
++
+   it('times out on a model call that outlives maxWallSeconds, after exactly one request', async () => {
+     const started = Date.now()
+     const { result, requests } = await run([{ delayMs: 3000, body: completion({ content: 'late' }) }], () => ({ limits: { ...limits, maxWallSeconds: 1 } }))
+diff --git a/src/model-client.ts b/src/model-client.ts
+index e299ac8..2ffd1df 100644
+--- a/src/model-client.ts
++++ b/src/model-client.ts
+@@ -40,6 +40,12 @@ function excerpt(text: string): string {
+   return text.slice(0, 200)
+ }
+ 
++/** Vervangt elke plek waar de sleutel staat door '<redacted>'. Zonder sleutel, of met een sleutel korter dan 8 tekens, blijft de tekst gelijk. */
++export function maskKey(text: string, apiKey: string | undefined): string {
++  if (!apiKey || apiKey.length < 8) return text
++  return text.split(apiKey).join('<redacted>')
++}
++
+ function parseUsage(raw: unknown): Usage {
+   const u = raw as { prompt_tokens?: unknown; completion_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } } | undefined
+   if (u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number') {
+@@ -115,27 +121,30 @@ export function createModelClient(opts: ModelClientOptions): ModelClient {
+         text = await res.text()
+       } catch (err) {
+         const reason = options.signal.aborted ? 'aborted (deadline)' : err instanceof Error ? err.message : String(err)
+-        throw new ModelError(`model request failed: ${reason}`, { cause: err })
++        throw new ModelError(maskKey(`model request failed: ${reason}`, opts.apiKey), { cause: err })
+       }
+       const durationMs = now() - requestStart
++      // Mask before any excerpt or parse: error paths only ever see the masked text, so a body that echoes the key
++      // cannot leak it, even past the 200-character cut. Successful responses parse the original text.
++      const masked = maskKey(text, opts.apiKey)
+       if (status < 200 || status >= 300) {
+-        throw new ModelError(`model HTTP ${status}: ${excerpt(text)}`)
++        throw new ModelError(`model HTTP ${status}: ${excerpt(masked)}`)
+       }
+       let json: { error?: unknown; choices?: unknown; usage?: unknown; model?: unknown; system_fingerprint?: unknown }
+       try {
+         json = JSON.parse(text)
+       } catch (err) {
+-        throw new ModelError(`model HTTP ${status}: invalid JSON: ${excerpt(text)}`, { cause: err })
++        throw new ModelError(`model HTTP ${status}: invalid JSON: ${excerpt(masked)}`, { cause: err })
+       }
+       if (json === null || typeof json !== 'object') {
+-        throw new ModelError(`model HTTP ${status}: unexpected body: ${excerpt(text)}`)
++        throw new ModelError(`model HTTP ${status}: unexpected body: ${excerpt(masked)}`)
+       }
+       if (json.error) {
+-        throw new ModelError(`model HTTP ${status}: error body: ${excerpt(text)}`)
++        throw new ModelError(`model HTTP ${status}: error body: ${excerpt(masked)}`)
+       }
+       const choice = Array.isArray(json.choices) ? json.choices[0] : undefined
+       if (!choice || typeof choice !== 'object') {
+-        throw new ModelError(`model HTTP ${status}: no choices: ${excerpt(text)}`)
++        throw new ModelError(`model HTTP ${status}: no choices: ${excerpt(masked)}`)
+       }
+       const message = (choice as { message?: { content?: unknown; tool_calls?: unknown; reasoning?: unknown; reasoning_content?: unknown } }).message ?? {}
+       const finish = (choice as { finish_reason?: unknown }).finish_reason

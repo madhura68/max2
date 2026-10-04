@@ -1,0 +1,207 @@
+diff --git a/__tests__/model-client.test.ts b/__tests__/model-client.test.ts
+index 45d1023..7d23696 100644
+--- a/__tests__/model-client.test.ts
++++ b/__tests__/model-client.test.ts
+@@ -349,6 +349,24 @@ describe('reasoning, cachedTokens, durationMs and systemFingerprint', () => {
+     expect(r.systemFingerprint).toBeUndefined()
+   })
+ 
++  it('reads costUsd, reasoningTokens and provider from the real OpenRouter response', async () => {
++    fake = await startFakeModelServer([{ body: fixture('openrouter-chat-completion.json') }])
++    const r = await createModelClient({ baseUrl: fake.baseUrl, name: 'm' }).complete(msgs, opts())
++    expect(r.usage).toEqual({
++      source: 'provider_reported', inputTokens: 399, outputTokens: 44, cachedTokens: 0,
++      costUsd: 7.95e-05, reasoningTokens: 27,
++    })
++    expect(r.provider).toBe('AkashML')
++  })
++
++  it('leaves costUsd, reasoningTokens and provider undefined when the response has none, without error', async () => {
++    fake = await startFakeModelServer([{ body: completion({ content: 'x', usage: { prompt_tokens: 5, completion_tokens: 2 } }) }])
++    const r = await createModelClient({ baseUrl: fake.baseUrl, name: 'm' }).complete(msgs, opts())
++    expect(r.usage.costUsd).toBeUndefined()
++    expect(r.usage.reasoningTokens).toBeUndefined()
++    expect(r.provider).toBeUndefined()
++  })
++
+   it('measures durationMs from just before fetch to just after the body is read', async () => {
+     fake = await startFakeModelServer([{ body: completion({ content: 'x' }) }])
+     const ticks = [1000, 1450]
+diff --git a/__tests__/run-answer.test.ts b/__tests__/run-answer.test.ts
+index 7cf091c..b5cc04e 100644
+--- a/__tests__/run-answer.test.ts
++++ b/__tests__/run-answer.test.ts
+@@ -131,6 +131,49 @@ describe('runManifest — answer profile', () => {
+     expect(result.usage.cachedTokens).toBeUndefined()
+   })
+ 
++  it('records each response’s provider on its own model_response when the providers differ', async () => {
++    const first = JSON.parse(readFileSync(join('__tests__', 'fixtures', 'openrouter-chat-completion.json'), 'utf8'))
++    first.choices[0].message.content = null
++    first.choices[0].finish_reason = 'tool_calls'
++    first.choices[0].message.tool_calls = [{ id: 'c1', type: 'function', function: { name: 'echo', arguments: '{}' } }]
++    const second = structuredClone(first)
++    second.provider = 'Baseten'
++    second.usage = { prompt_tokens: 10, completion_tokens: 3 }
++    const { trace } = await run([
++      { body: first },
++      { body: second },
++      { body: completion({ content: 'ok' }) },
++    ], () => ({ limits: { ...limits, maxTurns: 5, maxToolErrors: 5 } }))
++    const responses = readTrace(trace.dir).filter((e) => e.type === 'model_response')
++    expect(responses).toHaveLength(3)
++    expect(responses[0].provider).toBe('AkashML')
++    expect(responses[1].provider).toBe('Baseten')
++    expect(responses[2].provider).toBeUndefined()
++  })
++
++  it('sums costUsd and reasoningTokens over the responses that report them and omits them when none does', async () => {
++    const withCost = JSON.parse(readFileSync(join('__tests__', 'fixtures', 'openrouter-chat-completion.json'), 'utf8'))
++    withCost.choices[0].message.content = null
++    withCost.choices[0].finish_reason = 'tool_calls'
++    withCost.choices[0].message.tool_calls = [{ id: 'c1', type: 'function', function: { name: 'echo', arguments: '{}' } }]
++    const { result, trace } = await run([
++      { body: withCost },
++      { body: completion({ content: 'ok', usage: { prompt_tokens: 10, completion_tokens: 3 } }) },
++    ], () => ({ limits: { ...limits, maxTurns: 5, maxToolErrors: 5 } }))
++    expect(result.usage).toMatchObject({ costUsd: 7.95e-05, reasoningTokens: 27, inputTokens: 409, outputTokens: 47 })
++    expect(result.usage.cachedTokens).toBe(0)
++    const responses = readTrace(trace.dir).filter((e) => e.type === 'model_response')
++    expect(responses[0].usage).toMatchObject({ costUsd: 7.95e-05, reasoningTokens: 27 })
++    expect(responses[1].usage.costUsd).toBeUndefined()
++    expect(responses[1].usage.reasoningTokens).toBeUndefined()
++  })
++
++  it('leaves costUsd and reasoningTokens absent when no response reports them', async () => {
++    const { result } = await run([{ body: completion({ content: 'x', usage: { prompt_tokens: 5, completion_tokens: 2 } }) }])
++    expect(result.usage.costUsd).toBeUndefined()
++    expect(result.usage.reasoningTokens).toBeUndefined()
++  })
++
+   it('carries reasoning, durationMs and systemFingerprint on model_response, and sums cachedTokens across turns', async () => {
+     fake = await startFakeModelServer([
+       { body: readFileSync(join('__tests__', 'fixtures', 'ollama-v1-reasoning.json'), 'utf8') },
+diff --git a/src/model-client.ts b/src/model-client.ts
+index 3391706..538c548 100644
+--- a/src/model-client.ts
++++ b/src/model-client.ts
+@@ -65,7 +65,13 @@ function excerpt(text: string): string {
+ }
+ 
+ function parseUsage(raw: unknown): Usage {
+-  const u = raw as { prompt_tokens?: unknown; completion_tokens?: unknown; prompt_tokens_details?: { cached_tokens?: unknown } } | undefined
++  const u = raw as {
++    prompt_tokens?: unknown
++    completion_tokens?: unknown
++    cost?: unknown
++    prompt_tokens_details?: { cached_tokens?: unknown }
++    completion_tokens_details?: { reasoning_tokens?: unknown }
++  } | undefined
+   if (u && typeof u.prompt_tokens === 'number' && typeof u.completion_tokens === 'number') {
+     const cached = u.prompt_tokens_details?.cached_tokens
+     return {
+@@ -73,6 +79,8 @@ function parseUsage(raw: unknown): Usage {
+       inputTokens: u.prompt_tokens,
+       outputTokens: u.completion_tokens,
+       cachedTokens: typeof cached === 'number' ? cached : undefined,
++      costUsd: typeof u.cost === 'number' ? u.cost : undefined,
++      reasoningTokens: typeof u.completion_tokens_details?.reasoning_tokens === 'number' ? u.completion_tokens_details.reasoning_tokens : undefined,
+     }
+   }
+   return { source: 'missing', inputTokens: 0, outputTokens: 0 }
+@@ -149,7 +157,7 @@ export function createModelClient(opts: ModelClientOptions): ModelClient {
+       if (status < 200 || status >= 300) {
+         throw new ModelError(`model HTTP ${status}: ${excerpt(maskedText)}`)
+       }
+-      let json: { error?: unknown; choices?: unknown; usage?: unknown; model?: unknown; system_fingerprint?: unknown }
++      let json: { error?: unknown; choices?: unknown; usage?: unknown; model?: unknown; provider?: unknown; system_fingerprint?: unknown }
+       try {
+         json = JSON.parse(text)
+       } catch (err) {
+@@ -175,6 +183,7 @@ export function createModelClient(opts: ModelClientOptions): ModelClient {
+         finishReason: typeof finish === 'string' && FINISH_REASONS.has(finish) ? (finish as CompleteResult['finishReason']) : 'other',
+         usage: parseUsage(json.usage),
+         model: typeof json.model === 'string' ? json.model : undefined,
++        provider: nonEmptyString(json.provider),
+         reasoning: parseReasoning(message),
+         durationMs,
+         systemFingerprint: nonEmptyString(json.system_fingerprint),
+diff --git a/src/run.ts b/src/run.ts
+index 8f9c467..9949038 100644
+--- a/src/run.ts
++++ b/src/run.ts
+@@ -129,6 +129,8 @@ export async function runManifest(manifest: Manifest, deps: RunDeps): Promise<Ru
+   let inputTokens = 0
+   let outputTokens = 0
+   let cachedTokens: number | undefined
++  let costUsd: number | undefined
++  let reasoningTokens: number | undefined
+   let usageComplete = true
+   let responses = 0
+   let reportedModel: string | undefined
+@@ -258,10 +260,13 @@ export async function runManifest(manifest: Manifest, deps: RunDeps): Promise<Ru
+         usageComplete = false
+       }
+       if (typeof res.usage.cachedTokens === 'number') cachedTokens = (cachedTokens ?? 0) + res.usage.cachedTokens
++      if (typeof res.usage.costUsd === 'number') costUsd = (costUsd ?? 0) + res.usage.costUsd
++      if (typeof res.usage.reasoningTokens === 'number') reasoningTokens = (reasoningTokens ?? 0) + res.usage.reasoningTokens
+       trace.event({
+         type: 'model_response', turn: turns, content: res.message.content, toolCalls: res.message.toolCalls,
+         finishReason: res.finishReason, usage: res.usage, durationMs: res.durationMs,
+         ...(res.reasoning !== undefined ? { reasoning: res.reasoning } : {}),
++        ...(res.provider !== undefined ? { provider: res.provider } : {}),
+         ...(res.systemFingerprint !== undefined ? { systemFingerprint: res.systemFingerprint } : {}),
+       })
+ 
+@@ -364,6 +369,8 @@ export async function runManifest(manifest: Manifest, deps: RunDeps): Promise<Ru
+       source: responses > 0 && usageComplete ? 'provider_reported' : 'missing',
+       inputTokens, outputTokens, turns, toolCalls, toolErrors,
+       ...(cachedTokens !== undefined ? { cachedTokens } : {}),
++      ...(costUsd !== undefined ? { costUsd } : {}),
++      ...(reasoningTokens !== undefined ? { reasoningTokens } : {}),
+     },
+     durationMs: now() - started,
+     ...(snapshotHash ? { toolSnapshotHash: snapshotHash } : {}),
+diff --git a/src/trace.ts b/src/trace.ts
+index 62f0e56..429de31 100644
+--- a/src/trace.ts
++++ b/src/trace.ts
+@@ -7,7 +7,7 @@ export type TraceEvent =
+   | { type: 'tool_snapshot'; names: string[]; hash: string }
+   | { type: 'model_request'; turn: number; messages: number; tools: number; maxTokens: number; promptEstimate?: number }
+   | { type: 'context_compacted'; turn: number; messages: number; bytes: number; estimateBefore: number; estimateAfter: number }
+-  | { type: 'model_response'; turn: number; content: string | null; toolCalls: ToolCall[]; finishReason: string; usage: Usage; reasoning?: string; durationMs: number; systemFingerprint?: string }
++  | { type: 'model_response'; turn: number; content: string | null; toolCalls: ToolCall[]; finishReason: string; usage: Usage; reasoning?: string; provider?: string; durationMs: number; systemFingerprint?: string }
+   | { type: 'tool_call'; callId: string; name: string; arguments: string; argumentsWasObject: boolean }
+   | { type: 'tool_result'; callId: string; ok: boolean; errorCode?: ErrorCode; truncated: boolean; sha256: string; bytes: number }
+   | { type: 'after_answer'; turn: number; outcome: 'accept' | 'retry' | 'fail' }
+@@ -30,6 +30,8 @@ export type RunResult = {
+     toolCalls: number
+     toolErrors: number
+     cachedTokens?: number
++    costUsd?: number // sum over the responses that reported usage.cost; absent when none did
++    reasoningTokens?: number // sum over the responses that reported reasoning_tokens; absent when none did
+   }
+   durationMs: number
+   toolSnapshotHash?: string
+diff --git a/src/types.ts b/src/types.ts
+index 9c61222..abf218f 100644
+--- a/src/types.ts
++++ b/src/types.ts
+@@ -22,6 +22,8 @@ export type Usage = {
+   inputTokens: number
+   outputTokens: number
+   cachedTokens?: number
++  costUsd?: number // usage.cost, only when the response reports a number
++  reasoningTokens?: number // usage.completion_tokens_details.reasoning_tokens, only when the response reports a number
+ }
+ 
+ export type CompleteResult = {
+@@ -29,6 +31,7 @@ export type CompleteResult = {
+   finishReason: 'stop' | 'length' | 'tool_calls' | 'other'
+   usage: Usage
+   model: string | undefined // what the server reports
++  provider?: string // top-level `provider` of the response, only ever a non-empty string
+   reasoning?: string // message.reasoning, otherwise message.reasoning_content; only ever a non-empty string
+   durationMs: number // measured from just before fetch to just after the response body is read
+   systemFingerprint?: string // system_fingerprint
