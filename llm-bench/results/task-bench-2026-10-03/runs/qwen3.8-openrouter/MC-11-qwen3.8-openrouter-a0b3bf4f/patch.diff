@@ -1,0 +1,392 @@
+diff --git a/CLAUDE.md b/CLAUDE.md
+index 8bd71f3..7298804 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -198,6 +198,24 @@ Server-startup registers a `ClaudeWorker` record + starts a 10 s heartbeat; shut
+ | `src/presence/shutdown.ts` | `registerShutdownHandlers` — SIGTERM/SIGINT + stdin `end`/`close` → stop heartbeat + unregister; returns `shutdown()` so the caller can also trigger it (e.g. from `transport.onclose`) |
+ | `src/index.ts` | Bootstrap: calls `getAuth` → `registerWorker` → `startHeartbeat` → `registerShutdownHandlers`, and wires `transport.onclose` → `shutdown()` |
+ 
++## s4m-queue tools (stdio-only)
++
++De `queue_*`-tools worden uitsluitend geregistreerd door `registerQueueTools`
++(nooit door `src/http.ts`) — ze dragen de roeperse `S4M_SERVER`/`S4M_MODEL`-identiteit
++en houden het in-memory lease-register bij.
++
++| Tool | Doel | Read-only? |
++|---|---|---|
++| `queue_push` | Stuur een `task`/`info`/`review_request` naar een ander agent/mens; levert `message_id` als reply-handle | no |
++| `queue_wait_reply` | Haal replies op op eigen requests (`in_reply_to`); `wait_seconds` 0 = non-blocking | yes |
++| `queue_next` | Claim de volgende request voor jou (FIFO); levert `claim_token` voor `queue_done`/`queue_fail` | no |
++| `queue_done` | Sluit een claimed bericht af — optioneel met `reply` (transactie); `claim_token` verplicht | no |
++| `queue_fail` | Markeer een claimed bericht als failed (stop-at-first-error);zelfde claim-contract als `queue_done` | no |
++| `queue_status` | Read-only: één bericht plus alle replies | yes |
++| `queue_list` | Read-only, non-claiming — berichten waar jouw adres afzender of ontvanger is; gearchiveerde rijen standaard verborgen (`include_archived: true` toont ze) | yes |
++| `queue_archive` | M32: archiveer een bericht + volledige reply-subtree (recursief `in_reply_to`, `WITH RECURSIVE … FOR UPDATE` in één transactie); elke rij moet terminale zijn (done/failed/cancelled, anders `QUEUE_NOT_TERMINAL`); per-rij idempotent; géén NOTIFY | no |
++| `queue_unarchive` | M32: herstel een gearchiveerd bericht + volledige reply-subtree; géén terminaal-check; per-rij idempotent; géén NOTIFY | no |
++
+ ## Queue-leeskant: entiteit-transparantie
+ 
+ De MCP escapet queue-bodies niet. `messageView` (`src/queue/view.ts`) geeft `body` door
+diff --git a/README.md b/README.md
+index bfed03d..bf2a6e4 100644
+--- a/README.md
++++ b/README.md
+@@ -44,7 +44,9 @@ activity and create todos via native tool calls instead of curl.
+ | `queue_done` | s4m-queue: finish a claimed message — with `reply` it transactionally inserts the reply back to the requester and closes the request; needs the `claim_token` | yes |
+ | `queue_fail` | s4m-queue: mark a claimed message failed with an error text (stop-at-first-error); same ownership contract and `claim_token` as `queue_done` | yes |
+ | `queue_status` | s4m-queue: read-only, non-claiming — one message plus all replies to it (`in_reply_to = message_id`) | yes (read-only) |
+-| `queue_list` | s4m-queue: read-only, non-claiming — messages where your own address is sender or addressee; `direction: 'sent'` recovers outstanding request ids after a session crash | yes (read-only) |
++| `queue_list` | s4m-queue: read-only, non-claiming — messages where your own address is sender or addressee; `direction: 'sent'` recovers outstanding request ids after a session crash; archived messages hidden by default (`include_archived: true` to see them) | yes (read-only) |
++| `queue_archive` | s4m-queue (M32): archive a message and its whole reply subtree (recursive `in_reply_to`); every row must be terminal (done/failed/cancelled); per-row idempotent | no |
++| `queue_unarchive` | s4m-queue (M32): restore an archived message and its whole reply subtree; no terminal check; per-row idempotent | no |
+ 
+ Demo accounts may read but writes return `PERMISSION_DENIED`.
+ 
+diff --git a/__tests__/queue-archive.test.ts b/__tests__/queue-archive.test.ts
+new file mode 100644
+index 0000000..c2619e9
+--- /dev/null
++++ b/__tests__/queue-archive.test.ts
+@@ -0,0 +1,186 @@
++// M32 spec 4.4 — queue_archive/queue_unarchive: subtree (recursieve
++// in_reply_to-keten), terminaal-check (alleen bij archiveren), per-rij
++// idempotentie via de where-clause, géén NOTIFY. $transaction-mock die de
++// callback met een tx-object aanroept, zelfde patroon als queue-done.test.ts.
++import { describe, it, expect, vi, beforeEach } from 'vitest'
++
++const updateMany = vi.hoisted(() => vi.fn())
++const queryRaw = vi.hoisted(() => vi.fn())
++const executeRaw = vi.hoisted(() => vi.fn())
++const txMock = vi.hoisted(() => ({
++  $queryRaw: queryRaw,
++  $executeRaw: executeRaw,
++  agentMessage: { updateMany },
++}))
++
++vi.mock('../src/prisma.js', () => ({
++  prisma: { $transaction: vi.fn(async (fn: (tx: unknown) => Promise<unknown>) => fn(txMock)) },
++}))
++vi.mock('../src/auth.js', async (importOriginal) => {
++  const original = await importOriginal<typeof import('../src/auth.js')>()
++  return { ...original, requireWriteAccess: vi.fn() }
++})
++
++import { requireWriteAccess } from '../src/auth.js'
++import { registerQueueArchiveTools } from '../src/tools/queue-archive.js'
++import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
++import type { AnyMock } from './helpers/mocks.js'
++
++const mockAuth = requireWriteAccess as AnyMock
++const qraw = queryRaw as AnyMock
++const xraw = executeRaw as AnyMock
++const updateManyCall = updateMany as AnyMock
++
++type ToolResult = { isError?: boolean; content: { text: string }[] }
++
++function makeServers() {
++  const handlers: Record<string, (args: Record<string, unknown>) => Promise<unknown>> = {}
++  const server = {
++    registerTool: vi.fn((name: string, _meta: unknown, fn: (args: Record<string, unknown>) => Promise<unknown>) => {
++      handlers[name] = fn
++    }),
++    call: (name: string, args: Record<string, unknown>) => Promise.resolve(handlers[name](args)) as Promise<ToolResult>,
++  }
++  registerQueueArchiveTools(server as unknown as McpServer)
++  return server
++}
++
++const ROOT_ID = 'aaaaaaaa-0000-4000-8000-0000000000a0'
++const CHILD_ID = 'aaaaaaaa-0000-4000-8000-0000000000a1'
++
++function row(id: string, overrides: Partial<Record<string, unknown>> = {}) {
++  return {
++    id,
++    type: 'info',
++    from_server: 'max2',
++    from_model: 'codex',
++    to_server: 'mac',
++    to_model: 'claude',
++    body: 'x',
++    meta: {},
++    source: 'cli',
++    status: 'done',
++    in_reply_to: null,
++    error: null,
++    claimed_by: null,
++    claimed_at: null,
++    started_at: null,
++    finished_at: new Date(),
++    created_at: new Date(),
++    archived_at: null,
++    ...overrides,
++  }
++}
++
++function subtreeRows(overrides: Partial<Record<string, unknown>> = {}) {
++  return [
++    row(ROOT_ID, overrides),
++    row(CHILD_ID, { in_reply_to: ROOT_ID, ...overrides }),
++  ]
++}
++
++beforeEach(() => {
++  vi.clearAllMocks()
++  mockAuth.mockResolvedValue({ userId: 'u', tokenId: 't', username: 'agent', isDemo: false })
++  qraw.mockResolvedValue([])
++  updateManyCall.mockResolvedValue({ count: 0 })
++})
++
++describe('queue_archive — validaties (M32 §4.4)', () => {
++  it('QUEUE_NOT_FOUND voor een onbekend id', async () => {
++    qraw.mockResolvedValue([])
++    const server = makeServers()
++    const result = await server.call('queue_archive', { message_id: ROOT_ID })
++    expect(result.isError).toBe(true)
++    expect(result.content[0].text).toContain('QUEUE_NOT_FOUND')
++    expect(updateManyCall).not.toHaveBeenCalled()
++  })
++
++  it('QUEUE_NOT_TERMINAL mét blokkerend rij-id + status; géén updateMany', async () => {
++    qraw.mockResolvedValue([
++      row(ROOT_ID, { status: 'done' }),
++      row(CHILD_ID, { in_reply_to: ROOT_ID, status: 'pending', finished_at: null }),
++    ])
++    const server = makeServers()
++    const result = await server.call('queue_archive', { message_id: ROOT_ID })
++    expect(result.isError).toBe(true)
++    expect(result.content[0].text).toContain('QUEUE_NOT_TERMINAL')
++    expect(result.content[0].text).toContain(CHILD_ID)
++    expect(result.content[0].text).toContain('pending')
++    expect(updateManyCall).not.toHaveBeenCalled()
++  })
++
++  it('lockt de subtree via WITH RECURSIVE + FOR UPDATE binnen de transactie', async () => {
++    qraw.mockResolvedValue(subtreeRows())
++    const server = makeServers()
++    await server.call('queue_archive', { message_id: ROOT_ID })
++    const sql = (qraw.mock.calls[0][0] as readonly string[]).join(' ')
++    expect(sql).toContain('WITH RECURSIVE')
++    expect(sql).toContain('FOR UPDATE')
++    expect(qraw.mock.calls[0].slice(1)).toEqual([ROOT_ID])
++    // géén NOTIFY: geen enkele $executeRaw-calls in deze tool
++    expect(xraw).not.toHaveBeenCalled()
++  })
++})
++
++describe('queue_archive — happy path', () => {
++  it('updateMany op de hele subtree, per-rij idempotent (archived_at: null) → { message_id, total, archived }', async () => {
++    qraw.mockResolvedValue(subtreeRows())
++    updateManyCall.mockResolvedValue({ count: 1 })
++    const server = makeServers()
++    const result = await server.call('queue_archive', { message_id: ROOT_ID })
++    expect(result.isError).toBeUndefined()
++    expect(updateManyCall).toHaveBeenCalledTimes(1)
++    const args = updateManyCall.mock.calls[0][0] as {
++      where: Record<string, unknown>
++      data: Record<string, unknown>
++    }
++    expect(args.where).toEqual({ id: { in: [ROOT_ID, CHILD_ID] }, archived_at: null })
++    expect(args.data).toEqual({ archived_at: expect.any(Date) })
++    const body = JSON.parse(result.content[0].text)
++    expect(body).toEqual({ message_id: ROOT_ID, total: 2, archived: 1 })
++  })
++})
++
++describe('queue_unarchive', () => {
++  it('updateMany { archived_at: { not: null } } → null; géén terminaal-check', async () => {
++    // Een niet-terminale rij in de subtree blokkeert unarchive niet.
++    qraw.mockResolvedValue([
++      row(ROOT_ID, { status: 'done' }),
++      row(CHILD_ID, { in_reply_to: ROOT_ID, status: 'pending', finished_at: null }),
++    ])
++    updateManyCall.mockResolvedValue({ count: 1 })
++    const server = makeServers()
++    const result = await server.call('queue_unarchive', { message_id: ROOT_ID })
++    expect(result.isError).toBeUndefined()
++    expect(updateManyCall).toHaveBeenCalledTimes(1)
++    const args = updateManyCall.mock.calls[0][0] as {
++      where: Record<string, unknown>
++      data: Record<string, unknown>
++    }
++    expect(args.where).toEqual({ id: { in: [ROOT_ID, CHILD_ID] }, archived_at: { not: null } })
++    expect(args.data).toEqual({ archived_at: null })
++    const body = JSON.parse(result.content[0].text)
++    expect(body).toEqual({ message_id: ROOT_ID, total: 2, unarchived: 1 })
++    expect(xraw).not.toHaveBeenCalled()
++  })
++
++  it('QUEUE_NOT_FOUND voor een onbekend id', async () => {
++    qraw.mockResolvedValue([])
++    const server = makeServers()
++    const result = await server.call('queue_unarchive', { message_id: ROOT_ID })
++    expect(result.isError).toBe(true)
++    expect(result.content[0].text).toContain('QUEUE_NOT_FOUND')
++    expect(updateManyCall).not.toHaveBeenCalled()
++  })
++})
++
++describe('registratie', () => {
++  it('registerQueueArchiveTools registreert exact queue_archive + queue_unarchive', () => {
++    const names: string[] = []
++    registerQueueArchiveTools({
++      registerTool: vi.fn((n: string) => names.push(n)),
++    } as unknown as McpServer)
++    expect([...names].sort()).toEqual(['queue_archive', 'queue_unarchive'])
++  })
++})
+diff --git a/__tests__/queue-registration.test.ts b/__tests__/queue-registration.test.ts
+index 24b5774..2a768dc 100644
+--- a/__tests__/queue-registration.test.ts
++++ b/__tests__/queue-registration.test.ts
+@@ -8,6 +8,7 @@ import { createMcpServer } from '../src/http.js'
+ const QUEUE_TOOL_NAMES = [
+   'queue_push', 'queue_wait_reply', 'queue_next', 'queue_done',
+   'queue_fail', 'queue_status', 'queue_list',
++  'queue_archive', 'queue_unarchive',
+ ] as const
+ 
+ function captureNames() {
+@@ -22,7 +23,7 @@ function captureNames() {
+ }
+ 
+ describe('queue-tools registratie — stdio-only (spec §5-intro/§9)', () => {
+-  it('registerQueueTools registreert exact de 7 kernset-tools', () => {
++  it('registerQueueTools registreert exact de 9 kernset-tools', () => {
+     const { server, names } = captureNames()
+     registerQueueTools(server as never)
+     expect([...names].sort()).toEqual([...QUEUE_TOOL_NAMES].sort())
+diff --git a/src/register.ts b/src/register.ts
+index cc6fdc2..1203250 100644
+--- a/src/register.ts
++++ b/src/register.ts
+@@ -82,6 +82,7 @@ import { registerQueueDoneTool } from './tools/queue-done.js'
+ import { registerQueueFailTool } from './tools/queue-fail.js'
+ import { registerQueueStatusTool } from './tools/queue-status.js'
+ import { registerQueueListTool } from './tools/queue-list.js'
++import { registerQueueArchiveTools } from './tools/queue-archive.js'
+ 
+ /**
+  * DB/network-only tools — safe for the centralized HTTP server (and also
+@@ -177,4 +178,5 @@ export function registerQueueTools(server: McpServer): void {
+   registerQueueFailTool(server)
+   registerQueueStatusTool(server)
+   registerQueueListTool(server)
++  registerQueueArchiveTools(server)
+ }
+diff --git a/src/tools/queue-archive.ts b/src/tools/queue-archive.ts
+new file mode 100644
+index 0000000..5a70b32
+--- /dev/null
++++ b/src/tools/queue-archive.ts
+@@ -0,0 +1,111 @@
++// M32 spec 4.4 — queue_archive / queue_unarchive.
++//
++// Semantiek identiek aan s4m-queue archiveSubtree/unarchiveSubtree:
++//   - subtree: het bericht plus alle (transitieve) replies via in_reply_to,
++//     opgehaald én verwerkt in één transactie
++//   - lockSubtree: WITH RECURSIVE ... FOR UPDATE over de keten, zodat een
++//     concurrente queue_done/queue_fail niet onder de check door kan
++//   - terminaal-check: alleen bij archiveren — elkeen van de subtree-rijen
++//     moet done/failed/cancelled zijn (QUEUE_TERMINAL_STATUSES, afgeleid uit
++//     @shared/queue-identity.js, niet overgetypt). Unarchive kent géén
++//     terminaal-check: een gearchiveerde keten kan altijd terug.
++//   - per-rij idempotentie: de where-clause (archived_at: null resp.
++//     { not: null }) laat al-archiveren/ongearchiveerde rijen gewoon overslaan
++//   - géén NOTIFY: archiveren is opslaghygiëne, geen queue-overgang —
++//     watchers/pollers hoeven er niet op te reageren.
++//
++// Agents mogen archiveren (opruim-automatisering); identiteit komt via de
++// bestaande S4M_SERVER/S4M_MODEL-regels, zoals bij alle queue-tools.
++import { z } from 'zod'
++import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp.js'
++import { Prisma } from '@prisma/client'
++import { prisma } from '../prisma.js'
++import { requireWriteAccess } from '../auth.js'
++import { toolError, toolJson, withToolErrors } from '../errors.js'
++import { QUEUE_TERMINAL_STATUSES } from '@shared/queue-identity.js'
++
++const inputSchema = z.object({
++  message_id: z.string().uuid(),
++})
++
++type SubtreeRow = { id: string; status: string }
++
++async function lockSubtree(tx: typeof prisma, messageId: string): Promise<SubtreeRow[]> {
++  return (await tx.$queryRaw(
++    Prisma.sql`WITH RECURSIVE subtree AS (
++      SELECT * FROM agent_message WHERE id = ${messageId}
++      UNION ALL
++      SELECT am.* FROM agent_message am JOIN subtree s ON am.in_reply_to = s.id
++    ) SELECT id, status FROM subtree FOR UPDATE`,
++  )) as SubtreeRow[]
++}
++
++export function registerQueueArchiveTools(server: McpServer): void {
++  server.registerTool(
++    'queue_archive',
++    {
++      title: 'Queue archive',
++      description:
++        'Archive a finished queue message and its whole reply subtree ' +
++        '(recursively via in_reply_to). Every row in the subtree must be terminal ' +
++        '(done/failed/cancelled); per-row idempotent — already-archived rows are ' +
++        'skipped. Archived rows are hidden from queue_list/queue_next by default. ' +
++        'Returns { message_id, total, archived }.',
++      inputSchema,
++      annotations: { readOnlyHint: false, idempotentHint: true },
++    },
++    async ({ message_id }) =>
++      withToolErrors(async () => {
++        await requireWriteAccess()
++        return prisma.$transaction(async (tx) => {
++          const rows = await lockSubtree(tx, message_id)
++          if (rows.length === 0) {
++            return toolError(`QUEUE_NOT_FOUND: message ${message_id} does not exist`)
++          }
++          const terminal = [...QUEUE_TERMINAL_STATUSES]
++          const blockers = rows.filter((row) => !terminal.includes(row.status))
++          if (blockers.length > 0) {
++            const first = blockers[0]
++            return toolError(
++              `QUEUE_NOT_TERMINAL: cannot archive subtree of ${message_id} — ` +
++                `message ${first.id} has status '${first.status}' (terminal required: ${terminal.join('/')})`,
++            )
++          }
++          const { count } = await tx.agentMessage.updateMany({
++            where: { id: { in: rows.map((row) => row.id) }, archived_at: null },
++            data: { archived_at: new Date() },
++          })
++          return toolJson({ message_id, total: rows.length, archived: count })
++        })
++      }),
++  )
++
++  server.registerTool(
++    'queue_unarchive',
++    {
++      title: 'Queue unarchive',
++      description:
++        'Restore an archived queue message and its whole reply subtree ' +
++        '(recursively via in_reply_to). No terminal check — an archived chain ' +
++        'can always be restored. Per-row idempotent — non-archived rows are ' +
++        'skipped. Returns { message_id, total, unarchived }.',
++      inputSchema,
++      annotations: { readOnlyHint: false, idempotentHint: true },
++    },
++    async ({ message_id }) =>
++      withToolErrors(async () => {
++        await requireWriteAccess()
++        return prisma.$transaction(async (tx) => {
++          const rows = await lockSubtree(tx, message_id)
++          if (rows.length === 0) {
++            return toolError(`QUEUE_NOT_FOUND: message ${message_id} does not exist`)
++          }
++          const { count } = await tx.agentMessage.updateMany({
++            where: { id: { in: rows.map((row) => row.id) }, archived_at: { not: null } },
++            data: { archived_at: null },
++          })
++          return toolJson({ message_id, total: rows.length, unarchived: count })
++        })
++      }),
++  )
++}

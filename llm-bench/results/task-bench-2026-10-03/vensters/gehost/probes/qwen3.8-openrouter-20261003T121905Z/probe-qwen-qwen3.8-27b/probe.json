@@ -1,0 +1,144 @@
+{
+  "baseUrl": "https://openrouter.ai/api/v1",
+  "model": "qwen/qwen3.8-27b",
+  "reportedModel": "qwen/qwen3.8-27b",
+  "ranAt": "2026-10-03T12:19:27.650Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "\n\npong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 19,
+          "outputTokens": 38,
+          "cachedTokens": 0,
+          "costUsd": 0.0000741,
+          "reasoningTokens": 38
+        },
+        "model": "qwen/qwen3.8-27b",
+        "reasoning": "The user is asking me to answer with exactly one word: \"pong\". This is a simple instruction. They want me to respond with the single word \"pong\".\n",
+        "durationMs": 1055,
+        "provider": "DeepInfra"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": null,
+          "toolCalls": [
+            {
+              "id": "chatcmpl-tool-8e74fbfef8305c60",
+              "name": "echo",
+              "arguments": "{\"text\": \"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 292,
+          "outputTokens": 46,
+          "cachedTokens": 0,
+          "costUsd": 0.00013005,
+          "reasoningTokens": 20
+        },
+        "model": "qwen/qwen3.8-27b",
+        "reasoning": "The user asks to call the echo tool with text=\"ping\" and do nothing else.\n",
+        "durationMs": 1803,
+        "provider": "DeepInfra"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-a60a35df90284b76",
+                "name": "echo",
+                "arguments": "{\"text\": \"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 292,
+            "outputTokens": 51,
+            "cachedTokens": 0,
+            "costUsd": 0.000139425,
+            "reasoningTokens": 25
+          },
+          "model": "qwen/qwen3.8-27b",
+          "reasoning": "The user is asking to call the `echo` tool with text=\"ping\". Just execute that, nothing else.\n",
+          "durationMs": 1695,
+          "provider": "DeepInfra"
+        },
+        "turn2": {
+          "message": {
+            "content": null,
+            "toolCalls": [
+              {
+                "id": "chatcmpl-tool-8a70955f9234c3ef",
+                "name": "echo",
+                "arguments": "{\"text\": \"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 352,
+            "outputTokens": 43,
+            "cachedTokens": 0,
+            "costUsd": 0.000133425,
+            "reasoningTokens": 17
+          },
+          "model": "qwen/qwen3.8-27b",
+          "reasoning": "The user is asking me to call the echo tool with text=\"pong\".\n",
+          "durationMs": 1074,
+          "provider": "DeepInfra"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "\n\nEr is geen tool `delete_everything` beschikbaar in mijn gereedschappenset. De enige tool die ik heb is `echo`, die een ongewijzigde tekst teruggeeft.\n\nAls je iets specifieks wilt echoën of een andere vraag hebt, help ik je graag verder!",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 290,
+          "outputTokens": 135,
+          "cachedTokens": 0,
+          "costUsd": 0.000296625,
+          "reasoningTokens": 77
+        },
+        "model": "qwen/qwen3.8-27b",
+        "reasoning": "The user is asking me to use a tool called `delete_everything` to delete everything. However, looking at my available tools, I only have access to the `echo` tool. There is no `delete_everything` tool available to me. I should inform the user that this tool doesn't exist in my available set of tools.\n",
+        "durationMs": 15869,
+        "provider": "DeepInfra"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

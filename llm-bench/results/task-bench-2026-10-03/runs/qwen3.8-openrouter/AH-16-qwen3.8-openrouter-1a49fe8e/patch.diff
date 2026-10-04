@@ -1,0 +1,458 @@
+diff --git a/__tests__/fakes/fake-scrum4me-mcp.ts b/__tests__/fakes/fake-scrum4me-mcp.ts
+index a45d258..87e3a2b 100644
+--- a/__tests__/fakes/fake-scrum4me-mcp.ts
++++ b/__tests__/fakes/fake-scrum4me-mcp.ts
+@@ -11,12 +11,27 @@ export type ToolCallRecord = { name: string; args: Record<string, unknown> }
+ const toolText = (value: unknown) => ({ content: [{ type: 'text' as const, text: JSON.stringify(value) }] })
+ const toolError = (message: string) => ({ isError: true, content: [{ type: 'text' as const, text: message }] })
+ 
++/**
++ * The real outcome an update actually produced, when different from what was asked for
++ * (for example: a `failed` reply after a `done` was already accepted).
++ */
++export type UpdateOutcome = { status: 'running' | 'done' | 'failed' | 'skipped'; error?: string }
++
+ /**
+  * In-process stand-in for the scrum4me MCP: the control tools (wait_for_job, job_heartbeat,
+- * update_job_status) plus the four doc tools. `calls` records every call the server received.
+- * Exhausted claim scripts answer with a timeout.
++ * update_job_status, update_task_status, verify_task_against_plan, log_implementation,
++ * log_commit, log_test_result) plus the four doc tools. `calls` records every call the server
++ * received. Exhausted claim scripts answer with a timeout.
+  */
+-export async function startFakeScrum4meMcp(opts: { claims?: ClaimStep[]; failUpdate?: Array<'running' | 'done' | 'failed'> } = {}) {
++export async function startFakeScrum4meMcp(
++  opts: {
++    claims?: ClaimStep[]
++    failUpdate?: Array<'running' | 'done' | 'failed'>
++    /** When set, its return value (for this request) replaces the normal update_job_status answer. */
++    updateOutcome?: (input: { job_id: string; status: 'running' | 'done' | 'failed' }) => UpdateOutcome | undefined
++    verifyResult?: 'aligned' | 'partial' | 'empty' | 'divergent'
++  } = {},
++) {
+   const calls: ToolCallRecord[] = []
+   const claims = [...(opts.claims ?? [])]
+   const state = { heartbeatOk: true, failUpdate: new Set(opts.failUpdate ?? []) }
+@@ -54,9 +69,38 @@ export async function startFakeScrum4meMcp(opts: { claims?: ClaimStep[]; failUpd
+     async (args) => {
+       calls.push({ name: 'update_job_status', args })
+       if (state.failUpdate.has(args.status as 'running' | 'done' | 'failed')) return toolError(`Job ${args.job_id} is already terminal`)
+-      return toolText({ ok: true, status: args.status })
++      // The real answer format: status, and on a pushed done also branch and pushed_at.
++      const overridden = opts.updateOutcome?.(args as { job_id: string; status: 'running' | 'done' | 'failed' })
++      if (overridden) {
++        return toolText({ status: overridden.status, branch: null, pushed_at: null, error: overridden.error ?? null })
++      }
++      if (args.status === 'done') {
++        return toolText({ status: 'done', branch: 'story/job1', pushed_at: '2026-09-27T12:00:00.000Z', error: null })
++      }
++      return toolText({ status: args.status, branch: null, pushed_at: null, error: null })
+     },
+   )
++  server.registerTool('update_task_status', { inputSchema: { task_id: z.string(), status: z.enum(['todo', 'in_progress', 'review']) } }, async (args) => {
++    calls.push({ name: 'update_task_status', args })
++    return toolText({ ok: true, task_id: args.task_id, status: args.status })
++  })
++  server.registerTool('verify_task_against_plan', { inputSchema: { task_id: z.string(), worktree_path: z.string() } }, async (args) => {
++    calls.push({ name: 'verify_task_against_plan', args })
++    const result = opts.verifyResult ?? 'aligned'
++    return toolText({ result, message: `diff ${result} met het plan` })
++  })
++  const logTool = (name: string, extra: Record<string, z.ZodType> = {}) =>
++    server.registerTool(
++      name,
++      { inputSchema: { story_id: z.string(), task_id: z.string(), content: z.string(), ...extra } },
++      async (args) => {
++        calls.push({ name, args })
++        return toolText({ ok: true })
++      },
++    )
++  logTool('log_implementation')
++  logTool('log_commit', { commit_hash: z.string().optional(), commit_message: z.string().optional() })
++  logTool('log_test_result', { status: z.enum(['PASSED', 'FAILED']).optional() })
+   server.registerTool('search_product_docs', { description: 'Search product docs', inputSchema: { product_id: z.string(), query: z.string() } }, async (args) => {
+     calls.push({ name: 'search_product_docs', args })
+     return toolText({ results: [{ doc_id: 'doc1', title: 'Worker-runbook', product_id: args.product_id }] })
+diff --git a/__tests__/worker-config.test.ts b/__tests__/worker-config.test.ts
+index 12be133..4ca232d 100644
+--- a/__tests__/worker-config.test.ts
++++ b/__tests__/worker-config.test.ts
+@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from 'node:fs'
+ import { tmpdir } from 'node:os'
+ import { join } from 'node:path'
+ import { describe, expect, it } from 'vitest'
+-import { DOC_TOOLS, loadWorkerConfig, WorkerConfigSchema, workerMcpEnv } from '../src/worker/config.js'
++import { CONTROL_TOOLS, DOC_TOOLS, findRecipe, loadWorkerConfig, normalizeRepoUrl, TaskConfigSchema, WorkerConfigSchema, workerMcpEnv } from '../src/worker/config.js'
+ import { ManifestError } from '../src/manifest.js'
+ 
+ const base = {
+@@ -24,7 +24,17 @@ describe('WorkerConfigSchema', () => {
+     expect(cfg.waitSeconds).toBe(300)
+   })
+ 
+-  it.each(['update_job_status', 'wait_for_job', 'job_heartbeat', 'update_idea'])('rejects %s in allow, naming it', (tool) => {
++  it.each([
++    'update_job_status',
++    'wait_for_job',
++    'job_heartbeat',
++    'update_idea',
++    'update_task_status',
++    'verify_task_against_plan',
++    'log_implementation',
++    'log_commit',
++    'log_test_result',
++  ])('rejects %s in allow, naming it', (tool) => {
+     const r = WorkerConfigSchema.safeParse({ ...base, allow: ['search_product_docs', tool] })
+     expect(r.success).toBe(false)
+     const msg = r.success ? '' : r.error.issues.map((i) => `${i.path.join('.')}: ${i.message}`).join('; ')
+@@ -43,6 +53,84 @@ describe('WorkerConfigSchema', () => {
+   })
+ })
+ 
++const taskBase = {
++  image: 'node:24-bookworm',
++  uid: 1000,
++  gid: 1000,
++  npmCacheDir: '/var/lib/agent-harness/npm-cache',
++  recipes: [{ repoUrl: 'https://git.jp-visser.nl/janpeter/Scrum4Me.git', prepare: ['npm ci'], verify: 'npm run verify' }],
++}
++
++describe('WorkerConfigSchema task', () => {
++  it('leaves task undefined when absent', () => {
++    expect(WorkerConfigSchema.parse(base).task).toBeUndefined()
++  })
++
++  it('fills the task defaults (timeouts and repairs)', () => {
++    const cfg = WorkerConfigSchema.parse({ ...base, task: taskBase })
++    expect(cfg.task?.prepareTimeoutSeconds).toBe(900)
++    expect(cfg.task?.verifyTimeoutSeconds).toBe(600)
++    expect(cfg.task?.maxVerifyRepairs).toBe(3)
++    expect(cfg.task?.limits).toEqual({ maxTurns: 6, maxOutputTokens: 2048, maxWallSeconds: 240, maxToolErrors: 2 })
++  })
++
++  it('passes explicit task values through', () => {
++    const task = {
++      ...taskBase,
++      limits: { maxTurns: 40, maxOutputTokens: 8192, maxWallSeconds: 1800, maxToolErrors: 5, contextTokens: 32768 },
++      prepareTimeoutSeconds: 1200,
++      verifyTimeoutSeconds: 900,
++      maxVerifyRepairs: 5,
++    }
++    expect(WorkerConfigSchema.parse({ ...base, task }).task).toEqual(task)
++  })
++
++  it('rejects an empty recipes list', () => {
++    expect(WorkerConfigSchema.safeParse({ ...base, task: { ...taskBase, recipes: [] } }).success).toBe(false)
++  })
++
++  it('rejects a task recipe without a prepare command', () => {
++    expect(
++      WorkerConfigSchema.safeParse({
++        ...base,
++        task: { ...taskBase, recipes: [{ repoUrl: 'https://git.jp-visser.nl/janpeter/Scrum4Me.git', prepare: [], verify: 'npm run verify' }] },
++      }).success,
++    ).toBe(false)
++  })
++})
++
++describe('normalizeRepoUrl', () => {
++  it('trims, lowercases the host, strips a trailing slash and a trailing .git', () => {
++    expect(normalizeRepoUrl(' https://GIT.JP-VISSER.NL/janpeter/Scrum4Me.git/ ')).toBe('https://git.jp-visser.nl/janpeter/Scrum4Me')
++    expect(normalizeRepoUrl('https://git.jp-visser.nl/janpeter/Scrum4Me/')).toBe('https://git.jp-visser.nl/janpeter/Scrum4Me')
++    expect(normalizeRepoUrl('https://git.jp-visser.nl/janpeter/Scrum4Me')).toBe('https://git.jp-visser.nl/janpeter/Scrum4Me')
++  })
++})
++
++describe('findRecipe', () => {
++  const task = TaskConfigSchema.parse(taskBase)
++  it('finds the recipe for .git, bare and trailing-slash URLs, and any host case', () => {
++    for (const url of [
++      'https://git.jp-visser.nl/janpeter/Scrum4Me.git',
++      'https://git.jp-visser.nl/janpeter/Scrum4Me',
++      'https://git.jp-visser.nl/janpeter/Scrum4Me/',
++      'https://GIT.JP-VISSER.NL/janpeter/Scrum4Me.git',
++    ]) {
++      expect(findRecipe(task, url)?.verify).toBe('npm run verify')
++    }
++  })
++
++  it('returns undefined for an unknown repo', () => {
++    expect(findRecipe(task, 'https://git.jp-visser.nl/janpeter/Agent-harness.git')).toBeUndefined()
++  })
++})
++
++describe('CONTROL_TOOLS', () => {
++  it('contains the three originals plus the five task tools', () => {
++    expect(CONTROL_TOOLS).toEqual(['wait_for_job', 'job_heartbeat', 'update_job_status', 'update_task_status', 'verify_task_against_plan', 'log_implementation', 'log_commit', 'log_test_result'])
++  })
++})
++
+ describe('loadWorkerConfig', () => {
+   it('expands nothing', () => {
+     const cfg = loadWorkerConfig(writeConfig(base))
+diff --git a/__tests__/worker.test.ts b/__tests__/worker.test.ts
+index 298165d..a8059fa 100644
+--- a/__tests__/worker.test.ts
++++ b/__tests__/worker.test.ts
+@@ -328,6 +328,67 @@ describe('createControlChannel', () => {
+     const r = await createControlChannel(mcp.client).waitForJob(1, new AbortController().signal)
+     expect(r).toMatchObject({ type: 'job', jobId: 'job1', kind: 'IDEA_CHAT' })
+   })
++
++  it('parses a non-isError update_status reply into the real outcome', async () => {
++    mcp = await startFakeScrum4meMcp({
++      updateOutcome: () => ({ status: 'failed', error: 'push failed' }),
++    })
++    const control = createControlChannel(mcp.client)
++    const r = await control.updateStatus('job1', { status: 'done', summary: 'klaar' })
++    expect(r).toEqual({ ok: true, status: 'failed', branch: null, pushedAt: null, error: 'push failed' })
++  })
++
++  it('maps an isError update_status reply to ok:false with the message', async () => {
++    mcp = await startFakeScrum4meMcp({ failUpdate: ['running'] })
++    const control = createControlChannel(mcp.client)
++    const r = await control.updateStatus('job1', { status: 'running' })
++    expect(r.ok).toBe(false)
++    expect(r.message).toMatch(/already terminal/)
++  })
++
++  it('sends the real answer format (status, branch, pushed_at) on a done update', async () => {
++    mcp = await startFakeScrum4meMcp({})
++    const control = createControlChannel(mcp.client)
++    const r = await control.updateStatus('job1', { status: 'done', summary: 'klaar' })
++    expect(r).toMatchObject({ ok: true, status: 'done', branch: 'story/job1', pushedAt: '2026-09-27T12:00:00.000Z', error: null })
++  })
++
++  it('updateTaskStatus sends task_id and status', async () => {
++    mcp = await startFakeScrum4meMcp({})
++    const control = createControlChannel(mcp.client)
++    const r = await control.updateTaskStatus('task1', 'in_progress')
++    expect(r).toEqual({ ok: true })
++    expect(mcp.calls.find((c) => c.name === 'update_task_status')?.args).toEqual({ task_id: 'task1', status: 'in_progress' })
++  })
++
++  it('verifyTaskAgainstPlan sends task_id and worktree_path and parses the result', async () => {
++    mcp = await startFakeScrum4meMcp({ verifyResult: 'partial' })
++    const control = createControlChannel(mcp.client)
++    const r = await control.verifyTaskAgainstPlan('task1', '/var/lib/agent-harness/worktrees/agent--Scrum4Me--story--job1')
++    expect(r).toEqual({ ok: true, result: 'partial', message: 'diff partial met het plan' })
++    expect(mcp.calls.find((c) => c.name === 'verify_task_against_plan')?.args).toEqual({ task_id: 'task1', worktree_path: '/var/lib/agent-harness/worktrees/agent--Scrum4Me--story--job1' })
++  })
++
++  it('log sends the right argument names for each kind', async () => {
++    mcp = await startFakeScrum4meMcp({})
++    const control = createControlChannel(mcp.client)
++    await control.log('implementation', { storyId: 'story1', taskId: 'task1', content: 'start' })
++    await control.log('commit', { storyId: 'story1', taskId: 'task1', content: 'commit', commitHash: 'abc123', commitMessage: 'fix: bug' })
++    await control.log('test', { storyId: 'story1', taskId: 'task1', content: 'tests', status: 'PASSED' })
++    expect(mcp.calls.find((c) => c.name === 'log_implementation')?.args).toEqual({ story_id: 'story1', task_id: 'task1', content: 'start' })
++    expect(mcp.calls.find((c) => c.name === 'log_commit')?.args).toEqual({ story_id: 'story1', task_id: 'task1', content: 'commit', commit_hash: 'abc123', commit_message: 'fix: bug' })
++    expect(mcp.calls.find((c) => c.name === 'log_test_result')?.args).toEqual({ story_id: 'story1', task_id: 'task1', content: 'tests', status: 'PASSED' })
++  })
++
++  it('log is best-effort: an MCP error is logged but does not throw', async () => {
++    mcp = await startFakeScrum4meMcp({})
++    const control = createControlChannel(mcp.client)
++    const spy = vi.spyOn(console, 'error').mockImplementation(() => {})
++    vi.spyOn(mcp.client, 'callTool').mockRejectedValueOnce(new Error('MCP error'))
++    await expect(control.log('implementation', { storyId: 's', taskId: 't', content: 'x' })).resolves.toBeUndefined()
++    expect(spy).toHaveBeenCalled()
++    spy.mockRestore()
++  })
+ })
+ 
+ describe('runWorker — review fixes', () => {
+diff --git a/src/worker/config.ts b/src/worker/config.ts
+index c3c10f3..97621a0 100644
+--- a/src/worker/config.ts
++++ b/src/worker/config.ts
+@@ -5,10 +5,64 @@ import { expandEnv, ManifestError, ModelSpecSchema } from '../manifest.js'
+ /** The only tools the model may see in worker mode: read-only product docs. */
+ export const DOC_TOOLS = ['search_product_docs', 'get_product_doc', 'list_product_docs', 'related_product_docs'] as const
+ /** Called by the harness alone, never offered to the model. */
+-export const CONTROL_TOOLS = ['wait_for_job', 'job_heartbeat', 'update_job_status'] as const
++export const CONTROL_TOOLS = [
++  'wait_for_job',
++  'job_heartbeat',
++  'update_job_status',
++  'update_task_status',
++  'verify_task_against_plan',
++  'log_implementation',
++  'log_commit',
++  'log_test_result',
++] as const
+ 
+ const DEFAULT_LIMITS = { maxTurns: 6, maxOutputTokens: 2048, maxWallSeconds: 240, maxToolErrors: 2 }
+ 
++/** One repo the worker knows how to prepare and verify (spec §6). */
++export const RecipeSchema = z.object({ repoUrl: z.string().min(1), prepare: z.array(z.string().min(1)).min(1), verify: z.string().min(1) })
++export type Recipe = z.infer<typeof RecipeSchema>
++
++export const TaskConfigSchema = z.object({
++  limits: z
++    .object({
++      maxTurns: z.number().int().positive().default(DEFAULT_LIMITS.maxTurns),
++      maxOutputTokens: z.number().int().positive().default(DEFAULT_LIMITS.maxOutputTokens),
++      maxWallSeconds: z.number().int().positive().default(DEFAULT_LIMITS.maxWallSeconds),
++      maxToolErrors: z.number().int().nonnegative().default(DEFAULT_LIMITS.maxToolErrors),
++      contextTokens: z.number().int().positive().optional(),
++    })
++    .default(DEFAULT_LIMITS),
++  image: z.string().min(1),
++  uid: z.number().int().nonnegative(),
++  gid: z.number().int().nonnegative(),
++  npmCacheDir: z.string().min(1),
++  prepareTimeoutSeconds: z.number().int().positive().default(900),
++  verifyTimeoutSeconds: z.number().int().positive().default(600),
++  maxVerifyRepairs: z.number().int().nonnegative().default(3),
++  recipes: z.array(RecipeSchema).min(1),
++})
++
++export type TaskConfig = z.infer<typeof TaskConfigSchema>
++
++/**
++ * Canonical form of a repo URL for recipe matching: trimmed, host lowercased,
++ * a trailing '/' and a trailing '.git' removed. The path case is kept.
++ */
++export function normalizeRepoUrl(url: string): string {
++  let u = url.trim()
++  const m = u.match(/^(https?:\/\/)([^/]+)(.*)$/i)
++  if (m) u = m[1] + m[2].toLowerCase() + m[3]
++  while (u.endsWith('/')) u = u.slice(0, -1)
++  if (u.toLowerCase().endsWith('.git')) u = u.slice(0, -4)
++  return u
++}
++
++/** The recipe for `repoUrl`, matching exactly after `normalizeRepoUrl`; undefined when none. */
++export function findRecipe(task: TaskConfig, repoUrl: string): Recipe | undefined {
++  const wanted = normalizeRepoUrl(repoUrl)
++  return task.recipes.find((r) => normalizeRepoUrl(r.repoUrl) === wanted)
++}
++
+ export const WorkerConfigSchema = z
+   .object({
+     model: ModelSpecSchema,
+@@ -24,6 +78,7 @@ export const WorkerConfigSchema = z
+       })
+       .default(DEFAULT_LIMITS),
+     waitSeconds: z.number().int().min(1).max(600).default(300),
++    task: TaskConfigSchema.optional(),
+   })
+   .superRefine((cfg, ctx) => {
+     // Stricter than banning the control tools: anything outside the doc tools could write.
+diff --git a/src/worker/control.ts b/src/worker/control.ts
+index 09ac63e..3c32d7f 100644
+--- a/src/worker/control.ts
++++ b/src/worker/control.ts
+@@ -17,12 +17,31 @@ export type StatusUpdate = {
+   output_tokens?: number
+ }
+ 
++/** What `update_job_status` actually answered, parsed from its JSON reply. */
++export type StatusOutcome = {
++  ok: boolean
++  message?: string
++  status?: 'running' | 'done' | 'failed' | 'skipped'
++  branch?: string | null
++  pushedAt?: string | null
++  error?: string | null
++}
++
++export type TaskStatus = 'in_progress' | 'review' | 'todo'
++export type PlanCheckResult = 'aligned' | 'partial' | 'empty' | 'divergent'
++
+ /** The harness's own channel to the scrum4me MCP. The model never sees these tools. */
+ export interface ControlChannel {
+   waitForJob(waitSeconds: number, signal: AbortSignal): Promise<ClaimResult>
+   /** false when the server refuses (claim lost, cancelled, terminal); rejects when the call itself failed. */
+   heartbeat(jobId: string): Promise<boolean>
+-  updateStatus(jobId: string, input: StatusUpdate): Promise<{ ok: boolean; message?: string }>
++  updateStatus(jobId: string, input: StatusUpdate): Promise<StatusOutcome>
++  updateTaskStatus(taskId: string, status: TaskStatus): Promise<{ ok: boolean; message?: string }>
++  verifyTaskAgainstPlan(taskId: string, worktreePath: string): Promise<{ ok: boolean; result?: PlanCheckResult; message?: string }>
++  log(
++    kind: 'implementation' | 'commit' | 'test',
++    args: { storyId: string; taskId: string; content: string; commitHash?: string; commitMessage?: string; status?: 'PASSED' | 'FAILED' },
++  ): Promise<void>
+ }
+ 
+ const message = (err: unknown) => (err instanceof Error ? err.message : String(err))
+@@ -71,12 +90,77 @@ export function createControlChannel(client: Client, opts: { requestTimeoutMs?:
+     },
+ 
+     async updateStatus(jobId, input) {
++      let res
++      try {
++        res = await client.callTool({ name: 'update_job_status', arguments: { job_id: jobId, ...input } })
++      } catch (err) {
++        return { ok: false, message: message(err) }
++      }
++      if (res.isError) return { ok: false, message: text(res) }
++      // The reply is the real outcome: status, branch, pushed_at, error (spec §4.1).
++      const body = text(res)
++      let parsed: unknown
+       try {
+-        const res = await client.callTool({ name: 'update_job_status', arguments: { job_id: jobId, ...input } })
++        parsed = JSON.parse(body)
++      } catch {
++        return { ok: true, message: body }
++      }
++      const p = parsed as { status?: unknown; branch?: unknown; pushed_at?: unknown; error?: unknown }
++      const outcome: StatusOutcome = { ok: true }
++      const status = p?.status
++      if (status === 'running' || status === 'done' || status === 'failed' || status === 'skipped') outcome.status = status
++      if (typeof p?.branch === 'string' || p?.branch === null) outcome.branch = p.branch
++      if (typeof p?.pushed_at === 'string' || p?.pushed_at === null) outcome.pushedAt = p.pushed_at
++      if (typeof p?.error === 'string' || p?.error === null) outcome.error = p.error
++      return outcome
++    },
++
++    async updateTaskStatus(taskId, status) {
++      try {
++        const res = await client.callTool({ name: 'update_task_status', arguments: { task_id: taskId, status } })
+         return res.isError ? { ok: false, message: text(res) } : { ok: true }
+       } catch (err) {
+         return { ok: false, message: message(err) }
+       }
+     },
++
++    async verifyTaskAgainstPlan(taskId, worktreePath) {
++      let res
++      try {
++        res = await client.callTool({ name: 'verify_task_against_plan', arguments: { task_id: taskId, worktree_path: worktreePath } })
++      } catch (err) {
++        return { ok: false, message: message(err) }
++      }
++      if (res.isError) return { ok: false, message: text(res) }
++      const body = text(res)
++      let parsed: unknown
++      try {
++        parsed = JSON.parse(body)
++      } catch {
++        return { ok: false, message: body }
++      }
++      const p = parsed as { result?: unknown; message?: unknown }
++      const out: { ok: boolean; result?: PlanCheckResult; message?: string } = { ok: true }
++      const result = p?.result
++      if (result === 'aligned' || result === 'partial' || result === 'empty' || result === 'divergent') out.result = result
++      if (typeof p?.message === 'string') out.message = p.message
++      return out
++    },
++
++    async log(kind, args) {
++      // Best-effort: a logging failure must never fail a job, only be reported.
++      const name = kind === 'implementation' ? 'log_implementation' : kind === 'commit' ? 'log_commit' : 'log_test_result'
++      const toolArgs: Record<string, unknown> = { story_id: args.storyId, task_id: args.taskId, content: args.content }
++      if (kind === 'commit') {
++        toolArgs.commit_hash = args.commitHash
++        toolArgs.commit_message = args.commitMessage
++      }
++      if (kind === 'test') toolArgs.status = args.status
++      try {
++        await client.callTool({ name, arguments: toolArgs })
++      } catch (err) {
++        console.error(`[control] ${name} mislukt: ${message(err)}`)
++      }
++    },
+   }
+ }

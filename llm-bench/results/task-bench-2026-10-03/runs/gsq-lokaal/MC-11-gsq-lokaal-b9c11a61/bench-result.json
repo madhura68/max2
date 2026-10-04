@@ -1,0 +1,27 @@
+{
+  "caseId": "MC-11",
+  "label": "gsq-lokaal",
+  "runId": "MC-11-gsq-lokaal-b9c11a61",
+  "model": {
+    "name": "qwen3.8-gsq-rco:27b-iq3_s-text",
+    "baseUrl": "http://127.0.0.1:11434/v1"
+  },
+  "status": "limiet",
+  "runStatus": "budget_exceeded",
+  "gate": {
+    "reds": 0
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 1452995,
+    "outputTokens": 42170,
+    "turns": 40,
+    "toolCalls": 72,
+    "toolErrors": 1,
+    "cachedTokens": 1017112
+  },
+  "providers": [],
+  "retries": [],
+  "patchBytes": 17667,
+  "durationMs": 1359096
+}

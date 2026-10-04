@@ -1,0 +1,10 @@
+## agent-harness-worker
+active
+## containers (tei-gpu, open-webui, dsh)
+dsh
+open-webui
+## gpu
+memory.used [MiB], memory.total [MiB]
+270 MiB, 16303 MiB
+## api/ps
+{"models":[]}

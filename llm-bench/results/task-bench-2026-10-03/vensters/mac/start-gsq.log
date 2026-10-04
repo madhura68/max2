@@ -1,0 +1,12 @@
+2026-10-03 21:25:39 starter gewapend (pid 66976), wacht tot 2026-10-03 22:00
+2026-10-03 22:00:02 controles op max2
+2026-10-03 22:00:03 controles ok; worker active (exit 0)
+2026-10-03 22:00:03 M4-stop
+2026-10-03 22:00:05 schone stop (exit 0)
+2026-10-03 22:00:05 start run, nazorg en vangnet op max2
+2026-10-03 22:00:08 dsh
+open-webui
+worker: inactive
+run gestart: sid=2538724 20:00:08Z
+nazorg gestart
+vangnet gestart (exit 0)

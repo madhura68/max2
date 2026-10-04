@@ -1,0 +1,11 @@
+== MC-20 10:28:40Z
+ok — MC-20 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-20/MC-20-check-*/case-check.json
+exit-MC-20=0
+== MC-21 10:30:29Z
+ok — MC-21 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-21/MC-21-check-*/case-check.json
+exit-MC-21=0
+== MC-22 10:32:15Z
+niet ok — MC-22 → /home/janpeter/m7-runs/task-bench-2026-10-03/selectie/MC-22/MC-22-check-*/case-check.json
+  - verborgen toets slaagt niet op ref_commit
+exit-MC-22=1
+exit=0

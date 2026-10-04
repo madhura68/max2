@@ -1,0 +1,155 @@
+diff --git a/__tests__/doc-tools.test.ts b/__tests__/doc-tools.test.ts
+new file mode 100644
+index 0000000..c60a59d
+--- /dev/null
++++ b/__tests__/doc-tools.test.ts
+@@ -0,0 +1,93 @@
++import { describe, expect, it } from 'vitest'
++import type { ToolExecResult, ToolRegistry, ToolSnapshotEntry } from '../src/types.js'
++import { capDocArgs, DOC_MAX_CHARS } from '../src/worker/doc-tools.js'
++
++const sig = () => AbortSignal.timeout(5000)
++
++/** A fake ToolRegistry that records the args of every execute call. */
++function fakeRegistry(names: string[], opts?: { onExecute?: (name: string, args: Record<string, unknown>) => void; onClose?: () => void }): { view: ToolRegistry; calls: Array<{ name: string; args: Record<string, unknown> }> } {
++  const calls: Array<{ name: string; args: Record<string, unknown> }> = []
++  const entries: ToolSnapshotEntry[] = names.map((name) => ({ name, inputSchema: { type: 'object', properties: {} } }))
++  const view: ToolRegistry = {
++    snapshot: { entries, hash: `hash-${names.join(',')}` },
++    toOpenAiTools() {
++      return entries.map((e) => ({ type: 'function' as const, function: { name: e.name, parameters: e.inputSchema } }))
++    },
++    async execute(name, args): Promise<ToolExecResult> {
++      calls.push({ name, args })
++      opts?.onExecute?.(name, args)
++      return { ok: true, content: `${name} called`, truncated: false }
++    },
++    async close(): Promise<void> {
++      opts?.onClose?.()
++    },
++  }
++  return { view, calls }
++}
++
++describe('capDocArgs', () => {
++  it('caps get_product_doc max_chars of 40 000 at DOC_MAX_CHARS, keeping offset and heading', async () => {
++    const { view, calls } = fakeRegistry(['get_product_doc', 'search_product_docs'])
++    const wrapped = capDocArgs(view)
++    await wrapped.execute('get_product_doc', { product_id: 'p1', folder: 'plans', slug: 'x', max_chars: 40_000, offset: 12_000, heading: 'Plan' }, sig())
++    expect(calls).toEqual([{
++      name: 'get_product_doc',
++      args: { product_id: 'p1', folder: 'plans', slug: 'x', max_chars: DOC_MAX_CHARS, offset: 12_000, heading: 'Plan' },
++    }])
++  })
++
++  it.each([DOC_MAX_CHARS, 8_000])('passes max_chars of %d through unchanged', async (maxChars) => {
++    const { view, calls } = fakeRegistry(['get_product_doc'])
++    await capDocArgs(view).execute('get_product_doc', { product_id: 'p1', max_chars: maxChars }, sig())
++    expect(calls).toEqual([{ name: 'get_product_doc', args: { product_id: 'p1', max_chars: maxChars } }])
++  })
++
++  it('passes a call without max_chars through unchanged', async () => {
++    const { view, calls } = fakeRegistry(['get_product_doc'])
++    await capDocArgs(view).execute('get_product_doc', { product_id: 'p1' }, sig())
++    expect(calls).toEqual([{ name: 'get_product_doc', args: { product_id: 'p1' } }])
++  })
++
++  it('leaves a non-numeric max_chars untouched', async () => {
++    const { view, calls } = fakeRegistry(['get_product_doc'])
++    await capDocArgs(view).execute('get_product_doc', { product_id: 'p1', max_chars: 'a lot' }, sig())
++    expect(calls).toEqual([{ name: 'get_product_doc', args: { product_id: 'p1', max_chars: 'a lot' } }])
++  })
++
++  it('does not touch search_product_docs, even with its own max_chars field', async () => {
++    const { view, calls } = fakeRegistry(['get_product_doc', 'search_product_docs'])
++    await capDocArgs(view).execute('search_product_docs', { query: 'x', max_chars: 40_000 }, sig())
++    expect(calls).toEqual([{ name: 'search_product_docs', args: { query: 'x', max_chars: 40_000 } }])
++  })
++
++  it('passes other tools and their arguments through unchanged', async () => {
++    const { view, calls } = fakeRegistry(['create_product', 'get_product_doc'])
++    await capDocArgs(view).execute('create_product', { name: 'x', extra: 1 }, sig())
++    expect(calls).toEqual([{ name: 'create_product', args: { name: 'x', extra: 1 } }])
++  })
++
++  it('keeps the snapshot reference (and hash) and the toOpenAiTools result identical', () => {
++    const docSchema = { type: 'object', properties: { max_chars: { type: 'integer', maximum: 40_000 } } }
++    const view: ToolRegistry = {
++      snapshot: { entries: [{ name: 'get_product_doc', inputSchema: docSchema }, { name: 'search_product_docs', inputSchema: docSchema }], hash: 'h' },
++      toOpenAiTools() {
++        return [{ type: 'function', function: { name: 'get_product_doc', parameters: docSchema } }]
++      },
++      async execute(): Promise<ToolExecResult> {
++        return { ok: true, content: '', truncated: false }
++      },
++      async close() {},
++    }
++    const wrapped = capDocArgs(view)
++    expect(wrapped.snapshot).toBe(view.snapshot)
++    expect(wrapped.snapshot.hash).toBe(view.snapshot.hash)
++    expect(wrapped.toOpenAiTools()).toEqual(view.toOpenAiTools())
++  })
++
++  it('forwards close()', async () => {
++    let closed = false
++    const { view } = fakeRegistry(['get_product_doc'], { onClose: () => { closed = true } })
++    await capDocArgs(view).close()
++    expect(closed).toBe(true)
++  })
++})
+diff --git a/src/cli.ts b/src/cli.ts
+index 66e1c2b..7636f93 100644
+--- a/src/cli.ts
++++ b/src/cli.ts
+@@ -12,6 +12,7 @@ import { openTrace } from './trace.js'
+ import type { ToolRegistry } from './types.js'
+ import { checkRunLogs } from './worker/check-run-logs.js'
+ import { loadWorkerConfig, workerMcpEnv } from './worker/config.js'
++import { capDocArgs } from './worker/doc-tools.js'
+ import { createControlChannel } from './worker/control.js'
+ import { collectSecretValues, workerSecretSources } from './worker/redact.js'
+ import { openRunLog } from './worker/run-log.js'
+@@ -170,7 +171,7 @@ async function cmdWorker(values: Values): Promise<number> {
+     const client = conn.client
+     const { exitCode, jobs } = await runWorker({
+       control: createControlChannel(client),
+-      registryView: (signal) => createRegistryView(client, config.allow, signal),
++      registryView: async (signal) => capDocArgs(await createRegistryView(client, config.allow, signal)),
+       modelClient: createModelClient(config.model),
+       config,
+       out,
+diff --git a/src/worker/doc-tools.ts b/src/worker/doc-tools.ts
+new file mode 100644
+index 0000000..e56ff5e
+--- /dev/null
++++ b/src/worker/doc-tools.ts
+@@ -0,0 +1,29 @@
++import type { ToolRegistry } from '../types.js'
++
++/**
++ * The MCP allows max_chars up to 40 000 for get_product_doc, but above roughly 15 400 characters
++ * the JSON answer passes TOOL_OUTPUT_LIMIT (16 384 bytes) and the registry clips off the tail —
++ * exactly the part carrying `truncated` and `next_offset`. 12 000 is the MCP default, and even the
++ * largest doc stays under 12.9 KB at that limit.
++ */
++export const DOC_MAX_CHARS = 12_000
++
++/**
++ * Wraps a doc-tools view so get_product_doc never asks the MCP for more than DOC_MAX_CHARS
++ * characters. The snapshot, toOpenAiTools and close pass through untouched: the schema the model
++ * sees must not change, because a lower maximum would make policy.ts reject the call with
++ * SCHEMA_MISMATCH — which counts as a tool error (maxToolErrors 2).
++ */
++export function capDocArgs(view: ToolRegistry): ToolRegistry {
++  return {
++    snapshot: view.snapshot,
++    toOpenAiTools: view.toOpenAiTools.bind(view),
++    async execute(name, args, signal) {
++      if (name === 'get_product_doc' && typeof args.max_chars === 'number' && args.max_chars > DOC_MAX_CHARS) {
++        return view.execute(name, { ...args, max_chars: DOC_MAX_CHARS }, signal)
++      }
++      return view.execute(name, args, signal)
++    },
++    close: view.close.bind(view),
++  }
++}

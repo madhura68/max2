@@ -1,0 +1,458 @@
+diff --git a/__tests__/sprint-batch-auto-deploy.test.ts b/__tests__/sprint-batch-auto-deploy.test.ts
+new file mode 100644
+index 0000000..71eaff5
+--- /dev/null
++++ b/__tests__/sprint-batch-auto-deploy.test.ts
+@@ -0,0 +1,285 @@
++// M21 Taak 3: maybeAutoDeploySprintBatchPr (src/lib/dispatch/sprint-batch-deploy.ts).
++// Niveau-triggered auto-deploy voor sprint-batch: level-check (SprintRun DONE) →
++// product-repo-batch-PR via repoBucketKey → head-sha zelf-resolvend (fail-safe
++// getPullRequestState, nooit een cross-repo-sha) → preflight-eligibility →
++// ENABLE_AUTO_MERGE-effect → maybeEnqueueDeployJob met tweede-check-observability.
++//
++// vi.hoisted voor álle mock-fns; module-aliassen (vi.mock) ná de hoisted mocks.
++
++import { describe, it, expect, vi, beforeEach } from 'vitest'
++
++const mocks = vi.hoisted(() => ({
++  prisma: {
++    sprintRun: { findUnique: vi.fn() },
++    product: { findUnique: vi.fn() },
++    claudeJob: { findMany: vi.fn() },
++  },
++  checkDeployEligibility: vi.fn(),
++  maybeEnqueueDeployJob: vi.fn(),
++  executeEffects: vi.fn(),
++  getPullRequestState: vi.fn(),
++  triggerPush: vi.fn(),
++}))
++
++vi.mock('../src/prisma.js', () => ({ prisma: mocks.prisma }))
++vi.mock('../src/lib/dispatch/deploy-job.js', () => ({
++  checkDeployEligibility: mocks.checkDeployEligibility,
++  maybeEnqueueDeployJob: mocks.maybeEnqueueDeployJob,
++}))
++vi.mock('../src/flow/effects.js', () => ({ executeEffects: mocks.executeEffects }))
++vi.mock('../src/git/pr.js', () => ({ getPullRequestState: mocks.getPullRequestState }))
++vi.mock('../src/lib/push-trigger.js', () => ({ triggerPush: mocks.triggerPush }))
++
++import { maybeAutoDeploySprintBatchPr } from '../src/lib/dispatch/sprint-batch-deploy.js'
++
++const opts = {
++  jobId: 'job-final',
++  userId: 'user-1',
++  productId: 'prod-1',
++  sprintRunId: 'sr-1',
++}
++
++const PRODUCT_REPO = 'https://git.jp-visser.nl/janpeter/Scrum4Me'
++const PRODUCT_PR = 'https://git.jp-visser.nl/janpeter/Scrum4Me/pulls/91'
++const CROSS_REPO_PR = 'https://git.jp-visser.nl/janpeter/OtherRepo/pulls/5'
++
++// Standaard: SprintRun DONE, product bekend, géén PR-jobs. Per test worden de
++// findUnique-mocks (sprintRun + product) vervangen door een implementation die
++// per model de juiste rijen teruggeeft.
++function baseMocksWith(sprintRunStatus: string, prJobs: unknown[] = []) {
++  mocks.prisma.sprintRun.findUnique.mockImplementation(async (args: {
++    where: { id: string }
++    select?: { status?: boolean; repo_url?: boolean }
++  }) => {
++    if (args.select?.repo_url) {
++      return { id: 'prod-1', repo_url: PRODUCT_REPO }
++    }
++    return { id: 'sr-1', status: sprintRunStatus }
++  })
++  mocks.prisma.product.findUnique.mockImplementation(async () => ({
++    id: 'prod-1',
++    repo_url: PRODUCT_REPO,
++  }))
++  mocks.prisma.claudeJob.findMany.mockResolvedValue(prJobs)
++}
++
++function expectWebPush() {
++  expect(mocks.triggerPush).toHaveBeenCalledWith(
++    'user-1',
++    expect.objectContaining({ title: expect.any(String) }),
++  )
++}
++
++describe('maybeAutoDeploySprintBatchPr (M21 Taak 3)', () => {
++  beforeEach(() => {
++    vi.clearAllMocks()
++    // Defaults die per test overboord mogen:
++    mocks.checkDeployEligibility.mockResolvedValue('eligible')
++    mocks.executeEffects.mockResolvedValue([{ effect: 'ENABLE_AUTO_MERGE', ok: true }])
++    mocks.maybeEnqueueDeployJob.mockResolvedValue('enqueued')
++    mocks.getPullRequestState.mockResolvedValue({ error: 'boom' })
++    mocks.triggerPush.mockResolvedValue(undefined)
++  })
++
++  it('happy path: eligible → ENABLE_AUTO_MERGE(product-PR, product-sha) → enqueue', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: 'abc123',
++        task: { repo_url: null },
++      },
++    ])
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.executeEffects).toHaveBeenCalledTimes(1)
++    expect(mocks.executeEffects).toHaveBeenCalledWith([
++      { type: 'ENABLE_AUTO_MERGE', prUrl: PRODUCT_PR, expectedHeadSha: 'abc123' },
++    ])
++    expect(mocks.maybeEnqueueDeployJob).toHaveBeenCalledWith({
++      parentJobId: 'job-final',
++      userId: 'user-1',
++      productId: 'prod-1',
++      prUrl: PRODUCT_PR,
++      headSha: 'abc123',
++    })
++    expect(mocks.triggerPush).not.toHaveBeenCalled()
++  })
++
++  it('level-trigger: SprintRun ≠ DONE → direct return (géén PR-resolve/enable/enqueue)', async () => {
++    baseMocksWith('RUNNING')
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.prisma.claudeJob.findMany).not.toHaveBeenCalled()
++    expect(mocks.checkDeployEligibility).not.toHaveBeenCalled()
++    expect(mocks.executeEffects).not.toHaveBeenCalled()
++    expect(mocks.maybeEnqueueDeployJob).not.toHaveBeenCalled()
++    expect(mocks.triggerPush).not.toHaveBeenCalled()
++  })
++
++  it('not_configured: preflight stopt stil — géén enable, géén enqueue, géén push', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: 'abc123',
++        task: { repo_url: null },
++      },
++    ])
++    mocks.checkDeployEligibility.mockResolvedValue('not_configured')
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.executeEffects).not.toHaveBeenCalled()
++    expect(mocks.maybeEnqueueDeployJob).not.toHaveBeenCalled()
++    expect(mocks.triggerPush).not.toHaveBeenCalled()
++  })
++
++  it('blocked: preflight-fail → web-push, géén enable en géén enqueue', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: 'abc123',
++        task: { repo_url: null },
++      },
++    ])
++    mocks.checkDeployEligibility.mockResolvedValue('blocked')
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.executeEffects).not.toHaveBeenCalled()
++    expect(mocks.maybeEnqueueDeployJob).not.toHaveBeenCalled()
++    expectWebPush()
++  })
++
++  it('enable-fail: ENABLE_AUTO_MERGE niet ok → web-push + GÉÉN enqueue', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: 'abc123',
++        task: { repo_url: null },
++      },
++    ])
++    mocks.executeEffects.mockResolvedValue([
++      { effect: 'ENABLE_AUTO_MERGE', ok: false, reason: 'AUTO_MERGE_NOT_ALLOWED', stderr: 'denied' },
++    ])
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.maybeEnqueueDeployJob).not.toHaveBeenCalled()
++    expectWebPush()
++  })
++
++  it('tweede-check-race: enqueue blocked ná ok-enable → web-push (observability)', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: 'abc123',
++        task: { repo_url: null },
++      },
++    ])
++    let resolveEnqueue!: (v: string) => void
++    const enqueueResult = new Promise<string>((resolve) => {
++      resolveEnqueue = resolve
++    })
++    mocks.maybeEnqueueDeployJob.mockReturnValue(enqueueResult)
++
++    const run = maybeAutoDeploySprintBatchPr(opts)
++    // Laag even af om de .catch-observability te laten registreren.
++    await new Promise((r) => setTimeout(r, 10))
++    resolveEnqueue('blocked')
++    await run
++
++    // De enable WÉL ok geweest (enqueued werd wel geprobeerd); de tweede check
++    // (not_configured/blocked) moet een web-push geven.
++    expect(mocks.executeEffects).toHaveBeenCalledTimes(1)
++    expectWebPush()
++  })
++
++  it('repo-bucket: cross-repo-PR eerst aangemaakt → product-repo-PR gekozen, geen cross-repo-lek', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: CROSS_REPO_PR,
++        head_sha: 'cross-sha',
++        task: { repo_url: 'https://git.jp-visser.nl/janpeter/OtherRepo' },
++      },
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: 'prod-sha',
++        task: { repo_url: null },
++      },
++    ])
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.executeEffects).toHaveBeenCalledWith([
++      { type: 'ENABLE_AUTO_MERGE', prUrl: PRODUCT_PR, expectedHeadSha: 'prod-sha' },
++    ])
++    expect(mocks.maybeEnqueueDeployJob).toHaveBeenCalledWith(
++      expect.objectContaining({ prUrl: PRODUCT_PR, headSha: 'prod-sha' }),
++    )
++    // De fail-safe hoeft niet aan te slaan: de product-PR job draagt z'n head_sha.
++    expect(mocks.getPullRequestState).not.toHaveBeenCalled()
++    expect(mocks.triggerPush).not.toHaveBeenCalled()
++  })
++
++  it('geen product-repo-PR in de SprintRun → skip (géén preflight/enable/enqueue/push)', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: CROSS_REPO_PR,
++        head_sha: 'cross-sha',
++        task: { repo_url: 'https://git.jp-visser.nl/janpeter/OtherRepo' },
++      },
++    ])
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.checkDeployEligibility).not.toHaveBeenCalled()
++    expect(mocks.executeEffects).not.toHaveBeenCalled()
++    expect(mocks.maybeEnqueueDeployJob).not.toHaveBeenCalled()
++    expect(mocks.triggerPush).not.toHaveBeenCalled()
++  })
++
++  it('head-sha fail-safe null én getPullRequestState onbereikbaar → skip', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: null,
++        task: { repo_url: null },
++      },
++    ])
++    mocks.getPullRequestState.mockResolvedValue({ error: 'Forgejo unreachable' })
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.getPullRequestState).toHaveBeenCalledWith({ prUrl: PRODUCT_PR })
++    expect(mocks.checkDeployEligibility).not.toHaveBeenCalled()
++    expect(mocks.executeEffects).not.toHaveBeenCalled()
++    expect(mocks.maybeEnqueueDeployJob).not.toHaveBeenCalled()
++    expect(mocks.triggerPush).not.toHaveBeenCalled()
++  })
++
++  it('head-sha fail-safe null → getPullRequestState levert head → gebruikt die', async () => {
++    baseMocksWith('DONE', [
++      {
++        pr_url: PRODUCT_PR,
++        head_sha: null,
++        task: { repo_url: null },
++      },
++    ])
++    mocks.getPullRequestState.mockResolvedValue({
++      prUrl: PRODUCT_PR,
++      headSha: 'live-sha',
++      state: 'OPEN',
++    })
++
++    await maybeAutoDeploySprintBatchPr(opts)
++
++    expect(mocks.executeEffects).toHaveBeenCalledWith([
++      { type: 'ENABLE_AUTO_MERGE', prUrl: PRODUCT_PR, expectedHeadSha: 'live-sha' },
++    ])
++    expect(mocks.maybeEnqueueDeployJob).toHaveBeenCalledWith(
++      expect.objectContaining({ prUrl: PRODUCT_PR, headSha: 'live-sha' }),
++    )
++  })
++})
+diff --git a/src/lib/dispatch/sprint-batch-deploy.ts b/src/lib/dispatch/sprint-batch-deploy.ts
+index 64d6fa1..978ff05 100644
+--- a/src/lib/dispatch/sprint-batch-deploy.ts
++++ b/src/lib/dispatch/sprint-batch-deploy.ts
+@@ -1,5 +1,10 @@
+ // M21 (spec §2): sprint-batch auto-deploy — eigen module zodat update-job-status
+ // de helper kan importeren én mocken.
++import { prisma } from '../../prisma.js'
++import { checkDeployEligibility, maybeEnqueueDeployJob } from './deploy-job.js'
++import { executeEffects } from '../../flow/effects.js'
++import { getPullRequestState } from '../../git/pr.js'
++import { triggerPush } from '../push-trigger.js'
+ 
+ // Genormaliseerde repo-bucket-key. null/undefined/lege/whitespace-only repo_url
+ // EN de expliciete product-repo-url (met of zonder .git-suffix) = het
+@@ -18,3 +23,151 @@ export function repoBucketKey(
+   if (r === norm(productRepoUrl)) return null
+   return r
+ }
++
++// M21 Taak 3: niveau-triggered auto-deploy voor sprint-batch (spec §2).
++//
++// LEVEL-triggered (zoals de STORY-auto-merge in update-job-status, E2E-bevinding
++// #7): de level-check is SprintRun.status === 'DONE'. Wordt na elke
++// sprint-finalisatie aangeroepen; als de run nog niet DONE is, gebeurt er
++// niks. Dubbel vuren is veilig — de DEPLOY-enqueue is DB-hard gededupt op
++// orchestration_key en een tweede auto-merge-enable op een al-geschedulede PR
++// is een no-op.
++//
++// Pad: level-check → product-repo-batch-PR via repoBucketKey (nooit een
++// cross-repo-sha meenemen) → head-sha zelf-resolvend (job.head_sha, anders
++// fail-safe getPullRequestState; beide onbereikbaar → skip) →
++// checkDeployEligibility (not_configured: stil stoppen; blocked: web-push) →
++// ENABLE_AUTO_MERGE-effect (niet-ok: web-push + GÉÉN enqueue) →
++// maybeEnqueueDeployJob met tweede-check-observability (.catch én
++// not_configured/blocked ná een ok-enable → web-push).
++export async function maybeAutoDeploySprintBatchPr(opts: {
++  jobId: string
++  userId: string
++  productId: string
++  sprintRunId: string
++}): Promise<void> {
++  const { jobId, userId, productId, sprintRunId } = opts
++
++  // (1) Level-check: alleen als de SprintRun echt DONE is.
++  const run = await prisma.sprintRun.findUnique({
++    where: { id: sprintRunId },
++    select: { status: true },
++  })
++  if (!run || run.status !== 'DONE') return
++
++  const product = await prisma.product.findUnique({
++    where: { id: productId },
++    select: { repo_url: true },
++  })
++
++  // (2) Product-repo-batch-PR zoeken binnen de SprintRun. Per repo-bucket:
++  // twee jobs zitten in dezelfde bucket als repoBucketKey gelijk is; het
++  // product-repo is bucket null. Alleen de EERSTE PR van het product-repo
++  // bucket wordt gebruikt — de cross-repo-sha van een andere bucket mag nooit
++  // meelekken.
++  const prJobs = await prisma.claudeJob.findMany({
++    where: { sprint_run_id: sprintRunId, pr_url: { not: null } },
++    orderBy: { created_at: 'asc' },
++    select: {
++      pr_url: true,
++      head_sha: true,
++      task: { select: { repo_url: true } },
++    },
++  })
++  const productPrJob = prJobs.find(
++    (j) => repoBucketKey(j.task?.repo_url, product?.repo_url) === null,
++  )
++  if (!productPrJob?.pr_url) {
++    console.warn(
++      `[maybeAutoDeploySprintBatchPr] geen product-repo-PR voor sprint-run ${sprintRunId}; skip`,
++    )
++    return
++  }
++  const prUrl = productPrJob.pr_url
++
++  // (3) Head-sha zelf-resolvend: eerst de head_sha van de PR-job zelf; anders
++  // fail-safe via getPullRequestState. Beide leeg → skip (geen auto-merge op
++  // een onbekende head).
++  let headSha = productPrJob.head_sha
++  if (!headSha) {
++    const state = await getPullRequestState({ prUrl })
++    if ('error' in state) {
++      console.warn(
++        `[maybeAutoDeploySprintBatchPr] head-sha onbereikbaar voor ${prUrl}: ${state.error}; skip`,
++      )
++      return
++    }
++    headSha = state.headSha ?? undefined
++  }
++  if (!headSha) {
++    console.warn(`[maybeAutoDeploySprintBatchPr] geen head-sha voor ${prUrl}; skip`)
++    return
++  }
++
++  // Web-push helper voor de observability-paden (preflight-blocked, enable-fail,
++  // enqueue-fail/tweede-check).
++  const notify = (title: string, body: string) => {
++    void triggerPush(userId, {
++      title,
++      body: body.slice(0, 120),
++      url: '/jobs',
++      tag: `sprint-batch-auto-deploy-${jobId}`,
++    })
++  }
++
++  // (4a) Preflight: niet-configured stopt stil (geen auto-deploy opgezet —
++  // geen push nodig); blocked meldt wél (onopgeloste FAILED DEPLOY).
++  const eligibility = await checkDeployEligibility(productId)
++  if (eligibility === 'not_configured') return
++  if (eligibility === 'blocked') {
++    notify(
++      'Sprint-batch auto-deploy geblokkeerd',
++      `Onopgeloste FAILED DEPLOY-job voor product ${productId}; auto-deploy van ${prUrl} niet ingezet.`,
++    )
++    return
++  }
++
++  // (4c) Auto-merge aanzetten met head-sha-guard. Niet-ok → web-push en géén
++  // enqueue (een DEPLOY-job mag nooit vóór de auto-merge in de wachtrij).
++  const outcomes = await executeEffects([
++    { type: 'ENABLE_AUTO_MERGE', prUrl, expectedHeadSha: headSha },
++  ])
++  const enable = outcomes.find((o) => o.effect === 'ENABLE_AUTO_MERGE')
++  if (!enable?.ok) {
++    const detail =
++      enable && !enable.ok ? `${enable.reason}: ${enable.stderr.slice(0, 120)}` : 'geen uitkomst'
++    console.warn(`[maybeAutoDeploySprintBatchPr] ENABLE_AUTO_MERGE niet ok voor ${prUrl}: ${detail}`)
++    notify(
++      'Sprint-batch auto-deploy mislukt',
++      `Auto-merge aanzetten op ${prUrl} faalde (${detail}); geen DEPLOY-job ingepland.`,
++    )
++    return
++  }
++
++  // (4d) Enqueue + tweede-check-observability: zowel een enqueue-fout als een
++  // not_configured/blocked-uitkomst (config/blokkade veranderde tussendoor)
++  // mogen niet onzichtbaar zijn — push naast de log.
++  const outcome = await maybeEnqueueDeployJob({
++    parentJobId: jobId,
++    userId,
++    productId,
++    prUrl,
++    headSha,
++  }).catch((err) => {
++    console.error('[sprint-batch-auto-deploy] maybeEnqueueDeployJob failed:', err)
++    notify(
++      'Sprint-batch auto-deploy enqueue mislukt',
++      (err instanceof Error ? err.message : String(err)),
++    )
++    return null
++  })
++  if (outcome === 'not_configured' || outcome === 'blocked') {
++    console.warn(
++      `[maybeAutoDeploySprintBatchPr] tweede-check: enqueue ${outcome} voor ${prUrl} (enable was ok)`,
++    )
++    notify(
++      'Sprint-batch auto-deploy enqueue geskipt',
++      `DEPLOY-enqueue ${outcome} voor ${prUrl} ondanks ok auto-merge (config/blokkade veranderde tussendoor).`,
++    )
++  }
++}

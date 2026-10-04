@@ -1,0 +1,134 @@
+{
+  "baseUrl": "http://127.0.0.1:11434/v1",
+  "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "reportedModel": "qwen3.8-gsq-rco:27b-iq3_s-text",
+  "ranAt": "2026-10-03T20:00:43.200Z",
+  "steps": {
+    "a_plain": {
+      "pass": true,
+      "reason": "content: pong",
+      "raw": {
+        "message": {
+          "content": "pong",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 19,
+          "outputTokens": 36,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+        "reasoning": "The user is asking me to answer with exactly one word: \"pong\". This is a simple instruction. I should respond with just the word \"pong\".",
+        "durationMs": 28378,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "b_single_tool": {
+      "pass": true,
+      "reason": "echo(\"ping\")",
+      "raw": {
+        "message": {
+          "content": "",
+          "toolCalls": [
+            {
+              "id": "call_qpca08hr",
+              "name": "echo",
+              "arguments": "{\"text\":\"ping\"}",
+              "argumentsWasObject": false
+            }
+          ]
+        },
+        "finishReason": "tool_calls",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 291,
+          "outputTokens": 49,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+        "reasoning": "The user asks me to call the `echo` tool with text=\"ping\" and do nothing else.",
+        "durationMs": 1282,
+        "systemFingerprint": "fp_ollama"
+      }
+    },
+    "c_two_tools": {
+      "pass": true,
+      "reason": "turn 1 echo(\"ping\"); turn 2 echo(\"pong\")",
+      "raw": {
+        "turn1": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_mahb5c28",
+                "name": "echo",
+                "arguments": "{\"text\":\"ping\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 291,
+            "outputTokens": 50,
+            "cachedTokens": 287
+          },
+          "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+          "reasoning": "The user is asking me to call the `echo` tool with text=\"ping\" and do nothing else.",
+          "durationMs": 1033,
+          "systemFingerprint": "fp_ollama"
+        },
+        "turn2": {
+          "message": {
+            "content": "",
+            "toolCalls": [
+              {
+                "id": "call_n3b1rzoc",
+                "name": "echo",
+                "arguments": "{\"text\":\"pong\"}",
+                "argumentsWasObject": false
+              }
+            ]
+          },
+          "finishReason": "tool_calls",
+          "usage": {
+            "source": "provider_reported",
+            "inputTokens": 351,
+            "outputTokens": 42,
+            "cachedTokens": 287
+          },
+          "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+          "reasoning": "The user wants me to call the echo tool with text=\"pong\".",
+          "durationMs": 986,
+          "systemFingerprint": "fp_ollama"
+        }
+      }
+    },
+    "d_nonexistent_tool": {
+      "pass": true,
+      "reason": "no foreign tool call (0 echo calls)",
+      "raw": {
+        "message": {
+          "content": "Ik heb geen tool met de naam `delete_everything` beschikbaar. De enige tool die ik kan gebruiken is `echo`, welke een gegeven tekst ongewijzigd retourneert.\n\nIk kan dus geen acties uitvoeren zoals het wissen van gegevens. Wil je iets anders laten uitvoeren, of kan ik je anders helpen?",
+          "toolCalls": []
+        },
+        "finishReason": "stop",
+        "usage": {
+          "source": "provider_reported",
+          "inputTokens": 289,
+          "outputTokens": 148,
+          "cachedTokens": 0
+        },
+        "model": "qwen3.8-gsq-rco:27b-iq3_s-text",
+        "reasoning": "The user is asking me to use a tool called `delete_everything` to delete everything. However, looking at the available tools, I only have access to the `echo` tool, which returns the given text unchanged. There is no `delete_everything` tool available to me. I should inform the user that this tool doesn't exist in my available set of tools.",
+        "durationMs": 2949,
+        "systemFingerprint": "fp_ollama"
+      }
+    }
+  },
+  "tool_calling": "reliable",
+  "usage_reported": true
+}

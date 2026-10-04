@@ -1,0 +1,202 @@
+diff --git a/__tests__/dispatch-job-local-llm.test.ts b/__tests__/dispatch-job-local-llm.test.ts
+new file mode 100644
+index 0000000..4f19eda
+--- /dev/null
++++ b/__tests__/dispatch-job-local-llm.test.ts
+@@ -0,0 +1,88 @@
++// __tests__/dispatch-job-local-llm.test.ts
++// M3-2: dispatch_job met optionele required_capability: 'local_llm'.
++import { it, expect, vi, beforeEach } from 'vitest'
++
++vi.mock('../src/auth.js', () => ({
++  requireWriteAccess: vi.fn(),
++  PermissionDeniedError: class PermissionDeniedError extends Error {},
++}))
++vi.mock('../src/access.js', () => ({ userCanAccessProduct: vi.fn() }))
++vi.mock('../src/lib/dispatch/idea-jobs.js', async (importOriginal) => ({
++  ...(await importOriginal<object>()),
++  dispatchIdeaJob: vi.fn().mockResolvedValue({ job_id: 'job-1' }),
++}))
++vi.mock('../src/lib/dispatch/sprint-run.js', () => ({
++  dispatchSprintRun: vi.fn().mockResolvedValue({ sprint_run_id: 'run-1', jobs_count: 1 }),
++}))
++vi.mock('../src/lib/dispatch/review-jobs.js', () => ({
++  dispatchPrReview: vi.fn().mockResolvedValue({ job_id: 'job-2' }),
++  dispatchSpecReview: vi.fn().mockResolvedValue({ job_id: 'job-3' }),
++  dispatchTaskReview: vi.fn().mockResolvedValue({ job_id: 'job-4' }),
++}))
++vi.mock('../src/lib/dispatch/task-implementation.js', () => ({
++  dispatchTaskImplementation: vi.fn().mockResolvedValue({ job_id: 'job-5' }),
++}))
++vi.mock('../src/lib/dispatch/deploy-dispatch.js', () => ({
++  dispatchDeploy: vi.fn().mockResolvedValue({ job_id: 'job-6' }),
++}))
++vi.mock('../src/lib/dispatch/docs-audit-dispatch.js', () => ({
++  dispatchDocsAudit: vi.fn().mockResolvedValue({ job_id: 'job-7' }),
++}))
++
++import { requireWriteAccess } from '../src/auth.js'
++import { userCanAccessProduct } from '../src/access.js'
++import { handleDispatchJob } from '../src/tools/dispatch-job.js'
++import { toolText } from './helpers/tool-result.js'
++import { dispatchTaskImplementation } from '../src/lib/dispatch/task-implementation.js'
++
++beforeEach(() => {
++  vi.clearAllMocks()
++  ;(requireWriteAccess as ReturnType<typeof vi.fn>).mockResolvedValue({ userId: 'u1', isDemo: false })
++  ;(userCanAccessProduct as ReturnType<typeof vi.fn>).mockResolvedValue(true)
++  ;(dispatchTaskImplementation as ReturnType<typeof vi.fn>).mockResolvedValue({ job_id: 'job-5' })
++})
++
++it('TASK_IMPLEMENTATION + required_capability local_llm → capability doorgestuurd naar de dispatcher', async () => {
++  const res = await handleDispatchJob({
++    kind: 'TASK_IMPLEMENTATION', product_id: 'p1', task_id: 't1', required_capability: 'local_llm',
++  })
++  expect(res.isError).toBeFalsy()
++  expect(JSON.parse(toolText(res))).toMatchObject({ job_id: 'job-5' })
++  expect(dispatchTaskImplementation).toHaveBeenCalledWith({
++    taskId: 't1', productId: 'p1', userId: 'u1', requiredCapability: 'local_llm',
++  })
++})
++
++it('TASK_IMPLEMENTATION zonder required_capability → dispatcher zonder requiredCapability', async () => {
++  const res = await handleDispatchJob({ kind: 'TASK_IMPLEMENTATION', product_id: 'p1', task_id: 't1' })
++  expect(res.isError).toBeFalsy()
++  expect(dispatchTaskImplementation).toHaveBeenCalledWith({
++    taskId: 't1', productId: 'p1', userId: 'u1', requiredCapability: undefined,
++  })
++})
++
++it('PR_REVIEW + required_capability → validatiefout, géén create', async () => {
++  const res = await handleDispatchJob({
++    kind: 'PR_REVIEW', product_id: 'p1', pr_url: 'https://git.jp-visser.nl/janpeter/x/pulls/1',
++    required_capability: 'local_llm',
++  })
++  expect(res.isError).toBe(true)
++  expect(toolText(res)).toContain('required_capability is alleen toegestaan bij TASK_IMPLEMENTATION.')
++})
++
++it('SPRINT_IMPLEMENTATION + required_capability → validatiefout', async () => {
++  const res = await handleDispatchJob({
++    kind: 'SPRINT_IMPLEMENTATION', product_id: 'p1', sprint_id: 's1', required_capability: 'local_llm',
++  })
++  expect(res.isError).toBe(true)
++  expect(toolText(res)).toContain('required_capability is alleen toegestaan bij TASK_IMPLEMENTATION.')
++})
++
++it('ongeldige capability-waarde → zod-validatiefout (geen auth/DB-call)', async () => {
++  const res = await handleDispatchJob({
++    kind: 'TASK_IMPLEMENTATION', product_id: 'p1', task_id: 't1', required_capability: 'deploy' as never,
++  })
++  expect(res.isError).toBe(true)
++  expect(toolText(res)).toMatch(/VALIDATION_ERROR/)
++  expect(dispatchTaskImplementation).not.toHaveBeenCalled()
++})
+diff --git a/__tests__/dispatch-task-implementation.test.ts b/__tests__/dispatch-task-implementation.test.ts
+index c4858c1..411a605 100644
+--- a/__tests__/dispatch-task-implementation.test.ts
++++ b/__tests__/dispatch-task-implementation.test.ts
+@@ -68,6 +68,45 @@ describe('dispatchTaskImplementation', () => {
+       }),
+     }))
+   })
++
++  it('requiredCapability local_llm → create bevat required_capability + runtime CLAUDE', async () => {
++    const res = await dispatchTaskImplementation({
++      taskId: 't1', productId: 'prod-1', userId: 'u1', requiredCapability: 'local_llm',
++    })
++    expect(res).toEqual({ job_id: 'job-1' })
++    expect(mockCreate).toHaveBeenCalledWith(expect.objectContaining({
++      data: expect.objectContaining({
++        kind: 'TASK_IMPLEMENTATION',
++        source: 'COPILOT',
++        task_id: 't1',
++        status: 'QUEUED',
++        required_capability: 'local_llm',
++        runtime: 'CLAUDE',
++      }),
++    }))
++  })
++
++  it('zonder requiredCapability → create bevat géén required_capability', async () => {
++    await dispatchTaskImplementation({ taskId: 't1', productId: 'prod-1', userId: 'u1' })
++    const data = mockCreate.mock.calls[0][0].data as Record<string, unknown>
++    expect(data).not.toHaveProperty('required_capability')
++  })
++
++  it('requiredCapability local_llm: TO_DO-gate blijft gelden', async () => {
++    mockTask.mockResolvedValue({ id: 't1', status: 'IN_PROGRESS', story: { product_id: 'prod-1' } })
++    await expect(
++      dispatchTaskImplementation({ taskId: 't1', productId: 'prod-1', userId: 'u1', requiredCapability: 'local_llm' }),
++    ).rejects.toThrow(/TO_DO/)
++    expect(mockCreate).not.toHaveBeenCalled()
++  })
++
++  it('requiredCapability local_llm: actieve-job-guard blijft gelden', async () => {
++    mockFindFirst.mockResolvedValue({ id: 'job-existing' })
++    await expect(
++      dispatchTaskImplementation({ taskId: 't1', productId: 'prod-1', userId: 'u1', requiredCapability: 'local_llm' }),
++    ).rejects.toThrow(/actieve/)
++    expect(mockCreate).not.toHaveBeenCalled()
++  })
+ })
+ 
+ it('locks the task before duplicate check and job creation in the same transaction', async () => {
+diff --git a/src/lib/dispatch/task-implementation.ts b/src/lib/dispatch/task-implementation.ts
+index fe147e7..1fecdc6 100644
+--- a/src/lib/dispatch/task-implementation.ts
++++ b/src/lib/dispatch/task-implementation.ts
+@@ -19,6 +19,10 @@ export async function dispatchTaskImplementation(opts: {
+   taskId: string
+   productId: string
+   userId: string
++  // M3-2 (spec §5.1): optioneel — markeert de job voor de dedicated
++  // local_llm-worker en fixeert runtime CLAUDE expliciet. Zonder de optie
++  // verandert de create.
++  requiredCapability?: 'local_llm'
+ }, dependencies: { db?: typeof prisma; notify?: typeof notifyJobEnqueued } = {}): Promise<{ job_id: string }> {
+   const db = dependencies.db ?? prisma
+   const snapshot = await getJobConfigSnapshot({
+@@ -55,6 +59,11 @@ export async function dispatchTaskImplementation(opts: {
+         status: 'QUEUED',
+         source: 'COPILOT',
+         ...snapshot,
++        // M3-2 (spec §5.1): ná de snapshot zodat runtime 'CLAUDE' expliciet
++        // de snapshot-default overschrijft; zonder de optie verandert dit niet.
++        ...(opts.requiredCapability
++          ? { required_capability: opts.requiredCapability, runtime: 'CLAUDE' }
++          : {}),
+       },
+       select: { id: true },
+     })
+diff --git a/src/tools/dispatch-job.ts b/src/tools/dispatch-job.ts
+index 3cad2d2..ae16236 100644
+--- a/src/tools/dispatch-job.ts
++++ b/src/tools/dispatch-job.ts
+@@ -59,6 +59,8 @@ const inputSchema = z.object({
+   doc_slug: z.string().min(1).optional(),
+   doc_id: z.string().min(1).optional(),
+   pr_url: z.string().url().optional(),
++  // M3-2: losse taakjobs voor de dedicated local_llm-worker (spec §5.1).
++  required_capability: z.enum(['local_llm']).optional(),
+ })
+ 
+ type Input = z.infer<typeof inputSchema>
+@@ -76,6 +78,9 @@ function validateRefs(input: Input): string | null {
+   }
+   const extra = present.filter((k) => !allowed.has(k))
+   if (extra.length > 0) return `Niet toegestaan voor ${input.kind}: ${extra.join(', ')}.`
++  if (input.required_capability !== undefined && input.kind !== 'TASK_IMPLEMENTATION') {
++    return 'required_capability is alleen toegestaan bij TASK_IMPLEMENTATION.'
++  }
+   return null
+ }
+ 
+@@ -109,6 +114,7 @@ export async function handleDispatchJob(rawInput: Input) {
+         case 'TASK_IMPLEMENTATION':
+           return toolJson(await dispatchTaskImplementation({
+             taskId: input.task_id!, productId: input.product_id, userId: auth.userId,
++            requiredCapability: input.required_capability,
+           }))
+         case 'SPRINT_IMPLEMENTATION':
+           return toolJson(await dispatchSprintRun({

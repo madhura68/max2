@@ -1,0 +1,261 @@
+diff --git a/__tests__/redact.test.ts b/__tests__/redact.test.ts
+new file mode 100644
+index 0000000..c17591d
+--- /dev/null
++++ b/__tests__/redact.test.ts
+@@ -0,0 +1,153 @@
++import { describe, expect, it } from 'vitest'
++import { WorkerConfigSchema } from '../src/worker/config.js'
++import { collectSecretEntries, collectSecretValues, redactDeep, redactText, REDACTED, workerSecretSources } from '../src/worker/redact.js'
++
++describe('collectSecretValues (zelfde selectie als de runner, scrum4me-docker lib/log-redact.ts)', () => {
++  it('pakt secret-achtige sleutels en laat gewone waarden staan', () => {
++    const secrets = collectSecretValues({
++      SCRUM4ME_TOKEN: 'tok-abc123-xyz',
++      DB_PASSWORD: 'pw-12345678',
++      API_KEY: 'key-87654321',
++      PRIVATE_KEY: 'pk-abcdef',
++      SSH_KEY: 'sk-abcdef',
++      DATABASE_DSN: 'dsn-abcdef',
++      CREDENTIAL_STORE: 'cred-abcdef',
++      PATH: '/usr/bin',
++      HOME: '/home/janpeter',
++      MODEL_NAME: 'qwen3-coder',
++    })
++    expect(secrets).toContain('tok-abc123-xyz')
++    expect(secrets).toContain('pw-12345678')
++    expect(secrets).toContain('key-87654321')
++    expect(secrets).toContain('pk-abcdef')
++    expect(secrets).toContain('sk-abcdef')
++    expect(secrets).toContain('dsn-abcdef')
++    expect(secrets).toContain('cred-abcdef')
++    expect(secrets).not.toContain('/usr/bin')
++    expect(secrets).not.toContain('/home/janpeter')
++    expect(secrets).not.toContain('qwen3-coder')
++  })
++
++  it('pakt het wachtwoord uit een URL-waarde onder een niet-secret sleutel, ook gedecodeerd', () => {
++    const secrets = collectSecretValues({ DIRECT_URL: 'postgres://scrum:db%40passphrase@db:5432/scrum4me' })
++    // Alleen het wachtwoord telt mee, de URL zelf niet: DIRECT_URL matcht het naamspatroon niet.
++    // De ruwe vorm (9+ tekens) én de gedecodeerde vorm zijn aanwezig; langste eerst.
++    expect(secrets).toEqual(['db%40passphrase', 'db@passphrase'])
++  })
++
++  it('verwerkt meerdere omgevingen en sorteert langste eerst', () => {
++    const secrets = collectSecretValues({ A_TOKEN: '12345678' }, { B_TOKEN: '123456789012345678' }, { C_TOKEN: '1234567890' })
++    expect(secrets[0]).toBe('123456789012345678')
++    expect(secrets).toHaveLength(3)
++  })
++})
++
++describe('redactText', () => {
++  it('vervangt meerdere secrets op één regel door ***', () => {
++    const secrets = collectSecretValues({ A_TOKEN: 'alpha12345', B_TOKEN: 'bravo67890' })
++    expect(redactText('fout alpha12345 en daarna bravo67890 op één regel', secrets)).toBe(`fout ${REDACTED} en daarna ${REDACTED} op één regel`)
++  })
++
++  it('laat tekst zonder secrets byte-identiek staan', () => {
++    const secrets = collectSecretValues({ A_TOKEN: 'alpha12345' })
++    const text = 'geen geheimen hier, gewoon een logregel met een spatie\n'
++    expect(redactText(text, secrets)).toBe(text)
++  })
++
++  it('laat tekst met lege redactieset ongewijzigd', () => {
++    const text = 'iets met een @-teken en %40 erin'
++    expect(redactText(text, [])).toBe(text)
++  })
++})
++
++describe('redactDeep', () => {
++  it('redigeert geneste objecten en arrays en laat andere waarden gelijk', () => {
++    const secrets = collectSecretValues({ A_TOKEN: 'alpha12345' })
++    const input = { a: 'token alpha12345 in tekst', b: { c: ['x', 'alpha12345', 42], d: null, e: true, f: { g: 'alpha12345' } } }
++    expect(redactDeep(input, secrets)).toEqual({ a: `token ${REDACTED} in tekst`, b: { c: ['x', REDACTED, 42], d: null, e: true, f: { g: REDACTED } } })
++  })
++
++  it('laat niet-string-waarden op topniveau ongewijzigd', () => {
++    const secrets = collectSecretValues({ A_TOKEN: 'alpha12345' })
++    expect(redactDeep(42, secrets)).toBe(42)
++    expect(redactDeep(null, secrets)).toBeNull()
++    expect(redactDeep('alpha12345', secrets)).toBe(REDACTED)
++  })
++})
++
++describe('collectSecretEntries', () => {
++  it('houdt korte waarden en namen, en laat lege waarden weg', () => {
++    const entries = collectSecretEntries({
++      A_TOKEN: '123456789012345678',
++      B_PASSWD: 'short',
++      C_CREDENTIAL: '',
++      D_TOKEN: undefined,
++      PATH: '/usr/bin',
++    })
++    expect(entries).toEqual([
++      { name: 'A_TOKEN', value: '123456789012345678' },
++      { name: 'B_PASSWD', value: 'short' },
++    ])
++  })
++
++  it('noemt een URL-wachtwoord met (url-wachtwoord) achter de sleutel', () => {
++    const entries = collectSecretEntries({ DIRECT_URL: 'postgres://scrum:db%40pass@db:5432/scrum4me' })
++    expect(entries).toEqual([
++      { name: 'DIRECT_URL (url-wachtwoord)', value: 'db%40pass' },
++      { name: 'DIRECT_URL (url-wachtwoord)', value: 'db@pass' },
++    ])
++  })
++
++  it('deelt dezelfde selectie als de runner: een secret-achtige naam plus url-wachtwoorden uit elke URL-waarde', () => {
++    const entries = collectSecretEntries({
++      DATABASE_URL: 'postgres://scrum:db%40pass@db:5432/scrum4me',
++      SCRUM4ME_TOKEN: 'tok-abc123-xyz',
++      DIRECT_URL: 'postgres://scrum:db%40pass@db:5432/scrum4me',
++    })
++    const values = entries.map((e) => e.value)
++    // DATABASE_URL matcht het naamspatroon niet: alleen het url-wachtwoord van beide URL's telt mee.
++    expect(values.filter((v) => v.startsWith('db')).sort()).toEqual(['db%40pass', 'db%40pass', 'db@pass', 'db@pass'])
++    expect(values).toContain('tok-abc123-xyz')
++    expect(values).not.toContain('postgres://scrum:db%40pass@db:5432/scrum4me')
++    // De controle (Taak 7) mag alleen namen tonen: geen enkele naam mag een waarde bevatten.
++    for (const e of entries) expect(e.name).not.toContain(e.value)
++  })
++
++  it('pariteit: elke waarde uit collectSecretValues zit in collectSecretEntries', () => {
++    const envs = [
++      { A_TOKEN: 'alpha12345', DIRECT_URL: 'postgres://scrum:db%40pass@db:5432/scrum4me' },
++      { B_TOKEN: 'bravo67890', C_TOKEN: 'alpha12345' },
++    ]
++    const values = collectSecretValues(...envs)
++    const entryValues = collectSecretEntries(...envs).map((e) => e.value)
++    for (const v of values) expect(entryValues).toContain(v)
++  })
++})
++
++describe('workerSecretSources', () => {
++  it('levert de vier bronnen: process.env, de MCP-omgeving, model.apiKey en het wachtwoord uit model.baseUrl', () => {
++    const cfg = WorkerConfigSchema.parse({
++      model: { baseUrl: 'http://u:pw-from-url-1234@127.0.0.1:11434/v1', name: 'qwen3-coder:30b', apiKey: 'sk-worker-12345678' },
++      mcp: { command: 'node', args: [], env: { SCRUM4ME_TOKEN: '${SCRUM4ME_TOKEN}', DATABASE_URL: '${DATABASE_URL}' } },
++    })
++    const processEnv = {
++      FORGEJO_TOKEN: 'forgejo-12345678',
++      SCRUM4ME_TOKEN: 'mcp-token-12345678',
++      DATABASE_URL: 'postgres://scrum:mcp-db-pass@db:5432/scrum4me',
++    }
++    const secrets = collectSecretValues(...workerSecretSources(cfg, processEnv))
++    expect(secrets).toContain('forgejo-12345678') // process.env
++    expect(secrets).toContain('mcp-token-12345678') // workerMcpEnv
++    expect(secrets).toContain('mcp-db-pass') // workerMcpEnv, url-wachtwoord
++    expect(secrets).toContain('sk-worker-12345678') // model.apiKey
++    expect(secrets).toContain('pw-from-url-1234') // url-wachtwoord uit model.baseUrl
++    // De waarden uit de vier bronnen verbergen elkaar niet: redactie met de set pakt ze allemaal.
++    expect(redactText('forgejo-12345678 mcp-token-12345678 sk-worker-12345678 pw-from-url-1234', secrets)).toBe(`${REDACTED} ${REDACTED} ${REDACTED} ${REDACTED}`)
++  })
++
++  it('werkt zonder mcp.env en zonder apiKey', () => {
++    const cfg = WorkerConfigSchema.parse({ model: { baseUrl: 'http://127.0.0.1:11434/v1', name: 'qwen3-coder:30b' }, mcp: { command: 'node', args: [] } })
++    const secrets = collectSecretValues(...workerSecretSources(cfg, { A_TOKEN: 'only12345678' }))
++    expect(secrets).toEqual(['only12345678'])
++  })
++})
+diff --git a/src/worker/redact.ts b/src/worker/redact.ts
+new file mode 100644
+index 0000000..9d8afee
+--- /dev/null
++++ b/src/worker/redact.ts
+@@ -0,0 +1,96 @@
++import { workerMcpEnv, type WorkerConfig } from './config.js'
++
++/**
++ * Redactie van run-logs, dezelfde regels als de runner (scrum4me-docker `lib/log-redact.ts:9-58`, 52ded13;
++ * de regelbuffer voor streams uit `:60-88` is hier niet nodig). Gemaskeerd worden:
++ * - de volledige waarde van variabelen waarvan de naam matcht op `SECRET_NAME_RE`;
++ * - het wachtwoord uit elke URL-waarde, ruw én URL-gedecodeerd.
++ * De waarden in de redactieset zijn vanaf 8 tekens; de langste wordt eerst vervangen, door `REDACTED`.
++ */
++
++export const REDACTED = '***'
++
++const SECRET_NAME_RE = /(TOKEN|SECRET|PASSWORD|PASSWD|API_KEY|PRIVATE_KEY|_KEY$|DSN|CREDENTIAL)/i
++
++const MIN_SECRET_LENGTH = 8
++
++// De userinfo tussen `://` en de volgende `@`; `host:port` zonder `@` is geen userinfo.
++const USERINFO = /:\/\/([^@\/\s]*)@/
++
++/** Het wachtwoord uit een URL-waarde: de ruwe en de gedecodeerde vorm; lege vormen vallen weg. */
++function urlPassword(value: string): string[] {
++  const userinfo = value.match(USERINFO)?.[1]
++  const raw = userinfo !== undefined ? userinfo.slice(userinfo.lastIndexOf(':') + 1) : undefined
++  if (!raw) return []
++  const decoded = safeDecode(raw)
++  return decoded === raw ? [raw] : [raw, decoded]
++}
++
++function safeDecode(s: string): string {
++  try {
++    return decodeURIComponent(s)
++  } catch {
++    return s
++  }
++}
++
++/**
++ * Alle kandidaten met hun bron: de waarde van een variabele met een geheim-achtige naam, en het
++ * wachtwoord uit elke URL-waarde (ruw en gedecodeerd). Zonder lengtefilter; lege waarden vallen weg.
++ */
++export function collectSecretEntries(...envs: Array<Record<string, string | undefined>>): { name: string; value: string }[] {
++  const entries: { name: string; value: string }[] = []
++  for (const env of envs) {
++    for (const [name, value] of Object.entries(env)) {
++      if (value === undefined || value === '') continue
++      if (SECRET_NAME_RE.test(name)) entries.push({ name, value })
++      for (const pw of urlPassword(value)) entries.push({ name: `${name} (url-wachtwoord)`, value: pw })
++    }
++  }
++  return entries
++}
++
++/** De redactieset: de waarden uit collectSecretEntries vanaf 8 tekens, uniek, langste eerst (= de runnerregel). */
++export function collectSecretValues(...envs: Array<Record<string, string | undefined>>): string[] {
++  const seen = new Set<string>()
++  const out: string[] = []
++  for (const { value } of collectSecretEntries(...envs)) {
++    if (value.length < MIN_SECRET_LENGTH || seen.has(value)) continue
++    seen.add(value)
++    out.push(value)
++  }
++  return out.sort((a, b) => b.length - a.length)
++}
++
++/** Vervangt elke secret (langste eerst) door `REDACTED`; dezelfde regel als de runner. */
++export function redactText(text: string, secrets: readonly string[]): string {
++  let out = text
++  for (const secret of [...secrets].sort((a, b) => b.length - a.length)) {
++    if (secret === '' || !out.includes(secret)) continue
++    out = out.split(secret).join(REDACTED)
++  }
++  return out
++}
++
++/** Redigeert elke string in een JSON-waarde (objecten en arrays recursief); andere waarden blijven gelijk. */
++export function redactDeep<T>(value: T, secrets: readonly string[]): T {
++  if (typeof value === 'string') return redactText(value, secrets) as T
++  if (Array.isArray(value)) return value.map((v) => redactDeep(v, secrets)) as T
++  if (value !== null && typeof value === 'object' && !Array.isArray(value)) {
++    const out: Record<string, unknown> = {}
++    for (const [k, v] of Object.entries(value as Record<string, unknown>)) out[k] = redactDeep(v, secrets)
++    return out as T
++  }
++  return value
++}
++
++/**
++ * De vier redactiebronnen van de worker: `process.env`, de opgeloste MCP-omgeving, `model.apiKey` en
++ * het wachtwoord uit `model.baseUrl`. De worker (Taak 5) en de controle (Taak 7) gebruiken allebei deze functie.
++ */
++export function workerSecretSources(
++  config: WorkerConfig,
++  processEnv: NodeJS.ProcessEnv = process.env,
++): Array<Record<string, string | undefined>> {
++  return [processEnv, workerMcpEnv(config, processEnv), { MODEL_API_KEY: config.model.apiKey, MODEL_BASE_URL: config.model.baseUrl }]
++}

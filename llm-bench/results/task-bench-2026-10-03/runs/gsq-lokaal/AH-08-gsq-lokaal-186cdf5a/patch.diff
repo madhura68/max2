@@ -1,0 +1,146 @@
+diff --git a/__tests__/policy.test.ts b/__tests__/policy.test.ts
+new file mode 100644
+index 0000000..0231c14
+--- /dev/null
++++ b/__tests__/policy.test.ts
+@@ -0,0 +1,82 @@
++import { describe, expect, it } from 'vitest'
++import { startFakeMcp } from './fakes/fake-mcp-server.js'
++import { connectRegistry } from '../src/tools/registry.js'
++import { createPolicy } from '../src/tools/policy.js'
++import type { ToolCall, ToolSnapshot } from '../src/types.js'
++
++function call(name: string, args: string): ToolCall {
++  return { id: 'c1', name, arguments: args, argumentsWasObject: false }
++}
++
++const snapshot: ToolSnapshot = {
++  entries: [
++    { name: 'echo', inputSchema: { type: 'object', properties: { text: { type: 'string' } }, required: ['text'] } },
++    { name: 'no_required', inputSchema: { type: 'object', properties: { a: { type: 'string' } } } },
++  ],
++  hash: 'x',
++}
++
++describe('createPolicy', () => {
++  const policy = createPolicy(snapshot)
++
++  it('accepts a valid call and returns the parsed args', () => {
++    expect(policy.check(call('echo', '{"text": "hoi"}'))).toEqual({ ok: true, name: 'echo', args: { text: 'hoi' } })
++  })
++
++  it('rejects an unknown tool before JSON and schema checks', () => {
++    const d = policy.check(call('nope', 'not json at all'))
++    expect(d).toMatchObject({ ok: false, errorCode: 'UNKNOWN_TOOL' })
++  })
++
++  it('rejects non-JSON arguments with MALFORMED_ARGS', () => {
++    const d = policy.check(call('echo', '{"text": }'))
++    expect(d).toMatchObject({ ok: false, errorCode: 'MALFORMED_ARGS' })
++  })
++
++  it('rejects JSON that is not an object with MALFORMED_ARGS', () => {
++    for (const args of ['42', 'null', '[1]']) {
++      expect(policy.check(call('echo', args))).toMatchObject({ ok: false, errorCode: 'MALFORMED_ARGS' })
++    }
++  })
++
++  it('accepts an empty string as {} only when the schema has no required', () => {
++    expect(policy.check(call('no_required', ''))).toEqual({ ok: true, name: 'no_required', args: {} })
++    expect(policy.check(call('echo', ''))).toMatchObject({ ok: false, errorCode: 'SCHEMA_MISMATCH' })
++  })
++
++  it('rejects arguments that fail the schema with SCHEMA_MISMATCH and the ajv message', () => {
++    const d = policy.check(call('echo', '{"text": 42}'))
++    expect(d).toMatchObject({ ok: false, errorCode: 'SCHEMA_MISMATCH' })
++    expect((d as { message: string }).message).toContain('must be string')
++  })
++
++  it('allows extra properties when the snapshot schema does not set additionalProperties', () => {
++    expect(policy.check(call('echo', '{"text": "ok", "extra": 1}'))).toMatchObject({ ok: true, args: { text: 'ok', extra: 1 } })
++  })
++
++  it('still rejects an empty {} when the snapshot schema has required', () => {
++    const d = policy.check(call('echo', '{}'))
++    expect(d).toMatchObject({ ok: false, errorCode: 'SCHEMA_MISMATCH' })
++    expect((d as { message: string }).message).toContain('must have required property')
++  })
++})
++
++describe('schemas as the SDK actually emits them', () => {
++  it('compiles the real draft-07 inputSchema (with $schema) from an McpServer registerTool', async () => {
++    const fake = await startFakeMcp()
++    try {
++      const reg = await connectRegistry(fake.client, ['echo'])
++      const schema = reg.snapshot.entries[0].inputSchema
++      expect(schema.$schema).toBe('http://json-schema.org/draft-07/schema#')
++
++      const policy = createPolicy(reg.snapshot)
++      const ok = policy.check(call('echo', '{"text": "hi"}'))
++      expect(ok).toMatchObject({ ok: true, name: 'echo' })
++      const bad = policy.check(call('echo', '{}'))
++      expect(bad).toMatchObject({ ok: false, errorCode: 'SCHEMA_MISMATCH' })
++      expect((bad as { message: string }).message).toContain('must have required property')
++    } finally {
++      await fake.close()
++    }
++  })
++})
+diff --git a/src/tools/policy.ts b/src/tools/policy.ts
+new file mode 100644
+index 0000000..f06ae49
+--- /dev/null
++++ b/src/tools/policy.ts
+@@ -0,0 +1,52 @@
++import { Ajv } from 'ajv'
++import type { ValidateFunction } from 'ajv'
++import type { ToolCall, ToolSnapshot } from '../types.js'
++
++export type PolicyDecision =
++  | { ok: true; name: string; args: Record<string, unknown> }
++  | { ok: false; errorCode: 'UNKNOWN_TOOL' | 'MALFORMED_ARGS' | 'SCHEMA_MISMATCH'; message: string }
++
++type Validator = ValidateFunction
++
++/**
++ * Per-call validation in the fixed spec §5.3 order: name → JSON → schema.
++ *
++ * Schema validation is Ajv draft-07: SDK 1.29's registerTool → toJsonSchemaCompat without
++ * target → mapMiniTarget ⇒ 'draft-7', so every emitted inputSchema carries
++ * `$schema: http://json-schema.org/draft-07/schema#`. Ajv2020 refuses that `$schema`
++ * ("no schema with key or ref"), so the base Ajv class is used and the `$schema` key is
++ * stripped from a copy before compile, keeping a later SDK bump to 2020-12 from breaking here.
++ *
++ * Validators are compiled once per tool name at creation. `strict: false` because MCP
++ * schemas contain non-standard keywords Ajv does not know.
++ */
++export function createPolicy(snapshot: ToolSnapshot): { check(call: ToolCall): PolicyDecision } {
++  const ajv = new Ajv({ strict: false, allErrors: false })
++  const validators = new Map<string, Validator>()
++  for (const entry of snapshot.entries) {
++    const schema: Record<string, unknown> = { ...entry.inputSchema }
++    delete schema.$schema
++    validators.set(entry.name, ajv.compile(schema))
++  }
++
++  return {
++    check(call: ToolCall): PolicyDecision {
++      const validator = validators.get(call.name)
++      if (!validator) return { ok: false, errorCode: 'UNKNOWN_TOOL', message: `tool not in snapshot: ${call.name}` }
++
++      let args: unknown
++      try {
++        args = call.arguments === '' ? {} : JSON.parse(call.arguments)
++      } catch {
++        return { ok: false, errorCode: 'MALFORMED_ARGS', message: 'arguments are not valid JSON' }
++      }
++      if (typeof args !== 'object' || args === null || Array.isArray(args)) {
++        return { ok: false, errorCode: 'MALFORMED_ARGS', message: 'arguments are not a JSON object' }
++      }
++      const record = args as Record<string, unknown>
++
++      if (!validator(record)) return { ok: false, errorCode: 'SCHEMA_MISMATCH', message: ajv.errorsText(validator.errors ?? ajv.errors, { separator: '; ' }) }
++      return { ok: true, name: call.name, args: record }
++    },
++  }
++}

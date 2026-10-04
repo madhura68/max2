@@ -1,0 +1,426 @@
+diff --git a/__tests__/git/pr-enable-auto-merge.test.ts b/__tests__/git/pr-enable-auto-merge.test.ts
+index 631d1ec..b72e210 100644
+--- a/__tests__/git/pr-enable-auto-merge.test.ts
++++ b/__tests__/git/pr-enable-auto-merge.test.ts
+@@ -30,7 +30,7 @@ function mockForgejoWithMerge(opts: {
+   return vi.fn(async (url: string, init: RequestInit = {}) => {
+     if (url.endsWith('/api/v1/version')) {
+       return (
+-        versionResponse?.() ?? new Response('{"version":"15.0.2"}', { status: 200 })
++        versionResponse?.() ?? new Response('{\"version\":\"15.0.2\"}', { status: 200 })
+       )
+     }
+     if (url.endsWith('/swagger.v1.json')) {
+@@ -43,6 +43,59 @@ function mockForgejoWithMerge(opts: {
+   })
+ }
+ 
++type MergeCall = {
++  kind: 'schedule' | 'direct'
++  body: Record<string, unknown>
++}
++
++/**
++ * Hulp-mock voor de schedule-first flow: onderscheidt de schedule-POST
++ * (body bevat `merge_when_checks_succeed`) van de directe-merge-POST's
++ * (body zonder dat veld). `scheduleResponse` geldt voor de schedule-POST;
++ * `directResponses` is een per-poging queue voor de directe-merge-lus
++ * (default: 200).
++ */
++function mockScheduleThenDirect(opts: {
++  scheduleResponse?: Response
++  directResponses?: Response[]
++  versionResponse?: () => Response
++} = {}) {
++  const { scheduleResponse, directResponses = [], versionResponse } = opts
++  const calls: MergeCall[] = []
++  const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
++    if (url.endsWith('/api/v1/version')) {
++      return (
++        versionResponse?.() ?? new Response('{\"version\":\"15.0.2\"}', { status: 200 })
++      )
++    }
++    if (url.endsWith('/swagger.v1.json')) {
++      return new Response(JSON.stringify(FIXTURE_V15), { status: 200 })
++    }
++    if (url.endsWith('/merge') && init.method === 'POST') {
++      const body = JSON.parse((init.body as string) || '{}') as Record<string, unknown>
++      const kind: 'schedule' | 'direct' =
++        'merge_when_checks_succeed' in body ? 'schedule' : 'direct'
++      calls.push({ kind, body })
++      if (kind === 'schedule') {
++        return scheduleResponse ?? new Response('', { status: 200 })
++      }
++      const directIdx = calls.filter((c) => c.kind === 'direct').length - 1
++      return directResponses[directIdx] ?? new Response('', { status: 200 })
++    }
++    return new Response('', { status: 404 })
++  })
++  return {
++    calls,
++    scheduleCallCount: () => calls.filter((c) => c.kind === 'schedule').length,
++    directCallCount: () => calls.filter((c) => c.kind === 'direct').length,
++    fetch: fetchMock,
++  }
++}
++
++function http(status: number, body?: string): Response {
++  return new Response(body ?? '', { status })
++}
++
+ beforeEach(() => {
+   process.env.FORGEJO_HOST = 'git.jp-visser.nl'
+   process.env.FORGEJO_TOKEN = 'test-token'
+@@ -55,17 +108,160 @@ afterEach(() => {
+   vi.restoreAllMocks()
+ })
+ 
++describe('enableAutoMergeOnPr — schedule-first + opportunistische directe merge', () => {
++  it('no-CI: directe merge slaagt na 1 poging → mode:merged', async () => {
++    const mock = mockScheduleThenDirect()
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
++    expect(result).toEqual({ ok: true, mode: 'merged' })
++    expect(mock.scheduleCallCount()).toBe(1)
++    expect(mock.directCallCount()).toBe(1)
++  })
++
++  it('CI-checks pending (directe 409): 3 pogingen, schedule blijft → mode:scheduled', async () => {
++    const mock = mockScheduleThenDirect({
++      directResponses: [
++        http(409, 'checks not passing'),
++        http(409, 'checks not passing'),
++        http(409, 'checks not passing'),
++      ],
++    })
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
++    expect(result).toEqual({ ok: true, mode: 'scheduled' })
++    expect(mock.scheduleCallCount()).toBe(1)
++    expect(mock.directCallCount()).toBe(3)
++  })
++
++  it('schedule-POST 401 → GH_AUTH surface, géén directe poging', async () => {
++    const mock = mockScheduleThenDirect({
++      scheduleResponse: http(401, '{"message":"token required"}'),
++    })
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
++    expect(result.ok).toBe(false)
++    if (!result.ok) expect(result.reason).toBe('GH_AUTH_ERROR')
++    expect(mock.directCallCount()).toBe(0)
++  })
++
++  it('schedule-POST 422 "not allowed" → AUTO_MERGE_NOT_ALLOWED, géén directe poging', async () => {
++    const mock = mockScheduleThenDirect({
++      scheduleResponse: http(422, 'auto-merge not allowed'),
++    })
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
++    expect(result.ok).toBe(false)
++    if (!result.ok) expect(result.reason).toBe('AUTO_MERGE_NOT_ALLOWED')
++    expect(mock.directCallCount()).toBe(0)
++  })
++
++  it('head-move (directe 409 head-mismatch) → 3 pogingen, mode:scheduled', async () => {
++    const mock = mockScheduleThenDirect({
++      directResponses: [
++        http(409, 'head commit mismatch'),
++        http(409, 'head commit mismatch'),
++        http(409, 'head commit mismatch'),
++      ],
++    })
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
++    expect(result).toEqual({ ok: true, mode: 'scheduled' })
++    expect(mock.scheduleCallCount()).toBe(1)
++    expect(mock.directCallCount()).toBe(3)
++  })
++
++  it('transiënte directe-fout [502, 200] → 2e poging slaagt → mode:merged', async () => {
++    const mock = mockScheduleThenDirect({
++      directResponses: [http(502, 'weird gateway issue'), http(200)],
++    })
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
++    expect(result).toEqual({ ok: true, mode: 'merged' })
++    expect(mock.scheduleCallCount()).toBe(1)
++    expect(mock.directCallCount()).toBe(2)
++  })
++})
++
++describe('enableAutoMergeOnPr — body-inspectie', () => {
++  it('stuurt head_commit_id mee in schedule- én directe-body', async () => {
++    const mock = mockScheduleThenDirect()
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'abc123',
++      directMergeBackoffMs: 0,
++    })
++    expect(result).toEqual({ ok: true, mode: 'merged' })
++
++    const schedule = mock.calls.find((c) => c.kind === 'schedule')
++    const direct = mock.calls.find((c) => c.kind === 'direct')
++    expect(schedule).toBeDefined()
++    expect(direct).toBeDefined()
++    if (!schedule || !direct) return
++    // Schedule-body: squash + auto-merge + head-guard.
++    expect(schedule.body.Do).toBe('squash')
++    expect(schedule.body.merge_when_checks_succeed).toBe(true)
++    expect(schedule.body.head_commit_id).toBe('abc123')
++    // Directe-body: squash + head-guard, MAAR géén merge_when_checks_succeed.
++    expect(direct.body.Do).toBe('squash')
++    expect(direct.body.merge_when_checks_succeed).toBeUndefined()
++    expect(direct.body.head_commit_id).toBe('abc123')
++  })
++
++  it('zonder expectedHeadSha: geen head_commit_id in schedule- of directe-body', async () => {
++    const mock = mockScheduleThenDirect()
++    vi.stubGlobal('fetch', mock.fetch)
++    const result = await enableAutoMergeOnPr({ prUrl: PR_URL, directMergeBackoffMs: 0 })
++
++    expect(result).toEqual({ ok: true, mode: 'merged' })
++    expect(mock.scheduleCallCount()).toBe(1)
++    expect(mock.directCallCount()).toBe(1)
++    for (const call of mock.calls) {
++      expect(call.body.head_commit_id).toBeUndefined()
++    }
++  })
++})
++
+ describe('enableAutoMergeOnPr — Forgejo REST + typed errors', () => {
+   it('returns ok:true op 2xx merge response', async () => {
+     vi.stubGlobal('fetch', mockForgejoWithMerge())
+-    const result = await enableAutoMergeOnPr({ prUrl: PR_URL, expectedHeadSha: 'sha1' })
++    const result = await enableAutoMergeOnPr({
++      prUrl: PR_URL,
++      expectedHeadSha: 'sha1',
++      directMergeBackoffMs: 0,
++    })
+     expect(result.ok).toBe(true)
++    if (result.ok) expect(result.mode).toBe('merged')
+   })
+ 
+   it('AUTO_MERGE_NOT_ALLOWED wanneer discovery merge_when_checks_succeed mist (geen merge-call)', async () => {
+     let mergeCalled = false
+     const fetchMock = vi.fn(async (url: string, init: RequestInit = {}) => {
+-      if (url.endsWith('/api/v1/version')) return new Response('{"version":"14.0.0"}', { status: 200 })
++      if (url.endsWith('/api/v1/version')) return new Response('{\"version\":\"14.0.0\"}', { status: 200 })
+       if (url.endsWith('/swagger.v1.json')) {
+         return new Response(
+           JSON.stringify({ definitions: { MergePullRequestOption: { properties: { Do: {} } } } }),
+@@ -94,7 +290,7 @@ describe('enableAutoMergeOnPr — Forgejo REST + typed errors', () => {
+     vi.stubGlobal(
+       'fetch',
+       mockForgejoWithMerge({
+-        mergeResponse: () => new Response('{"message":"token required"}', { status: 401 }),
++        mergeResponse: () => new Response('{\"message\":\"token required\"}', { status: 401 }),
+       }),
+     )
+     const result = await enableAutoMergeOnPr({ prUrl: PR_URL, expectedHeadSha: 'sha1' })
+@@ -106,7 +302,7 @@ describe('enableAutoMergeOnPr — Forgejo REST + typed errors', () => {
+     vi.stubGlobal(
+       'fetch',
+       mockForgejoWithMerge({
+-        mergeResponse: () => new Response('{"message":"head commit mismatch"}', { status: 409 }),
++        mergeResponse: () => new Response('{\"message\":\"head commit mismatch\"}', { status: 409 }),
+       }),
+     )
+     const result = await enableAutoMergeOnPr({ prUrl: PR_URL, expectedHeadSha: 'sha1' })
+@@ -138,50 +334,6 @@ describe('enableAutoMergeOnPr — Forgejo REST + typed errors', () => {
+     if (!result.ok) expect(result.reason).toBe('UNKNOWN')
+   })
+ 
+-  it('stuurt head_commit_id mee in body wanneer expectedHeadSha gegeven', async () => {
+-    let mergeBody = ''
+-    vi.stubGlobal(
+-      'fetch',
+-      vi.fn(async (url: string, init: RequestInit = {}) => {
+-        if (url.endsWith('/api/v1/version')) return new Response('{"version":"15.0.2"}', { status: 200 })
+-        if (url.endsWith('/swagger.v1.json')) return new Response(JSON.stringify(FIXTURE_V15), { status: 200 })
+-        if (url.endsWith('/merge') && init.method === 'POST') {
+-          mergeBody = init.body as string
+-          return new Response('', { status: 200 })
+-        }
+-        return new Response('', { status: 404 })
+-      }),
+-    )
+-
+-    await enableAutoMergeOnPr({ prUrl: PR_URL, expectedHeadSha: 'abc123' })
+-
+-    const parsed = JSON.parse(mergeBody)
+-    expect(parsed.Do).toBe('squash')
+-    expect(parsed.merge_when_checks_succeed).toBe(true)
+-    expect(parsed.head_commit_id).toBe('abc123')
+-  })
+-
+-  it('zonder expectedHeadSha: geen head_commit_id in body', async () => {
+-    let mergeBody = ''
+-    vi.stubGlobal(
+-      'fetch',
+-      vi.fn(async (url: string, init: RequestInit = {}) => {
+-        if (url.endsWith('/api/v1/version')) return new Response('{"version":"15.0.2"}', { status: 200 })
+-        if (url.endsWith('/swagger.v1.json')) return new Response(JSON.stringify(FIXTURE_V15), { status: 200 })
+-        if (url.endsWith('/merge') && init.method === 'POST') {
+-          mergeBody = init.body as string
+-          return new Response('', { status: 200 })
+-        }
+-        return new Response('', { status: 404 })
+-      }),
+-    )
+-
+-    await enableAutoMergeOnPr({ prUrl: PR_URL })
+-
+-    const parsed = JSON.parse(mergeBody)
+-    expect(parsed.head_commit_id).toBeUndefined()
+-  })
+-
+   it('github.com URL → UNKNOWN reason met LEGACY_GITHUB_URL stderr', async () => {
+     vi.stubGlobal('fetch', vi.fn())
+ 
+diff --git a/src/git/pr.ts b/src/git/pr.ts
+index 9ced784..4cccd29 100644
+--- a/src/git/pr.ts
++++ b/src/git/pr.ts
+@@ -30,7 +30,7 @@ export type { AutoMergeFailReason } from './forgejo-rest.js'
+ import type { AutoMergeFailReason } from './forgejo-rest.js'
+ 
+ export type EnableAutoMergeResult =
+-  | { ok: true }
++  | { ok: true; mode: 'merged' | 'scheduled' }
+   | { ok: false; reason: AutoMergeFailReason; stderr: string }
+ 
+ export type PrState = 'OPEN' | 'MERGED' | 'CLOSED'
+@@ -150,21 +150,32 @@ export async function createPullRequest(opts: {
+ // =========================================================================
+ 
+ /**
+- * Zet auto-merge (squash) aan op een Forgejo PR met optionele head-SHA guard.
++ * Zet auto-merge (squash) aan op een Forgejo PR, schedule-first:
++ *
++ * 1. **Schedule-POST** (`merge_when_checks_succeed: true`) — respecteert de
++ *    "Allow auto-merge"-gate van de instance. Een schedule-fout wordt
++ *    gésurface'd (`{ ok: false }`); er wordt dan géén directe merge gedaan.
++ * 2. **Opportunistische directe squash-merge** in een max-3 bounded-retry-lus
++ *    (backoff = `directMergeBackoffMs`, 0 in tests) voor transiënte
++ *    mergeability. We branchen NIET op de directe-merge-fout: die laat de
++ *    schedule staan (`mode: 'scheduled'`); slaagt de directe merge dan is de
++ *    PR direct op main (`mode: 'merged'`).
+  *
+  * PBI-47 (P0): wanneer `expectedHeadSha` meegegeven wordt sturen we
+- * `head_commit_id` mee in de merge-body; Forgejo activeert dan alleen
+- * auto-merge wanneer de remote head nog matcht. Dit voorkomt dat een
+- * latere worker-push een ongewenste commit-set mergt.
++ * `head_commit_id` mee in BÉÍDE bodies; Forgejo merge/activeert dan alleen
++ * wanneer de remote head nog matcht. Dit voorkomt dat een latere worker-push
++ * een ongewenste commit-set mergt.
+  *
+  * Wanneer de Forgejo-instance `merge_when_checks_succeed` niet ondersteunt
+  * (discovery faalt op dat veld) retourneren we `AUTO_MERGE_NOT_ALLOWED`
+- * zónder een merge-call te doen — direct mergen is bewust géén fallback.
++ * zónder een merge-call te doen.
+  */
+ export async function enableAutoMergeOnPr(opts: {
+   prUrl: string
+   expectedHeadSha?: string
+   cwd?: string
++  /** Backoff tussen directe-merge-pogingen (ms). 0 = geen await (tests). */
++  directMergeBackoffMs?: number
+ }): Promise<EnableAutoMergeResult> {
+   let prRef
+   try {
+@@ -186,26 +197,58 @@ export async function enableAutoMergeOnPr(opts: {
+     return forgejoErrorToAutoMergeResult(err)
+   }
+ 
+-  const body: Record<string, unknown> = {
++  const mergePath = `${repoPath(prRef.owner, prRef.repo)}/pulls/${prRef.index}/merge`
++
++  // 1. Schedule-first: POST met merge_when_checks_succeed (respecteert de
++  //    "Allow auto-merge"-gate). Fout → surfacen; géén directe fallback.
++  const scheduleBody: Record<string, unknown> = {
+     Do: 'squash',
+     merge_when_checks_succeed: true,
+   }
+-  if (opts.expectedHeadSha) body.head_commit_id = opts.expectedHeadSha
++  if (opts.expectedHeadSha) scheduleBody.head_commit_id = opts.expectedHeadSha
+ 
+   try {
+-    await callForgejo(
+-      `${repoPath(prRef.owner, prRef.repo)}/pulls/${prRef.index}/merge`,
+-      {
++    await callForgejo(mergePath, {
++      method: 'POST',
++      write: true,
++      host: prRef.host,
++      json: scheduleBody,
++    })
++  } catch (err) {
++    return forgejoErrorToAutoMergeResult(err)
++  }
++
++  // 2. Opportunistische directe squash-merge in een max-3 bounded-retry-lus.
++  //    Slagt direct → de PR staat al op main. Fout → de schedule van
++  //    stap 1 blijft gewoon actief (checks draaien nog, head-mismatch, …).
++  const directBody: Record<string, unknown> = { Do: 'squash' }
++  if (opts.expectedHeadSha) directBody.head_commit_id = opts.expectedHeadSha
++
++  const maxAttempts = 3
++  const backoffMs = opts.directMergeBackoffMs ?? 250
++  for (let attempt = 1; attempt <= maxAttempts; attempt++) {
++    try {
++      await callForgejo(mergePath, {
+         method: 'POST',
+         write: true,
+         host: prRef.host,
+-        json: body,
+-      },
+-    )
+-    return { ok: true }
+-  } catch (err) {
+-    return forgejoErrorToAutoMergeResult(err)
++        json: directBody,
++      })
++      return { ok: true, mode: 'merged' }
++    } catch (err) {
++      if (attempt === maxAttempts) break
++      console.warn(
++        `[enableAutoMergeOnPr] directe merge poging ${attempt}/${maxAttempts} mislukt: ${
++          (err as Error).message.slice(0, 200)
++        }`,
++      )
++      if (backoffMs > 0) await new Promise((r) => setTimeout(r, backoffMs))
++    }
+   }
++  console.warn(
++    `[enableAutoMergeOnPr] directe merge faalde na ${maxAttempts} pogingen voor ${opts.prUrl}; schedule blijft actief`,
++  )
++  return { ok: true, mode: 'scheduled' }
+ }
+ 
+ // =========================================================================

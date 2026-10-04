@@ -1,0 +1,71 @@
+{
+  "caseId": "AH-12",
+  "label": "qwen3.8-openrouter",
+  "runId": "AH-12-qwen3.8-openrouter-d39eadf2",
+  "model": {
+    "name": "qwen/qwen3.8-27b",
+    "baseUrl": "https://openrouter.ai/api/v1"
+  },
+  "status": "geslaagd",
+  "runStatus": "completed",
+  "gate": {
+    "reds": 0,
+    "lastTail": "32m✓\u001b[39m connectStdioRegistry \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m kills a child that never speaks MCP when the signal aborts\u001b[33m 501\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/worker.test.ts \u001b[2m(\u001b[22m\u001b[2m56 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 3247\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runWorker — a successful turn \u001b[2m(4)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m handles the same job claimed twice in one out dir\u001b[33m 577\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runWorker — ownership and failures \u001b[2m(14)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m fails with timed_out when the model is slower than maxWallSeconds\u001b[33m 1009\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m sends heartbeats during a long run\u001b[33m 312\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runWorker — review fixes \u001b[2m(5)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m survives one heartbeat exception but abandons after two in a row\u001b[33m 474\u001b[2mms\u001b[22m\u001b[39m\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nPASS d_nonexistent_tool: no foreign tool call (0 echo calls)\ntool_calling: reliable (usage_reported: true) → /tmp/harness-probe-KZMuHl/probe-qwen3-8b/probe.json\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nFAIL d_nonexistent_tool: called: delete_everything\ntool_calling: unreliable (usage_reported: true) → /tmp/harness-probe-OK7um9/probe-m/probe.json\n--api-key-env: environment variable HARNESS_UNSET_VAR is not set\nharness — agent-harness v0\n\nUsage:\n  harness probe --base-url <url> --model <name> [--out <runs-dir>] [--api-key-env <VAR>] [--step-timeout <sec>] [--extra-body-file <json>]\n  harness run <manifest.json> --out <dir> [--skip-probe] [--api-key-env <VAR>]\n  harness worker --config <worker.json> [--out <runs-dir>] [--once] [--skip-probe]\n  harness check-run-logs --config <worker.json> --dir <run-logs-dir>\n \u001b[32m✓\u001b[39m __tests__/probe.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 73\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/manifest.test.ts \u001b[2m(\u001b[22m\u001b[2m48 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 27\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-log.test.ts \u001b[2m(\u001b[22m\u001b[2m53 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 39\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/askpass.test.ts \u001b[2m(\u001b[22m\u001b[2m3 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 11\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/policy.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 28\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/worker-config.test.ts \u001b[2m(\u001b[22m\u001b[2m49 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 17\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/trace.test.ts \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/check-run-logs.test.ts \u001b[2m(\u001b[22m\u001b[2m15 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 14\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/redact.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 9\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/idea-chat-prompt.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/smoke.test.ts \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 3\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-tools.test.ts \u001b[2m(\u001b[22m\u001b[2m26 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 4791\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — tools profile \u001b[2m(15)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out during a slow tool and makes no further request\u001b[33m 1011\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m bounds MCP startup by maxWallSeconds and aborts the connect signal\u001b[33m 1002\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m closes a registry that connects after the startup deadline\u001b[33m 1503\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m afterAnswer hook \u001b[2m(7)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m an abort during the hook ends the run without a further model call\u001b[33m 1002\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/task-impl.test.ts \u001b[2m(\u001b[22m\u001b[2m55 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 5548\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runTaskJob — stopping \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m heartbeat lost during prepare ⇒ docker kill, no updates, abandoned, the worker carries on\u001b[33m 619\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runTaskJob — container not provably stopped \u001b[2m(7)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m SIGINT during the gate verify with a slow failing kill ⇒ uncertain message, exit 1\u001b[33m 377\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m heartbeat lost during the gate verify with a slow failing kill ⇒ no update, exit 1, no next claim\u001b[33m 379\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the wall deadline during the gate verify with a slow failing kill ⇒ uncertain message, exit 1\u001b[33m 842\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/containers.test.ts \u001b[2m(\u001b[22m\u001b[2m28 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 8532\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runInContainer: timeout \u001b[2m(6)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m kills the container and reports timedOut+stopped when the confirmation is empty\u001b[33m 1022\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain when docker kill fails\u001b[33m 1021\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain when docker kill hangs past the cleanup bound\u001b[33m 1052\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain when the container is still listed after the kill for the whole poll bound\u001b[33m 1081\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m polls past a --rm container still briefly listed and reports stopped once the listing goes empty\u001b[33m 1043\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain within the bound when docker ps fails every time (a failing inspection is not proof of absence)\u001b[33m 1082\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runInContainer: kill grace period \u001b[2m(2)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m includes output that arrives from the CLI child between the kill and its own done, within the grace bound\u001b[33m 1022\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m does not block unbounded when the CLI child never exits even after being killed\u001b[33m 1053\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m22 passed\u001b[39m\u001b[22m\u001b[90m (22)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m592 passed\u001b[39m\u001b[22m\u001b[90m (592)\u001b[39m\n\u001b[2m   Start at \u001b[22m 12:55:57\n\u001b[2m   Duration \u001b[22m 8.76s\u001b[2m (tests 90%, import 7%, transform 3%)\u001b[22m\n\n"
+  },
+  "hidden": {
+    "pass": true,
+    "reason": "geslaagd: 105 tests in 2 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/model-client.test.ts",
+        "ran": true,
+        "passed": 71,
+        "failed": 0,
+        "other": 0
+      },
+      {
+        "file": "__tests__/run-answer.test.ts",
+        "ran": true,
+        "passed": 34,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 702713,
+    "outputTokens": 6639,
+    "turns": 20,
+    "toolCalls": 33,
+    "toolErrors": 0,
+    "cachedTokens": 445312,
+    "costUsd": 0.067757475,
+    "reasoningTokens": 2177
+  },
+  "providers": [
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra"
+  ],
+  "retries": [],
+  "patchBytes": 11649,
+  "durationMs": 290277
+}

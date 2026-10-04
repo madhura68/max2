@@ -1,0 +1,67 @@
+{
+  "caseId": "AH-01",
+  "label": "qwen3.8-openrouter",
+  "runId": "AH-01-qwen3.8-openrouter-20b181df",
+  "model": {
+    "name": "qwen/qwen3.8-27b",
+    "baseUrl": "https://openrouter.ai/api/v1"
+  },
+  "status": "geslaagd",
+  "runStatus": "completed",
+  "gate": {
+    "reds": 0,
+    "lastTail": "exits 1 on an invalid manifest or an existing run dir\u001b[33m 823\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/host-git.test.ts \u001b[2m(\u001b[22m\u001b[2m16 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 350\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/cli-worker.test.ts \u001b[2m(\u001b[22m\u001b[2m7 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 90\u001b[2mms\u001b[22m\u001b[39m\ncompleted — turns 2, tokens in/out 20/10 (provider_reported), tool calls 1, tool errors 0, 49 ms → /tmp/harness-cli-tools-DG6BiO/runs/cli-tools/result.json\n\nklaar\ncompleted — turns 1, tokens in/out 10/5 (provider_reported), tool calls 0, tool errors 0, 13 ms → /tmp/harness-cli-tools-Ktm0GH/runs/cli-tools/result.json\n\nok\nfailed (TOOL_NOT_AVAILABLE: allowed tools not offered by the MCP server: missing) — turns 0, tokens in/out 0/0 (missing), tool calls 0, tool errors 0, 2 ms → /tmp/harness-cli-tools-tFlgdM/runs/cli-tools/result.json\ncompleted — turns 1, tokens in/out 10/5 (provider_reported), tool calls 0, tool errors 0, 2 ms → /tmp/harness-cli-answer-TWpMEf/runs/cli-answer/result.json\n\nok\n \u001b[32m✓\u001b[39m __tests__/cli.test.ts \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 85\u001b[2mms\u001b[22m\u001b[39m\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nPASS d_nonexistent_tool: no foreign tool call (0 echo calls)\ntool_calling: reliable (usage_reported: true) → /tmp/harness-probe-t4pgG9/probe-qwen3-8b/probe.json\nPASS a_plain: content: pong\nPASS b_single_tool: echo(\"ping\")\nPASS c_two_tools: turn 1 echo(\"ping\"); turn 2 echo(\"pong\")\nFAIL d_nonexistent_tool: called: delete_everything\ntool_calling: unreliable (usage_reported: true) → /tmp/harness-probe-EfdhlS/probe-m/probe.json\n--api-key-env: environment variable HARNESS_UNSET_VAR is not set\nharness — agent-harness v0\n\nUsage:\n  harness probe --base-url <url> --model <name> [--out <runs-dir>] [--api-key-env <VAR>] [--step-timeout <sec>]\n  harness run <manifest.json> --out <dir> [--skip-probe]\n  harness worker --config <worker.json> [--out <runs-dir>] [--once] [--skip-probe]\n \u001b[32m✓\u001b[39m __tests__/probe.test.ts \u001b[2m(\u001b[22m\u001b[2m10 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 69\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/policy.test.ts \u001b[2m(\u001b[22m\u001b[2m11 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 33\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/manifest.test.ts \u001b[2m(\u001b[22m\u001b[2m14 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 13\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/askpass.test.ts \u001b[2m(\u001b[22m\u001b[2m3 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 11\u001b[2mms\u001b[22m\u001b[39m\n[mcp] stdio-env server ready\n \u001b[32m✓\u001b[39m __tests__/worker-config.test.ts \u001b[2m(\u001b[22m\u001b[2m29 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 12\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/registry.test.ts \u001b[2m(\u001b[22m\u001b[2m23 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 1318\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m connectStdioRegistry \u001b[2m(3)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m kills a child that never speaks MCP when the signal aborts\u001b[33m 501\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/trace.test.ts \u001b[2m(\u001b[22m\u001b[2m8 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/task-impl.test.ts \u001b[2m(\u001b[22m\u001b[2m34 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 3199\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runTaskJob — container not provably stopped \u001b[2m(7)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m SIGINT during the gate verify with a slow failing kill ⇒ uncertain message, exit 1\u001b[33m 362\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m heartbeat lost during the gate verify with a slow failing kill ⇒ no update, exit 1, no next claim\u001b[33m 361\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m the wall deadline during the gate verify with a slow failing kill ⇒ uncertain message, exit 1\u001b[33m 837\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/redact.test.ts \u001b[2m(\u001b[22m\u001b[2m14 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 8\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/idea-chat-prompt.test.ts \u001b[2m(\u001b[22m\u001b[2m9 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 7\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/smoke.test.ts \u001b[2m(\u001b[22m\u001b[2m1 test\u001b[22m\u001b[2m)\u001b[22m\u001b[32m 2\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/run-tools.test.ts \u001b[2m(\u001b[22m\u001b[2m26 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 4758\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runManifest — tools profile \u001b[2m(15)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m times out during a slow tool and makes no further request\u001b[33m 1003\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m bounds MCP startup by maxWallSeconds and aborts the connect signal\u001b[33m 1002\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m closes a registry that connects after the startup deadline\u001b[33m 1503\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m afterAnswer hook \u001b[2m(7)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m an abort during the hook ends the run without a further model call\u001b[33m 1003\u001b[2mms\u001b[22m\u001b[39m\n \u001b[32m✓\u001b[39m __tests__/containers.test.ts \u001b[2m(\u001b[22m\u001b[2m28 tests\u001b[22m\u001b[2m)\u001b[22m\u001b[33m 8534\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runInContainer: timeout \u001b[2m(6)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m kills the container and reports timedOut+stopped when the confirmation is empty\u001b[33m 1021\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain when docker kill fails\u001b[33m 1022\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain when docker kill hangs past the cleanup bound\u001b[33m 1051\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain when the container is still listed after the kill for the whole poll bound\u001b[33m 1082\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m polls past a --rm container still briefly listed and reports stopped once the listing goes empty\u001b[33m 1044\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m reports uncertain within the bound when docker ps fails every time (a failing inspection is not proof of absence)\u001b[33m 1083\u001b[2mms\u001b[22m\u001b[39m\n   \u001b[32m✓\u001b[39m runInContainer: kill grace period \u001b[2m(2)\u001b[22m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m includes output that arrives from the CLI child between the kill and its own done, within the grace bound\u001b[33m 1022\u001b[2mms\u001b[22m\u001b[39m\n     \u001b[33m\u001b[2m✓\u001b[22m\u001b[39m does not block unbounded when the CLI child never exits even after being killed\u001b[33m 1052\u001b[2mms\u001b[22m\u001b[39m\n\n\u001b[2m Test Files \u001b[22m \u001b[1m\u001b[32m20 passed\u001b[39m\u001b[22m\u001b[90m (20)\u001b[39m\n\u001b[2m      Tests \u001b[22m \u001b[1m\u001b[32m375 passed\u001b[39m\u001b[22m\u001b[90m (375)\u001b[39m\n\u001b[2m   Start at \u001b[22m 12:29:25\n\u001b[2m   Duration \u001b[22m 8.75s\u001b[2m (tests 91%, import 6%, transform 3%)\u001b[22m\n\n"
+  },
+  "hidden": {
+    "pass": true,
+    "reason": "geslaagd: 11 tests in 1 verborgen testbestand(en)",
+    "files": [
+      {
+        "file": "__tests__/redact.test.ts",
+        "ran": true,
+        "passed": 11,
+        "failed": 0,
+        "other": 0
+      }
+    ]
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 820265,
+    "outputTokens": 22222,
+    "turns": 23,
+    "toolCalls": 28,
+    "toolErrors": 0,
+    "cachedTokens": 382592,
+    "costUsd": 0.1216644,
+    "reasoningTokens": 14132
+  },
+  "providers": [
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra",
+    "DeepInfra"
+  ],
+  "retries": [],
+  "patchBytes": 12074,
+  "durationMs": 611664
+}
