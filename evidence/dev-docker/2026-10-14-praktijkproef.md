@@ -187,3 +187,42 @@ Dat is een venster van **ongeveer 47 s** (17:48:48 tot 17:49:35, ± 1 s) waarin 
 | Spec §9-acceptatie 8 (dev-postgres komt zonder handwerk terug, `max2-docker status`) | ja, §12 |
 | Boot-venster als gemeten getal | ja, ongeveer 47 s (1 s resolutie); bereikbaarheid binnen het venster niet getest |
 | Productiecontainers na de reboot gelijk aan de basislijn | ja, §12 |
+
+# Deel 4 — Mac fase 2 en 3 (T-57, spec §5.2, §11 rij 5)
+
+Docker Desktop stond sinds T-55 uit. In T-57 is Desktop niet opnieuw gestart.
+
+## 13. Fase 2: standaardcontext
+
+- `docker context use max2-dev` gaf `Current context is now "max2-dev"`. `docker context ls`: `max2-dev` is nu de huidige context (`*`); `default` en `desktop-linux` bestaan nog.
+- `docker info --format '{{.Name}} {{.SecurityOptions}}'` → `max2 [name=seccomp,profile=builtin name=rootless name=cgroupns]`.
+- Start bij inloggen: Docker Desktop staat al uit (`settings-store.json` `AutoStart: false`; `sfltool dumpbtm` toont voor `Docker` `disabled`). Er was niets te wijzigen. Alleen het root-hulpproces `com.docker.vmnetd` bestaat nog als launchd-daemon, geen app en geen VM.
+
+## 14. Fase 3: Homebrew-CLI
+
+- Back-up vooraf: `~/.docker/config.json.bak-2026-10-14` (buiten Git).
+- `brew install docker docker-compose docker-buildx docker-credential-helper`: docker 29.9.0, docker-compose 5.6.0, docker-buildx 0.38.0, docker-credential-helper 0.9.10.
+- `~/.docker/config.json`: `credsStore` van `desktop` naar `osxkeychain`, `cliPluginsExtraDirs: ["/opt/homebrew/lib/docker/cli-plugins"]` toegevoegd, `currentContext` is `max2-dev`; de overige sleutels (`plugins`, `features`) bleven. Dat is het volledige verschil met de back-up. De `auths` zijn leeg.
+- Controles met Desktop afgesloten: `which docker` → `/opt/homebrew/bin/docker`, ook in een login-shell (`zsh -lic`); `docker --version` 29.9.0; `docker compose version` 5.6.0; `docker buildx version` 0.38.0 Homebrew; `docker buildx ls` toont de builder `max2-dev` (docker-driver, BuildKit v0.34.0, `linux/amd64`); `docker ps` toont `dev-postgres` (healthy); `docker run --rm --memory 64m alpine:3` → `memory.max` 67108864; `max2-docker status` werkt met de nieuwe CLI (exit 0).
+- Keychain: `docker-credential-osxkeychain list` toont alleen registry-URL's: `https://dhi.io`, `https://index.docker.io/v1/` en de bijbehorende token-sleutels. Er staat **geen** login voor `git.jp-visser.nl`. Ik heb geen `docker login` gedaan, want dat vraagt een wachtwoord; JP doet dat zelf als die registry nodig is.
+- De oude CLI uit de Desktop-app blijft staan (`/usr/local/bin/docker` wijst naar `/Applications/Docker.app/…`), maar staat in het pad achter Homebrew.
+
+## 15. Terugval
+
+Volgorde, zonder iets op max2 aan te raken:
+
+1. `cp ~/.docker/config.json.bak-2026-10-14 ~/.docker/config.json` (herstelt `credsStore: desktop` en `currentContext: desktop-linux`), of alleen `docker context use desktop-linux`.
+2. Docker Desktop starten (`open -a Docker`), de context `desktop-linux` wijst naar de Desktop-socket.
+3. `dev-postgres` op max2 blijft draaien en is onschadelijk: bind op het LAN-adres, de keten `dev-docker-in` beperkt de toegang tot het LAN.
+
+Fase 4 (Docker Desktop verwijderen) is bewust niet gedaan: eerst 14 dagen zonder terugval, plus een `pg_dumpall` van `local-postgres` naar `max2-dev:dev-docker/backups/`. Dat is een aparte taak in een volgende sprint.
+
+## Acceptatie T-57
+
+| Punt | Stand |
+|---|---|
+| Spec §11 rij 5: Homebrew-CLI, compose, buildx en keychain-helper met Desktop afgesloten | ja, §14 |
+| `docker context ls` toont `max2-dev` als huidige context | ja, §13 |
+| Desktop niet actief tijdens de controles | ja (alleen `com.docker.vmnetd`) |
+| Terugval gedocumenteerd | ja, §15 |
+| PR ter review | volgt na deze commit |
