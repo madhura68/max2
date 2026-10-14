@@ -143,3 +143,21 @@ Zelfde opdracht, Desktop uit, nieuwe database `s4mqueue_proef` (`raw/t55-testrun
 | Codex-sessie: één `db list` | ja: JP draaide `max2-docker db list` vanuit een Codex-sessie, exitcode 0, lege lijst (de proefdatabase was al verwijderd). Door JP gemeld, niet door mij gemeten; de skill staat via een symlink in `~/.codex/skills/` |
 | `cleanup --dry-run` en register ongewijzigd | ja, §9 en §10 |
 | `db drop`, basislijn productie gelijk, sampler zonder ALARM | ja, §9 |
+
+# Deel 3 — herstart en reboot (T-56)
+
+## 11. Herstart van de user-manager van devdock (spec §9 stap 10, eerste helft)
+
+Door JP uitgevoerd als één root-regel: `systemctl stop user@1001.service`, `systemctl start user@1001.service`, daarna `proof-checks.sh --uid 1001 --wait-listener 200`. Ruwe uitvoer: `raw/proof-t56-herstart.log` (620 regels; het journalblok van de dsh-/owui-units is begrensd door `proof-checks.sh`).
+
+- `SUMMARY jump_first=yes chain=ok jumps=1 testrule=0 listener=lan-only nc_ts=1 nc_lan=1 tick=skipped`, gelijk aan de metingen van deel 1.
+- Eerste `-A`-regel van `INPUT` is de sprong naar `dev-docker-in`, de keten heeft R1, R2 en RETURN, er is één sprong en geen restant van de testregel. `ss -ltn` toont alleen `192.168.0.158:55432`, beide `nc`-pogingen weigeren. Het firewalljournal toont geen nieuwe herstelmelding: de keten bleef staan, want de firewall hangt niet af van de user-manager.
+- Slice: `MemoryMax=8589934592`, `MemorySwapMax=0`, `CPUQuotaPerSecUSec=8s`, `TasksMax=4096`, `memory.max` 8589934592. De slice bleef bestaan, daarom staat `memory.peak` nog op 1 735 147 520.
+- `dev-postgres.service`: `active (exited)` sinds 17:30:58 (stop 17:30:55), `ExecStartPre` (wachten op 192.168.0.158) status 0, `docker compose up -d` status 0 en de melding "Container dev-postgres Running". De container (`restart: unless-stopped`) startte op 17:30:58 samen met de rootless engine, dus de service trof hem al draaiend aan. `docker ps`: `Up 46 seconds (healthy)` op `192.168.0.158:55432`. `docker`, `dev-postgres.service` en `dev-docker-prune.timer` zijn `active`.
+- `max2-docker status` (exit 0): engine `max2 … name=rootless`, `dev-postgres` healthy, 0 databases in het register, "nog geen echte prune-run", schijf 63,5 % vrij.
+- Productie-engine (janpeter, alleen lezen): alle containers die in de basislijn draaiden zijn nog `Up`. Alleen `media-organizer-migrate-1` (Exited 5 dagen geleden) en `tei-gpu` (Exited 2 weken geleden) staan niet `Up`; die waren al gestopt vóór de basislijn.
+- Het journal van de service toont ook de falende startpogingen van 16:58 (24 herstarts van de runc/systemd-fout, vóór de busctl-shim, afwijking 13). Die horen bij de uitrol en niet bij deze herstart.
+
+## 12. Reboot
+
+Volgt: JP kiest het moment (`ssh -t max2 'sudo reboot'`), daarna `proof-checks.sh --uid 1001 --wait-listener 200 --wait-tick 300` en de boot-venstermeting.
