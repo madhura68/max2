@@ -22,6 +22,15 @@ De LAN-grens voor tcp/55432 is de eigen keten `dev-docker-in` met één sprong o
 (gemeten 14-10-2026, ISS-17; `INPUT`-policy `ACCEPT`), dus de spec-aanname "ufw als tweede grens" geldt niet: de keten is de enige grens.
 Dat is een besluit van JP (14-10-2026). `bootstrap.sh` plaatst daarom alleen een ufw-regel als ufw actief is.
 
+## Bekende platformfout: runc en systemd 259
+
+Op max2 (Ubuntu 26.04, systemd 259, runc 1.5.2) faalt elke containerstart op de rootless engine met "Access denied as the requested
+operation requires interactive authentication": runc leest de eigenaar van de user-bus uit de regel `OwnerUID=` van
+`busctl --user --no-pager status`, die systemd 259 niet meer print (gemeten, zie het bewijs van T-53). `install-user.sh` zet daarom een
+`busctl`-shim vooraan in het PATH van `docker.service` (`host/busctl-shim`, drop-in `host/systemd/docker-busctl-shim.conf`) die de regel
+toevoegt, en controleert met `docker run --memory 64m` dat per-container limieten werken. Valt de shim weg, dan zie je dezelfde fout;
+een runc-versie die `OwnerUID` niet meer nodig heeft maakt de shim overbodig.
+
 ## Uitrol (kort; de exacte regels staan in PLAN.md taak 2)
 
 1. Root-scripts naar `~/dd-run/` op max2 (niet naar het wereld-schrijfbare `/tmp`): `scp -r bootstrap.sh dev-docker-firewall.sh systemd <sleutel>.pub max2:dd-run/`.

@@ -1,0 +1,108 @@
+[104m[97m[INFO][49m[39m Creating /home/devdock/.config/systemd/user/docker.service
+[104m[97m[INFO][49m[39m starting systemd service docker.service
++ systemctl --user start docker.service
++ sleep 3
++ systemctl --user --no-pager --full status docker.service
+● docker.service - Docker Application Container Engine (Rootless)
+     Loaded: loaded (/home/devdock/.config/systemd/user/docker.service; disabled; preset: enabled)
+     Active: active (running) since Wed 2026-10-14 16:53:36 CEST; 3s ago
+ Invocation: c45db62d1ce94a5aa42200d603aa894d
+       Docs: https://docs.docker.com/go/rootless/
+   Main PID: 1821252 (rootlesskit)
+      Tasks: 54
+     Memory: 105.5M (peak: 108.7M)
+        CPU: 720ms
+     CGroup: /user.slice/user-1001.slice/user@1001.service/app.slice/docker.service
+             ├─1821252 rootlesskit --state-dir=/run/user/1001/dockerd-rootless --net=slirp4netns --mtu=65520 --slirp4netns-sandbox=auto --slirp4netns-seccomp=auto --disable-host-loopback --port-driver=builtin --copy-up=/etc --copy-up=/run --propagation=rslave --detach-netns /usr/bin/dockerd-rootless.sh
+             ├─1821264 /proc/self/exe --state-dir=/run/user/1001/dockerd-rootless --net=slirp4netns --mtu=65520 --slirp4netns-sandbox=auto --slirp4netns-seccomp=auto --disable-host-loopback --port-driver=builtin --copy-up=/etc --copy-up=/run --propagation=rslave --detach-netns /usr/bin/dockerd-rootless.sh
+             ├─1821294 slirp4netns --mtu 65520 -r 3 --disable-host-loopback --enable-seccomp --userns-path=/proc/1821264/ns/user --netns-type=path /proc/1821264/root/run/user/1001/dockerd-rootless/netns tap0
+             ├─1821304 dockerd
+             └─1821336 /usr/bin/containerd --config /run/user/1001/docker/containerd/containerd.toml
+
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.476942695+02:00" level=warning msg="WARNING: No io.max (rbps) support"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.476946300+02:00" level=warning msg="WARNING: No io.max (wbps) support"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.476951476+02:00" level=warning msg="WARNING: No io.max (riops) support"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.476955375+02:00" level=warning msg="WARNING: No io.max (wiops) support"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.476969693+02:00" level=info msg="Docker daemon" commit=a5b58c9 containerd-snapshotter=true storage-driver=overlayfs version=29.9.0
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.477049314+02:00" level=info msg="Initializing buildkit"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.782895725+02:00" level=info msg="Completed buildkit initialization"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.788998487+02:00" level=info msg="Daemon has completed initialization"
+Oct 14 16:53:36 max2 dockerd-rootless.sh[1821304]: time="2026-10-14T16:53:36.789126010+02:00" level=info msg="API listen on /run/user/1001/docker.sock"
+Oct 14 16:53:36 max2 systemd[1819185]: Started docker.service - Docker Application Container Engine (Rootless).
++ DOCKER_HOST=unix:///run/user/1001/docker.sock /usr/bin/docker version
+Client: Docker Engine - Community
+ Version:           29.9.0
+ API version:       1.56
+ Go version:        go1.26.9
+ Git commit:        f415da8
+ Built:             Thu Oct  8 20:38:31 2026
+ OS/Arch:           linux/amd64
+ Context:           default
+
+Server: Docker Engine - Community
+ Engine:
+  Version:          29.9.0
+  API version:      1.56 (minimum version 1.40)
+  Go version:       go1.26.9
+  Git commit:       a5b58c9
+  Built:            Thu Oct  8 20:38:31 2026
+  OS/Arch:          linux/amd64
+  Experimental:     false
+ containerd:
+  Version:          v2.4.1
+  GitCommit:        f2551031d7276a770f65f98c9b52e57e7dad07e8
+ runc:
+  Version:          1.5.2
+  GitCommit:        v1.5.2-0-g29dd3dc2
+ docker-init:
+  Version:          0.19.0
+  GitCommit:        de40ad0
+ rootlesskit:
+  Version:          3.2.0
+  ApiVersion:       1.1.3
+  NetworkDriver:    slirp4netns
+  PortDriver:       builtin
+  StateDir:         /run/user/1001/dockerd-rootless
+ slirp4netns:
+  Version:          1.3.3
+  GitCommit:        944fa94090e1fd1312232cbc0e6b43585553d824
++ systemctl --user enable docker.service
+Created symlink '/home/devdock/.config/systemd/user/default.target.wants/docker.service' → '/home/devdock/.config/systemd/user/docker.service'.
+[104m[97m[INFO][49m[39m Installed docker.service successfully.
+[104m[97m[INFO][49m[39m To control docker.service, run: `systemctl --user (start|stop|restart) docker.service`
+[104m[97m[INFO][49m[39m To run docker.service on system startup, run: `sudo loginctl enable-linger devdock`
+
+[104m[97m[INFO][49m[39m Creating CLI context "rootless"
+Successfully created context "rootless"
+[104m[97m[INFO][49m[39m Using CLI context "rootless"
+
+Current context is now "rootless"
+[104m[97m[INFO][49m[39m Make sure the following environment variable(s) are set (or add them to ~/.bashrc):
+export PATH=/usr/bin:$PATH
+
+[104m[97m[INFO][49m[39m Some applications may require the following environment variable too:
+export DOCKER_HOST=unix:///run/user/1001/docker.sock
+
+CHANGED rootless engine geïnstalleerd
+SAME docker context rootless is standaard
+CHANGED /home/devdock/dev-docker/compose.yml
+CHANGED /home/devdock/dev-docker/init/01-roles.sh
+CHANGED /home/devdock/dev-docker/init/02-devmeta.sql
+CHANGED /home/devdock/dev-docker/prune.sh
+CHANGED /home/devdock/dev-docker/pull-images.sh
+CHANGED /home/devdock/dev-docker/images.txt
+CHANGED /home/devdock/.config/systemd/user/dev-postgres.service
+CHANGED /home/devdock/.config/systemd/user/dev-docker-prune.service
+CHANGED /home/devdock/.config/systemd/user/dev-docker-prune.timer
+CHANGED /home/devdock/dev-docker/.env aangemaakt (0600, waarden niet getoond)
+pull pgvector/pgvector:pg17@sha256:cd4ccfdaf62cbfeb5c6ee19ef0dd663406d4ed740c320b324d016a90e85385b3
+pull node:24-bookworm-slim
+pull node:22-bookworm-slim
+pull debian:bookworm-slim
+pull alpine:3
+images gepulld: 5
+CHANGED enable dev-postgres.service
+CHANGED enable dev-docker-prune.timer
+Job for dev-postgres.service failed because the control process exited with error code.
+See "systemctl --user status dev-postgres.service" and "journalctl --user -xeu dev-postgres.service" for details.
+EXIT=1

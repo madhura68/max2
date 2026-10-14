@@ -31,6 +31,20 @@ else
   dockerd-rootless-setuptool.sh install
   changed "rootless engine geïnstalleerd"
 fi
+# 1b. Workaround runc 1.5.2 + systemd 259: zonder OwnerUID in `busctl --user status` kiest runc de systeem-bus en faalt elke containerstart
+# (gemeten op max2, Ubuntu 26.04). De shim voegt de regel toe voor docker.service; zie busctl-shim en de README.
+mkdir -p "$HOME/.local/shim" "$UNITS/docker.service.d"
+shim_changed=0
+cmp -s "$SRC/busctl-shim" "$HOME/.local/shim/busctl" 2>/dev/null || shim_changed=1
+cmp -s "$SRC/systemd/docker-busctl-shim.conf" "$UNITS/docker.service.d/10-busctl-shim.conf" 2>/dev/null || shim_changed=1
+put "$SRC/busctl-shim" "$HOME/.local/shim/busctl" 755
+put "$SRC/systemd/docker-busctl-shim.conf" "$UNITS/docker.service.d/10-busctl-shim.conf" 644
+if [ "$shim_changed" = 1 ]; then
+  systemctl --user daemon-reload
+  systemctl --user restart docker
+  for _ in $(seq 1 30); do [ -S "$XDG_RUNTIME_DIR/docker.sock" ] && DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock docker info >/dev/null 2>&1 && break; sleep 1; done
+  changed "docker.service herstart met busctl-shim"
+fi
 export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
 # De Docker-SSH-route (`docker system dial-stdio`) draait in een niet-interactieve shell zonder profiel: de context
 # staat in ~/.docker/config.json en werkt daar wel, DOCKER_HOST uit een profiel niet.
@@ -61,6 +75,11 @@ fi
 
 # 4. standaardimages vóór de eerste compose up (de unit heeft maar 180 s startruimte)
 bash "$DST/pull-images.sh"
+
+# 4b. Controle dat per-container limieten werken (de shim hierboven staat daarvoor): --memory 64m moet 67108864 geven in de container
+lim=$(docker run --rm --memory 64m alpine:3 cat /sys/fs/cgroup/memory.max 2>&1 | tail -n 1)
+[ "$lim" = 67108864 ] || { echo "FOUT: per-container geheugenlimiet werkt niet (memory.max=$lim)" >&2; exit 1; }
+echo "OK per-container geheugenlimiet werkt (memory.max=$lim)"
 
 # 5. units en start
 systemctl --user daemon-reload

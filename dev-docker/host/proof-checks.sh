@@ -124,7 +124,18 @@ emit "## nc"
 if [ "$nc_ts" = FOUT ]; then emit "nc-ts FOUT"; else emit "nc-ts rc=$nc_ts"; fi
 if [ "$nc_lan" = FOUT ]; then emit "nc-lan FOUT"; else emit "nc-lan rc=$nc_lan"; fi
 block "journalctl -t dev-docker-firewall -b" journalctl -t dev-docker-firewall -b --no-pager -o short-iso
-block "journalctl dsh/owui/dev-docker firewall units -b" journalctl -b -u dsh-firewall.service -u owui-firewall.service -u dev-docker-firewall.service -o short-iso --no-pager
+# Op een host die dagen draait zijn dit tienduizenden regels (dsh/owui draaien elke minuut); begrens tot de eerste en laatste 200 regels.
+# Direct na een reboot (de boot-venstermeting van T-56) blijft alles ruim onder die grens.
+journal_units() {
+  local j; j=$(journalctl -b -u dsh-firewall.service -u owui-firewall.service -u dev-docker-firewall.service -o short-iso --no-pager 2>&1)
+  local n; n=$(grep -c '' <<<"$j")
+  if [ "$n" -gt 400 ]; then
+    head -n 200 <<<"$j"; echo "[… $(( n - 400 )) van $n regels weggelaten; de volledige journal staat op de host]"; tail -n 200 <<<"$j"
+  else
+    printf '%s\n' "$j"
+  fi
+}
+block "journalctl dsh/owui/dev-docker firewall units -b" journal_units
 block "systemctl show user-$UIDARG.slice" systemctl show "user-$UIDARG.slice" -p MemoryMax -p MemorySwapMax -p CPUQuotaPerSecUSec -p TasksMax
 cg=/sys/fs/cgroup/user.slice/user-$UIDARG.slice
 for f in memory.max memory.peak memory.events; do block "$cg/$f" cat "$cg/$f"; done
