@@ -177,7 +177,36 @@ Afgewezen: geen.
 
 ## Ronde 6 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 6 @ `<r6_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+**Gepind:** `dev-docker/SPEC.md` revisie 6 @ `dd54fc35555bebe423008deec51f1d6fbdacb7f4`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `f088dce1-a4b0-4df4-86bb-d7dbe5d80258` | `f81334fd-06f7-41f1-b0dd-f32a9d105419` | job (SUCCEEDED) | `b99b6fea-1ab8-4461-af9c-30fc6c5bffeb` | linked |
+| CLAUDE | `4a79ae0a-d12d-4eac-af60-9c8ee6199a55` | `ee717da5-631e-49b6-958e-77ef3cc309bc` | job (SUCCEEDED) | `8749b6df-8b1b-4bb1-8b4f-71a93c90c184` | linked |
+
+**Dispatch:** beide 08:31–08:32 UTC ingediend, state WAITING (waiting_for_capacity).
+
+**Uitslag:** CLAUDE **NO-GO** (0 BLOCKER, 1 MAJOR, 5 MINOR; 08:35 UTC). CODEX **NO-GO** (0 BLOCKER, 1 MAJOR, 3 MINOR; 08:37 UTC). **Convergent MAJOR:** `ensure` met `iptables -C` is positieblind; ufw-reload, tailscaled en `dsh`/`owui-firewall` (die zelf op positie 1 invoegen, `After=docker.service`) duwen de DROP-regels naar beneden en de timer herstelt dat niet; de acceptatie "positie 1 en 2" houdt alleen op het installatiemoment. Beide reviewers: alle overige ronde-5-fixes hielden; §8-cijfers opnieuw bevestigd; geen schrapkandidaat.
+
+**Triage:**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 7 |
+|---|---|---|---|---|---|
+| 1 | claude M1 / codex M1 | MAJOR | positie van de DROP-regels niet onderhouden | accept | §4.4: eigen keten `dev-docker-in` met de twee DROP-regels; één sprong die het script positiebewust op INPUT-positie 1 houdt (eerste `-A`-regel controleren, alleen de eigen sprong verwijderen en opnieuw invoegen); service `After=` de andere schrijvers (ufw, tailscaled, docker, dsh/owui-firewall) en `Before=user@<uid>`; timer `OnBootSec=30s` + `OnUnitActiveSec=5min`; begrensd gat van ≤ 5 min expliciet geaccepteerd; herstelproef (dsh-firewall opnieuw starten → sprong terug op 1) en controle na herstart/reboot in §9/§11 |
+| 2 | claude m2 / codex F2 | MINOR | `head -2` toont de policy-regel; invoegvolgorde omgekeerd; "regel 1"-formulering | accept | `awk '$1 == "-A" {print; exit}'`; keteninhoud via `iptables -S dev-docker-in`; regels bij naam |
+| 3 | claude m3 | MINOR | geen `--ctstate NEW`: antwoordverkeer met bronpoort 55432 gedropt | accept | beide regels met `-m conntrack --ctstate NEW` |
+| 4 | claude m4 | MINOR | units en slice-sjabloon niet gekopieerd; timer zonder `OnBootSec`; geen `enable --now`; installatiepad | accept | §4.1: `scp -r … systemd`; stap 4 installeert script en units, `enable --now`; `OnBootSec=30s` |
+| 5 | claude m5 | MINOR | `pg_ctl reload` overbodig | accept | §4.5 geschrapt met reden |
+| 6 | claude m6 / codex F3 | MINOR | "914 GB" zonder bron; `--floor-gib 12.0` hardgecodeerd; validatie en ondergrens 10,8 ontbreken | accept (914 GB is op 14-10 met `df -h` gemeten; bron nu genoemd) | §4.1: `--floor-gib <X>`, numerieke validatie, exit 2; §8.2: `X_eff = max(X, 10,8)` consistent in budget, stopregel en acceptatie |
+| 7 | codex F4 | MINOR | rollback laat unitbestanden en script achter | accept | §10: sprong en keten verwijderen, unitbestanden en script verwijderen, één afsluitende `daemon-reload` |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 6:** gewijzigd: twee losse DROP-regels → eigen keten met positiebewuste sprong, `--ctstate NEW`, `X_eff`; toegevoegd: herstelproef en controle na herstart. Geen nieuw subsysteem; eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 363 → 367 regels. Trend: ronde 5 en 6 gingen alleen nog over het firewallmechanisme; beide reviewers noemen de rest stabiel.
+
+## Ronde 7 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 7 @ `<r7_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
