@@ -1,0 +1,717 @@
+{
+  "date": "2026-10-14",
+  "scope": "Mac Docker snapshot, read-only",
+  "containers": [
+    {
+      "id": "d23e12cea0713ec7173a48f1ccb9f31a671f17b85f57536a9d8df7f29bde4f62",
+      "name": "usage-v1-t197-pg17",
+      "created": "2026-10-07T07:59:30.85037625Z",
+      "image_ref": "postgres:17",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 255,
+      "mounts": [
+        {
+          "Type": "bind",
+          "Source": "/host_mnt/private/tmp/usage-v1-t197.hC4FPg/pg-password",
+          "Destination": "/run/secrets/postgres-password",
+          "Mode": "",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "volume",
+          "Name": "usage-v1-t197-pg17-data",
+          "Source": "/var/lib/docker/volumes/usage-v1-t197-pg17-data/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "z",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55497"
+          }
+        ]
+      },
+      "labels": {
+        "purpose": "usage-v1-t197"
+      },
+      "autoremove": false
+    },
+    {
+      "id": "a29c54d1b0c19cdc8cbb56b8c017660365ccc9230335561294a0adeb9f99683f",
+      "name": "media-recursive-t237-postgres",
+      "created": "2026-10-06T19:36:25.48798522Z",
+      "image_ref": "67f41722b7a8",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 0,
+      "mounts": [
+        {
+          "Type": "volume",
+          "Name": "5162bfab3bb2aefd1520762175a514711d3d2d238792d11da172530be8916dd1",
+          "Source": "/var/lib/docker/volumes/5162bfab3bb2aefd1520762175a514711d3d2d238792d11da172530be8916dd1/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": ""
+          }
+        ]
+      },
+      "labels": {
+        "codex.task": "T-237"
+      },
+      "autoremove": false
+    },
+    {
+      "id": "ba27755286a80d18cb714e7d698d367a14ee6d703d6cb2d9852ec5bd0e37d853",
+      "name": "qr-login-release-pg",
+      "created": "2026-10-06T19:21:39.601056421Z",
+      "image_ref": "postgres:17",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 255,
+      "mounts": [
+        {
+          "Type": "volume",
+          "Name": "69ca253ef0c78dbe80a131af4f907cfbc3aede8e75d42958718fa4bf5340f528",
+          "Source": "/var/lib/docker/volumes/69ca253ef0c78dbe80a131af4f907cfbc3aede8e75d42958718fa4bf5340f528/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55437"
+          }
+        ]
+      },
+      "labels": {},
+      "autoremove": false
+    },
+    {
+      "id": "94f80aa9a95231fd6ab6a179ad2f9ad7bb5ea0b95586c73bcf4ee55483796a5f",
+      "name": "qr-login-sprint-pg",
+      "created": "2026-10-06T19:04:47.636490717Z",
+      "image_ref": "postgres:17",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 255,
+      "mounts": [
+        {
+          "Type": "volume",
+          "Name": "caf3c8847fec8a981241a471ce171720c5964b3d8066d72de3d493f8c168c1d6",
+          "Source": "/var/lib/docker/volumes/caf3c8847fec8a981241a471ce171720c5964b3d8066d72de3d493f8c168c1d6/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55436"
+          }
+        ]
+      },
+      "labels": {},
+      "autoremove": false
+    },
+    {
+      "id": "7b6502f473cf1ec5e5181c7c1210a40f0e495a8b2f43f1767bba60d05d039a5b",
+      "name": "codex-modelregistry-pg-20261001",
+      "created": "2026-10-01T00:00:52.554819009Z",
+      "image_ref": "postgres:17",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 0,
+      "mounts": [
+        {
+          "Type": "volume",
+          "Name": "ab873facee3ea7603f6c9dbcafba598c2eb6dacccde101a2a808d04e9c9d984c",
+          "Source": "/var/lib/docker/volumes/ab873facee3ea7603f6c9dbcafba598c2eb6dacccde101a2a808d04e9c9d984c/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55473"
+          }
+        ]
+      },
+      "labels": {},
+      "autoremove": false
+    },
+    {
+      "id": "111edf4e59107fd7830d5ea85081abadb9d535ff4abf2f42409b79e7c67c7466",
+      "name": "scrum4us-t549-postgres",
+      "created": "2026-09-30T20:15:49.508578677Z",
+      "image_ref": "pgvector/pgvector:pg17",
+      "image_id": "sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f",
+      "status": "exited",
+      "exit": 0,
+      "mounts": [
+        {
+          "Type": "volume",
+          "Name": "cd9f07b4ee5e2217f6432307020dd40891aba7ed53846416feb92554d86dcf38",
+          "Source": "/var/lib/docker/volumes/cd9f07b4ee5e2217f6432307020dd40891aba7ed53846416feb92554d86dcf38/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": ""
+          }
+        ]
+      },
+      "labels": {
+        "codex.task": "T-549"
+      },
+      "autoremove": false
+    },
+    {
+      "id": "168f3de0e0d0314100750734fac9c52e152575c880df08f94043dad183923d11",
+      "name": "local-postgres-postgres-1",
+      "created": "2026-09-28T00:29:02.400660088Z",
+      "image_ref": "postgres:17",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 0,
+      "mounts": [
+        {
+          "Type": "bind",
+          "Source": "/host_mnt/Users/janpetervisser/Development/local-postgres/init",
+          "Destination": "/docker-entrypoint-initdb.d",
+          "Mode": "ro",
+          "RW": false,
+          "Propagation": "rprivate"
+        },
+        {
+          "Type": "volume",
+          "Name": "local-postgres-data",
+          "Source": "/var/lib/docker/volumes/local-postgres-data/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "rw",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "5433"
+          }
+        ]
+      },
+      "labels": {
+        "com.docker.compose.config-hash": "ed3d504ae6a260cf42602c005c6c3890562bedc0c6832b2e47202e1efeaf6c39",
+        "com.docker.compose.container-number": "1",
+        "com.docker.compose.depends_on": "",
+        "com.docker.compose.image": "sha256:413da4542e091471785b7f18f1a2258df134bc6506ab4e1e53725aa8bcfdb650",
+        "com.docker.compose.oneoff": "False",
+        "com.docker.compose.project": "local-postgres",
+        "com.docker.compose.project.config_files": "/Users/janpetervisser/Development/local-postgres/compose.yml",
+        "com.docker.compose.project.working_dir": "/Users/janpetervisser/Development/local-postgres",
+        "com.docker.compose.service": "postgres",
+        "com.docker.compose.version": "5.5.1"
+      },
+      "autoremove": false
+    },
+    {
+      "id": "a055bed71000b88b1e4c0ea77455b6b2d494adbf91d7b7569ac4cc048ccd8468",
+      "name": "w2w-test-pg",
+      "created": "2026-09-25T15:23:24.782024708Z",
+      "image_ref": "postgres:17",
+      "image_id": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "status": "exited",
+      "exit": 0,
+      "mounts": [
+        {
+          "Type": "volume",
+          "Name": "dc114eed50a2636e9e649c35308fd595a1b67a3720b358aafa21f4ad93a128db",
+          "Source": "/var/lib/docker/volumes/dc114eed50a2636e9e649c35308fd595a1b67a3720b358aafa21f4ad93a128db/_data",
+          "Destination": "/var/lib/postgresql/data",
+          "Driver": "local",
+          "Mode": "",
+          "RW": true,
+          "Propagation": ""
+        }
+      ],
+      "port_bindings": {
+        "5432/tcp": [
+          {
+            "HostIp": "127.0.0.1",
+            "HostPort": "55432"
+          }
+        ]
+      },
+      "labels": {},
+      "autoremove": false
+    }
+  ],
+  "images": [
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-12 23:45:30 +0200 CEST",
+      "CreatedSince": "33 hours ago",
+      "Digest": "sha256:d91024f0aa4053d70d0965e1fa8f6446eb39112afc4cfe760849440dda74c794",
+      "ID": "sha256:d91024f0aa4053d70d0965e1fa8f6446eb39112afc4cfe760849440dda74c794",
+      "Repository": "s4m-model-claude-probe",
+      "SharedSize": "N/A",
+      "Size": "2GB",
+      "Tag": "test",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-12 23:45:15 +0200 CEST",
+      "CreatedSince": "33 hours ago",
+      "Digest": "sha256:7e157a7f99d071a3c330d70db0569ad33836162fdc1c5161b2b5c9f74ec11f8b",
+      "ID": "sha256:7e157a7f99d071a3c330d70db0569ad33836162fdc1c5161b2b5c9f74ec11f8b",
+      "Repository": "s4m-model-codex",
+      "SharedSize": "N/A",
+      "Size": "2.2GB",
+      "Tag": "u7-smoke",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-12 23:45:15 +0200 CEST",
+      "CreatedSince": "33 hours ago",
+      "Digest": "sha256:a7ef7bccde62ad78a0932137ff15418d217dcd616d29890afe38bea9affb82f0",
+      "ID": "sha256:a7ef7bccde62ad78a0932137ff15418d217dcd616d29890afe38bea9affb82f0",
+      "Repository": "s4m-model-codex-probe",
+      "SharedSize": "N/A",
+      "Size": "2.2GB",
+      "Tag": "test",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-12 23:45:06 +0200 CEST",
+      "CreatedSince": "33 hours ago",
+      "Digest": "sha256:da7ec3aa44619403a53aac00d63a9da4049db616caec2efee9dd8e329ed4c0b4",
+      "ID": "sha256:da7ec3aa44619403a53aac00d63a9da4049db616caec2efee9dd8e329ed4c0b4",
+      "Repository": "s4m-dispatch-egress",
+      "SharedSize": "N/A",
+      "Size": "1.65GB",
+      "Tag": "test",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-12 23:45:06 +0200 CEST",
+      "CreatedSince": "33 hours ago",
+      "Digest": "sha256:2c397f2f33be9a6f0e5a76da944728c47384fb56a1685fd17968b380abd08789",
+      "ID": "sha256:2c397f2f33be9a6f0e5a76da944728c47384fb56a1685fd17968b380abd08789",
+      "Repository": "s4m-dispatch-egress",
+      "SharedSize": "N/A",
+      "Size": "1.65GB",
+      "Tag": "u7-smoke",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-06 03:36:07 +0200 CEST",
+      "CreatedSince": "8 days ago",
+      "Digest": "sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d",
+      "ID": "sha256:ca0bd484cb98bf4b24eb1010e73fb3fcbd6714d240fbc1a10eea5b7dbecb641d",
+      "Repository": "postgres",
+      "SharedSize": "N/A",
+      "Size": "663MB",
+      "Tag": "16",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-01 19:35:04 +0200 CEST",
+      "CreatedSince": "12 days ago",
+      "Digest": "sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d",
+      "ID": "sha256:ac08538c6f8b9904c33c8224c5e5706dbe760aca29db1d096972b4052c22a75d",
+      "Repository": "pgvector/pgvector",
+      "SharedSize": "N/A",
+      "Size": "656MB",
+      "Tag": "pg17",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-10-01 02:06:50 +0200 CEST",
+      "CreatedSince": "13 days ago",
+      "Digest": "sha256:e472e27aa75d66595e37a04aac26c9e7c1a266704dc07024621e6a592587ec89",
+      "ID": "sha256:e472e27aa75d66595e37a04aac26c9e7c1a266704dc07024621e6a592587ec89",
+      "Repository": "codex-modelregistry-workers",
+      "SharedSize": "N/A",
+      "Size": "454MB",
+      "Tag": "test",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-22 03:13:20 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:01c0f92057a46c49beccb2db15916e50ec0c6a7c74ad3fe598fbbc817804ab38",
+      "ID": "sha256:01c0f92057a46c49beccb2db15916e50ec0c6a7c74ad3fe598fbbc817804ab38",
+      "Repository": "media-organizer-metadata-base",
+      "SharedSize": "N/A",
+      "Size": "915MB",
+      "Tag": "20260922",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-19 02:51:43 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+      "ID": "sha256:0e0ff40c39bc087845bfb27465a0df4ea419520094bc35842ff83dd8cbe6f9b6",
+      "Repository": "node",
+      "SharedSize": "N/A",
+      "Size": "351MB",
+      "Tag": "24-bookworm-slim",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-18 02:00:00 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "ID": "sha256:3783cc01769c7b2b1b83a5c5ad96c815348e28ed7da68e2e3687004faa906251",
+      "Repository": "debian",
+      "SharedSize": "N/A",
+      "Size": "138MB",
+      "Tag": "bookworm-slim",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-18 02:00:00 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26",
+      "ID": "sha256:f37a335e82bca302e955fa39f9dfe28f1be618f016f8a2b56318e5a5111afc26",
+      "Repository": "debian",
+      "SharedSize": "N/A",
+      "Size": "207MB",
+      "Tag": "bookworm",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-18 00:39:12 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:3f3c01aaaebf7cce837356b688b7c059a4749f10bd7660dec7c58fc454a283f0",
+      "ID": "sha256:3f3c01aaaebf7cce837356b688b7c059a4749f10bd7660dec7c58fc454a283f0",
+      "Repository": "docker",
+      "SharedSize": "N/A",
+      "Size": "480MB",
+      "Tag": "dind",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-17 23:31:46 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+      "ID": "sha256:b0f9560a2de083e2cc7382e75f808c7381a32852a7ec49117deedb300e552b24",
+      "Repository": "postgres",
+      "SharedSize": "N/A",
+      "Size": "415MB",
+      "Tag": "17-alpine",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-17 23:14:34 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:018edbc908e08fcc9dbf029c812c34251e9b4719e6f71ca0e5eae2a987d014ca",
+      "ID": "sha256:018edbc908e08fcc9dbf029c812c34251e9b4719e6f71ca0e5eae2a987d014ca",
+      "Repository": "docker",
+      "SharedSize": "N/A",
+      "Size": "224MB",
+      "Tag": "cli",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-17 22:37:05 +0200 CEST",
+      "CreatedSince": "3 weeks ago",
+      "Digest": "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+      "ID": "sha256:294b683cb724975bec92580e1e685676bd4b50bda910ddb8c51d4cabeaec77e6",
+      "Repository": "alpine",
+      "SharedSize": "N/A",
+      "Size": "13.6MB",
+      "Tag": "3",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-14 16:39:44 +0200 CEST",
+      "CreatedSince": "4 weeks ago",
+      "Digest": "sha256:04e29de8ee58c7e833f81610d56681acffd9c4d2b90c4be4e67347c3ab1b6f6d",
+      "ID": "sha256:04e29de8ee58c7e833f81610d56681acffd9c4d2b90c4be4e67347c3ab1b6f6d",
+      "Repository": "scrum4me-workers",
+      "SharedSize": "N/A",
+      "Size": "451MB",
+      "Tag": "idea-214-task8",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-09-11 13:53:37 +0200 CEST",
+      "CreatedSince": "4 weeks ago",
+      "Digest": "sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3",
+      "ID": "sha256:008173c23f95b170204355c12626cb5a965d779a7e1283b09e9cffbb1bf33ca3",
+      "Repository": "ubuntu",
+      "SharedSize": "N/A",
+      "Size": "141MB",
+      "Tag": "24.04",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-08-25 05:18:00 +0200 CEST",
+      "CreatedSince": "7 weeks ago",
+      "Digest": "sha256:4196d66a565c6f195728d9952f161f4adfe2ad753052a08b7ec7f1c5a6bda42b",
+      "ID": "sha256:4196d66a565c6f195728d9952f161f4adfe2ad753052a08b7ec7f1c5a6bda42b",
+      "Repository": "node",
+      "SharedSize": "N/A",
+      "Size": "1.63GB",
+      "Tag": "24.19.0-bookworm",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "7",
+      "CreatedAt": "2026-08-25 02:43:42 +0200 CEST",
+      "CreatedSince": "7 weeks ago",
+      "Digest": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "ID": "sha256:67f41722b7a8cbdb868a44a4995c846eddfdc2973bccb291ce937dce88ad5675",
+      "Repository": "postgres",
+      "SharedSize": "N/A",
+      "Size": "667MB",
+      "Tag": "17",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "1",
+      "CreatedAt": "2026-08-13 23:26:32 +0200 CEST",
+      "CreatedSince": "2 months ago",
+      "Digest": "<none>",
+      "ID": "sha256:cf134a767f474095eeba57e0117be8e568e011a63f33fbf252f14c9b760f8e6f",
+      "Repository": "<none>",
+      "SharedSize": "N/A",
+      "Size": "646MB",
+      "Tag": "<none>",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-05-08 21:34:37 +0200 CEST",
+      "CreatedSince": "5 months ago",
+      "Digest": "sha256:347bc4e64006d47bb255b0e28652d08590260a5e97f6b55f6ba1c0b31aef58b3",
+      "ID": "sha256:347bc4e64006d47bb255b0e28652d08590260a5e97f6b55f6ba1c0b31aef58b3",
+      "Repository": "postgres",
+      "SharedSize": "N/A",
+      "Size": "666MB",
+      "Tag": "<none>",
+      "UniqueSize": "N/A"
+    },
+    {
+      "Containers": "0",
+      "CreatedAt": "2026-05-08 21:34:37 +0200 CEST",
+      "CreatedSince": "5 months ago",
+      "Digest": "sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545",
+      "ID": "sha256:2a0d0fe14825b0939f78a8cad5cd4e6aa68bf94d0e5dd96e24b6d23af4315545",
+      "Repository": "postgres",
+      "SharedSize": "N/A",
+      "Size": "666MB",
+      "Tag": "17.9",
+      "UniqueSize": "N/A"
+    }
+  ],
+  "selection": [
+    {
+      "number": 1,
+      "id": "01a1142e-7e7c-78f0-9500-bdf800a887e2",
+      "title": "Codex usage vastleggen",
+      "updated_at": 1791938150,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/07/rollout-2026-10-07T04-25-53-01a1142e-7e7c-78f0-9500-bdf800a887e2.jsonl"
+    },
+    {
+      "number": 2,
+      "id": "01a13737-746b-71b1-ae90-b7f66c92ea02",
+      "title": "Haal MODS-context op",
+      "updated_at": 1791928201,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/13/rollout-2026-10-13T23-42-23-01a13737-746b-71b1-ae90-b7f66c92ea02.jsonl"
+    },
+    {
+      "number": 3,
+      "id": "01a1373b-6c17-7fe2-9608-1e3658b92966",
+      "title": "Rond foregroundproef beurt 2 af",
+      "updated_at": 1791928008,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/13/rollout-2026-10-13T23-46-43-01a1373b-6c17-7fe2-9608-1e3658b92966.jsonl"
+    },
+    {
+      "number": 4,
+      "id": "01a13713-a026-7bf1-90d9-34bfe5f1b940",
+      "title": "Voer T-47 annuleringstest uit",
+      "updated_at": 1791925439,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/13/rollout-2026-10-13T23-03-15-01a13713-a026-7bf1-90d9-34bfe5f1b940.jsonl"
+    },
+    {
+      "number": 5,
+      "id": "01a13700-683a-7741-8955-7ea2dae129bd",
+      "title": "Haal MODS-context op",
+      "updated_at": 1791924498,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/13/rollout-2026-10-13T22-42-16-01a13700-683a-7741-8955-7ea2dae129bd.jsonl"
+    },
+    {
+      "number": 6,
+      "id": "01a13280-3bca-7d03-9850-9db54e8eac65",
+      "title": "Inventariseer de repository",
+      "updated_at": 1791849787,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/13/rollout-2026-10-13T01-43-47-01a13280-3bca-7d03-9850-9db54e8eac65.jsonl"
+    },
+    {
+      "number": 7,
+      "id": "01a131da-82c0-7ca2-ba45-53d835e79b5c",
+      "title": "Codex usage — read-only bronproef",
+      "updated_at": 1791837781,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/12/rollout-2026-10-12T22-42-46-01a131da-82c0-7ca2-ba45-53d835e79b5c.jsonl"
+    },
+    {
+      "number": 8,
+      "id": "01a1162a-70ff-7930-b16e-8c99dbd844e5",
+      "title": "Usage-ledger 4 codex",
+      "updated_at": 1791828102,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/07/rollout-2026-10-07T13-40-42-01a1162a-70ff-7930-b16e-8c99dbd844e5.jsonl"
+    },
+    {
+      "number": 9,
+      "id": "01a11b31-86cd-7293-b557-50fe9e541f63",
+      "title": "Voer When2Watch-sprint uit",
+      "updated_at": 1791470059,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/08/rollout-2026-10-08T13-06-33-01a11b31-86cd-7293-b557-50fe9e541f63.jsonl"
+    },
+    {
+      "number": 10,
+      "id": "01a1179c-e081-76b1-9d18-76874f80074e",
+      "title": "When2Watch V2",
+      "updated_at": 1791457766,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/07/rollout-2026-10-07T20-25-19-01a1179c-e081-76b1-9d18-76874f80074e.jsonl"
+    },
+    {
+      "number": 11,
+      "id": "01a0ce4f-4b85-7fc0-a63d-0df577fe5931",
+      "title": "Werk IDEA-216 When2Watch uit",
+      "updated_at": 1791400199,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/09/23/rollout-2026-09-23T14-48-18-01a0ce4f-4b85-7fc0-a63d-0df577fe5931.jsonl"
+    },
+    {
+      "number": 12,
+      "id": "01a11794-c9e5-7560-af5a-8b205d369b26",
+      "title": "Laat Codex de volgende stap noemen",
+      "updated_at": 1791397325,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/07/rollout-2026-10-07T20-16-29-01a11794-c9e5-7560-af5a-8b205d369b26.jsonl"
+    },
+    {
+      "number": 13,
+      "id": "01a1128b-b14f-7f01-a13e-076f0afeb976",
+      "title": "Onderzoek geldigheidsduur QR-login",
+      "updated_at": 1791338924,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/06/rollout-2026-10-06T20-48-27-01a1128b-b14f-7f01-a13e-076f0afeb976.jsonl"
+    },
+    {
+      "number": 14,
+      "id": "01a11376-22b9-78c2-b420-c1e5e9b4dbb4",
+      "title": "Pak reviewverzoek op",
+      "updated_at": 1791334282,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/07/rollout-2026-10-07T01-04-31-01a11376-22b9-78c2-b420-c1e5e9b4dbb4.jsonl"
+    },
+    {
+      "number": 15,
+      "id": "01a11270-1c3a-7980-940b-e29f652b42fa",
+      "title": "Verwijder folders direct met rm",
+      "updated_at": 1791318098,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/06/rollout-2026-10-06T20-18-19-01a11270-1c3a-7980-940b-e29f652b42fa.jsonl"
+    },
+    {
+      "number": 16,
+      "id": "01a1127d-b864-7702-a615-ac781cc9dee0",
+      "title": "Onderzoek optionele PPE-parameters",
+      "updated_at": 1791313018,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/06/rollout-2026-10-06T20-33-11-01a1127d-b864-7702-a615-ac781cc9dee0.jsonl"
+    },
+    {
+      "number": 17,
+      "id": "01a107e4-4d5f-7591-bf11-944dca7f0c67",
+      "title": "Start queue monitor",
+      "updated_at": 1791141932,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/04/rollout-2026-10-04T19-09-24-01a107e4-4d5f-7591-bf11-944dca7f0c67.jsonl"
+    },
+    {
+      "number": 18,
+      "id": "01a1021b-297d-70a0-8d6b-1c4668415533",
+      "title": "Review M42-vis-design-migratie",
+      "updated_at": 1791116908,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/03/rollout-2026-10-03T16-11-37-01a1021b-297d-70a0-8d6b-1c4668415533.jsonl"
+    },
+    {
+      "number": 19,
+      "id": "01a101f4-0f54-7981-831b-c63b2fbbdbfe",
+      "title": "Vervang GitHub-verwijzingen in CLAU",
+      "updated_at": 1791034392,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/03/rollout-2026-10-03T15-28-54-01a101f4-0f54-7981-831b-c63b2fbbdbfe.jsonl"
+    },
+    {
+      "number": 20,
+      "id": "01a1011c-9393-78b1-8494-305e637d1605",
+      "title": "Onderzoek Superpowers-updates",
+      "updated_at": 1791020257,
+      "rollout_path": "/Users/janpetervisser/.codex/sessions/2026/10/03/rollout-2026-10-03T11-33-32-01a1011c-9393-78b1-8494-305e637d1605.jsonl"
+    }
+  ],
+  "max2": {
+    "ssh": "max2",
+    "docker": "29.9.0",
+    "arch": "linux/amd64",
+    "compose": "5.6.0",
+    "buildx": "0.38.0",
+    "codex": "0.154.0",
+    "docker_ssh_info_verified": true
+  },
+  "verification_limit": "Docker SSH info only; no remote test container or build created in this research."
+}
