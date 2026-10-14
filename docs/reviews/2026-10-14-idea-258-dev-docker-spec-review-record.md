@@ -112,7 +112,39 @@ Afgewezen: geen.
 
 ## Ronde 4 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 4 @ `<r4_sha>`; context-pins: grill (rev `cmv7rt021000fyl174lrf4iyu`), PR-32-rapport @ `43f724b37c5f076e5cbbc1b7cbf1822080d9f3ec`, **nieuw:** `docs/forgejo-runner-pool/evidence/stap-a/caps.md` @ `96e0ac272d1f5ead51fa853bbf922eb605550831` en `docs/forgejo-runner-pool/migratieontwerp.md` @ `984f5949ab131469d1fc999c32569e36333ede23` (beide scrum4me-server, product `cmsx8zbdh0002hk7rcgxxr00k`).
+**Gepind:** `dev-docker/SPEC.md` revisie 4 @ `bc764bc6e8f79b06bb440160fd6a6e04b2ac05e5`; context-pins: grill (rev `cmv7rt021000fyl174lrf4iyu`), PR-32-rapport @ `43f724b37c5f076e5cbbc1b7cbf1822080d9f3ec`, **nieuw:** `docs/forgejo-runner-pool/evidence/stap-a/caps.md` @ `96e0ac272d1f5ead51fa853bbf922eb605550831` en `docs/forgejo-runner-pool/migratieontwerp.md` @ `984f5949ab131469d1fc999c32569e36333ede23` (beide scrum4me-server, product `cmsx8zbdh0002hk7rcgxxr00k`).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `3ef2b3bb-f851-4cb9-a28f-2ccc8e888089` | `4e3bbfe4-c0a9-4016-a028-1f65b5a191d4` | job (SUCCEEDED) | `1ca36f89-e877-4c6c-8cf5-ea9965b32d3b` | linked |
+| CLAUDE | `6ca8784c-2c4e-493a-94e2-8c01a0d3c0cb` | `d4e34103-8a8e-45ab-af99-999d80878797` | job (SUCCEEDED) | `231892b2-0a7b-44a0-9eaa-f6e7f1dff5d5` | linked |
+
+**Dispatch:** beide 08:09–08:10 UTC ingediend, state WAITING (waiting_for_capacity); vijf pins geaccepteerd (incl. twee uit scrum4me-server).
+
+**Uitslag:** CODEX **NO-GO** (0 BLOCKER, 1 MAJOR, 3 MINOR; 08:14 UTC). CLAUDE **NO-GO** (0 BLOCKER, 1 MAJOR, 6 MINOR; 08:15 UTC). Twee verschillende MAJORs: codex — de INPUT-check (`iptables -S INPUT`) toont geen regels in gesprongen ketens en de `0.0.0.0`-terugval is niet gedekt; claude — §8 gebruikt de N = 1-lezing uit caps.md terwijl het gepinde ontwerp (R17) §7.8 host-breed maakt en max2 met twee stacks al rood is onder waiver D7 (11-10-2026), zodat de JP-vraag in §12 op een verkeerde premisse stond. Claude las pr32 alleen via grep (`not_run`), zonder bevinding die erop steunt.
+
+**Fixes ronde 3 volgens de reviewers:** codex 5 held, 3 partially (1, 2, 4); claude 5 held, 3 partially (1, 2, 4).
+
+**Triage** (geverifieerd; U4-record `evidence/n-stacks/2026-10-12-uitrol-stack-03.md` gelezen: D7 waiver §7.8 voor N = 2 op beide assen, U2-minimum 21,67 GiB, P6-rode lijn 10,8 GiB in één steekproef):
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 5 |
+|---|---|---|---|---|---|
+| 1 | codex M1 / claude F2 | MAJOR | `iptables -S INPUT` leest gesprongen ketens niet; terugval `0.0.0.0` ongedekt; "generieke accept op tailscale0" kan vals weigeren | accept | §4.1: `iptables-save -t filter` als root, ketens in evaluatievolgorde incl. jumps, precieze weigerregel (NEW tcp/55432 van buiten het LAN op niet-loopback-ingress; bridges tellen mee, tailscale0 alleen vastleggen), fail closed; §4.4: **`0.0.0.0`-terugval geschrapt** (bind faalt → NO-GO, JP beslist); §9/§11 aangepast |
+| 2 | claude M1 / codex m1 | MAJOR | §8 op N = 1-premisse; R17 maakt §7.8 host-breed; max2 N = 2 al rood onder D7; 10,8 GiB niet geverifieerd; 6+8=14 verkeerd rekenvoorbeeld | accept | §8 herschreven: 8.1 stand van zaken met N = 2, caps-som 12 GiB, 55,7 %, waiver D7, U4-rode lijn 10,8 GiB, N = 1-lijn alleen als context; 8.2 eigen afgeleide regel met operationele vloer X (voorstel 12,0) en parametrisch budget; §12 vraag aan JP opnieuw geformuleerd (dev-last op gewaiverde host; X); U4-record wordt in ronde 5 gepind |
+| 3 | codex m2 / claude F5 | MINOR | `images.txt`-uitsluiting op naam matcht digest-referentie niet; lege containerlijst | accept | §4.7 stap 4: referenties naar ID via `docker image inspect --format {{.Id}}`; guard op lege `docker ps -aq` |
+| 4 | codex m3 / claude F4 | MINOR | unit zonder `WorkingDirectory`/`Type`/`Wants`/timeout; ontbreekt in §4.9 | accept | §4.5: `Type=oneshot`, `RemainAfterExit`, `Wants`, `WorkingDirectory`, `TimeoutStartSec=180`, succes = `active (exited)`; §4.9 |
+| 5 | claude F3 | MINOR | voorbeeld geeft 7,5 GiB (momentopname in `--series`); splitsing op dubbele punt onbepaald | accept | §4.1: alleen de P6-reeks; eerste dubbele punt; bron vrije tekst; momentopname expliciet geen reeks |
+| 6 | claude F6 | MINOR | sampler-cadans ≈ 60 s, niet 5 s; §7.8 vraagt 5 s | accept (gemeten: `vmstat 1 5` + `sleep 55`) | §8 en evidence-README gecorrigeerd; proefsampler 5 s; resolutie als beperking benoemd |
+| 7 | claude F7 | MINOR | geen schijfgrens; dev deelt het productiebestandssysteem | accept | §7 restrisico met 20 %-waarschuwing in `status`/prune; §9 meet vrije ruimte vóór/na |
+| 8 | claude (geen sev) | — | `pg_hba` weigert superuser over het netwerk; user-manager-herstart als goedkopere test; pubkey-pad | accept | §4.5 `host all postgres all reject` bovenaan; §9 stap 10 stop/start van `user@<uid>` vóór de reboot; §4.1 sleutel uit `ssh -G max2` |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 4:** verwijderd: de `0.0.0.0`-terugval; toegevoegd: volledige filtertabel-doorloop in de preflight, `pg_hba`-reject voor de superuser, schijfmeting en -waarschuwing, user-manager-herstarttest, U4-pin. §8 is inhoudelijk gecorrigeerd zonder het budget te wijzigen; de JP-vraag staat nu op de juiste premisse. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Herbeoordeling vóór ronde 5 (skill-regel "vóór ronde 4"): de vier rondes voegden verificatie en grenzen toe, geen nieuw subsysteem; de proef is niet verschoven; geen kleiner alternatief dat acceptatie en bescherming behoudt. Spec 335 → 349 regels.
+
+## Ronde 5 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 5 @ `<r5_sha>`; context-pins: grill, PR-32-rapport, `caps.md` @ `96e0ac27…`, `migratieontwerp.md` @ `984f5949…`, **nieuw:** U4-record `docs/forgejo-runner-pool/evidence/n-stacks/2026-10-12-uitrol-stack-03.md` @ `9a5e084a9dc99760644131cdc1e25dd4d78fbbef` (scrum4me-server).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|

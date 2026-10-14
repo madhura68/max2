@@ -1,6 +1,6 @@
 # Spec — Dev-Docker op max2 voor de Mac (IDEA-258)
 
-**Status:** concept, revisie 4 (na reviewronde 3). **Datum:** 14-10-2026. **Auteur:** max2:claude (Claude Fable 5.1) in opdracht van JP.
+**Status:** concept, revisie 5 (na reviewronde 4). **Datum:** 14-10-2026. **Auteur:** max2:claude (Claude Fable 5.1) in opdracht van JP.
 **Bron:** grill IDEA-258 (Scrum4Me ProductDoc `GRILLS/idea-258-grill`, revisie `cmv7rt021000fyl174lrf4iyu`) en het onderzoeksrapport in PR 32 (`docs/reports/2026-10-14-codex-docker/`). Reviewrecord: `docs/reviews/2026-10-14-idea-258-dev-docker-spec-review-record.md`.
 **Scope van dit document:** het volledige ontwerp plus de precieze inhoud van het eerste increment. Plan en taken volgen apart; dit document autoriseert geen uitvoering.
 
@@ -70,15 +70,15 @@ Alle bestanden onder `dev-docker/host/` in deze repo. De uitrol gaat vanaf de Ma
 `bootstrap.sh` en de publieke sleutel worden als bestanden gekopieerd en het script wordt met een tty uitgevoerd, zodat `sudo` om het wachtwoord van janpeter kan vragen en argumenten en stdin niet door elkaar lopen. De remote opdracht is één gequoteerde string, omdat `ssh` de argumenten samenvoegt en de remote shell ze opnieuw splitst:
 
 ```sh
-scp dev-docker/host/bootstrap.sh ~/.ssh/id_ed25519.pub max2:/tmp/
-ssh -t max2 "sudo bash /tmp/bootstrap.sh --pubkey-file /tmp/id_ed25519.pub \
-  --series '21.53:evidence/dev-docker/2026-10-12-p6-memavailable-max2.csv 2026-10-12T10:46Z..2026-10-13T12:46Z' \
-  --series '19.59:scrum4me-server evidence/stap-a/host-facts-max2.tsv 2026-09-02'"
+PUB=$(ssh -G max2 | awk '/^identityfile /{print $2; exit}').pub   # de sleutel van de bestaande max2-alias
+scp dev-docker/host/bootstrap.sh "$PUB" max2:/tmp/
+ssh -t max2 "sudo bash /tmp/bootstrap.sh --pubkey-file /tmp/$(basename "$PUB") \
+  --series '21.53:evidence/dev-docker/2026-10-12-p6-memavailable-max2.csv, 2026-10-12T10:46Z..2026-10-13T12:46Z, ~60 s-resolutie'"
 ```
 
-`--series <GiB>:<bron>` is herhaalbaar; het script neemt de laagste waarde (§8). Het zet `DEBIAN_FRONTEND=noninteractive` en voert `apt-get` met `</dev/null` uit. Volgorde:
+`--series <GiB>:<bron>` is herhaalbaar en wordt op de **eerste** dubbele punt gesplitst; de bron is vrije tekst. Alleen reeksen van ≥ 24 uur tellen (§8); de stap-A-momentopname van 19,59 GiB is géén reeks en wordt niet meegegeven. Bij meerdere reeksen neemt het script de laagste waarde. Het zet `DEBIAN_FRONTEND=noninteractive` en voert `apt-get` met `</dev/null` uit. Volgorde:
 
-1. **Preflight (read-only, faalt vóór iedere mutatie):** headroomgate en budget uit §8 (weigert zonder invoer en bij een budget onder 2 GiB); `kernel.apparmor_restrict_unprivileged_userns` en aanwezigheid van `/etc/apparmor.d/rootlesskit`; `dpkg -s docker-ce-rootless-extras`; cgroup v2 met `cpu memory pids` in `DelegateControllers` van `user@.service`; ufw actief met `Default: deny (incoming)` **en** de effectieve INPUT-policy: `iptables -S INPUT` plus de ufw-ketens (`ufw status numbered`) bevatten geen regel die tcp/55432 accepteert buiten `192.168.0.0/24` en geen generieke accept op `tailscale0` of een bridge die vóór de ufw-ketens komt (de host heeft eigen INPUT-regels buiten ufw, zie `deepseek-harness/host/dsh-firewall.sh` en `open-webui/host/owui-firewall.sh`); de uitvoer gaat in het bewijsbestand; `sshd -T` zonder `AllowUsers`/`AllowGroups` die devdock zouden uitsluiten (gemeten: alleen `PasswordAuthentication no`); subuid-range `200000:65536` vrij; geen bestaande gebruiker `devdock` met afwijkende instellingen.
+1. **Preflight (read-only, faalt vóór iedere mutatie):** headroomgate en budget uit §8 (weigert zonder invoer en bij een budget onder 2 GiB); `kernel.apparmor_restrict_unprivileged_userns` en aanwezigheid van `/etc/apparmor.d/rootlesskit`; `dpkg -s docker-ce-rootless-extras`; cgroup v2 met `cpu memory pids` in `DelegateControllers` van `user@.service`; ufw actief met `Default: deny (incoming)` **en** de effectieve INPUT-policy uit de volledige filtertabel: `iptables-save -t filter` (als root), waarbij het script de vanuit `INPUT` bereikbare ketens in evaluatievolgorde volgt, inclusief jumps naar `ufw-before-input`, `ufw-user-input`, `ts-input` en eigen ketens (de host heeft INPUT-regels buiten ufw, zie `deepseek-harness/host/dsh-firewall.sh` en `open-webui/host/owui-firewall.sh`). **Weigerregel:** een regel die een NEW-verbinding naar tcp/55432 kan accepteren vanaf een bron buiten `192.168.0.0/24` op een niet-loopback-ingress (dus ook een generieke accept op een docker-bridge, want een bind op het LAN-adres houdt bridge-pakketten naar dat adres niet tegen), waarbij `-i lo` en regels die alleen `ESTABLISHED,RELATED` matchen buiten beschouwing blijven. Een accept op `tailscale0` wordt vastgelegd maar is geen weigergrond zolang de socket aan het LAN-adres gebonden is (daar luistert niets op `100.102.8.64`). Kan het script de keten niet volledig volgen, dan weigert het (fail closed). De volledige dump gaat in het bewijsbestand; `sshd -T` zonder `AllowUsers`/`AllowGroups` die devdock zouden uitsluiten (gemeten: alleen `PasswordAuthentication no`); subuid-range `200000:65536` vrij; geen bestaande gebruiker `devdock` met afwijkende instellingen.
 2. **Pakketten:** `apt-get install -y uidmap slirp4netns` (gemeten 14-10-2026: beide ontbreken op max2; `dockerd-rootless-setuptool.sh check --force` eist `uidmap`; rootlesskit heeft `slirp4netns` of `pasta` nodig voor netwerk).
 3. Gebruiker en subid-ranges; `authorized_keys` uit `--pubkey-file` (het script leest nooit een private sleutel).
 4. Slice-drop-in (§4.3) met de uit de gate berekende `MemoryMax`, `systemctl daemon-reload`; **daarna pas** `loginctl enable-linger devdock`, zodat `user@<uid>.service` meteen onder het plafond start. Controle: `systemctl show user-<uid>.slice -p MemoryMax -p MemorySwapMax -p CPUQuotaPerSecUSec -p TasksMax` en, zodra de user-manager draait, `cat /sys/fs/cgroup/user.slice/user-<uid>.slice/memory.max`.
@@ -115,7 +115,7 @@ Alles van devdock (`user@<uid>.service` met rootless dockerd, alle containers, d
 - Regel: `ufw allow from 192.168.0.0/24 to any port 55432 proto tcp comment 'dev-postgres (IDEA-258)'`.
 - Publicatie: **gebonden aan het LAN-adres**, `192.168.0.158:55432:5432`. Gemeten: `enp4s0` heeft `192.168.0.158/24` statisch (`ipv4.method: manual`, `valid_lft forever`); Tailscale is `100.102.8.64/32` op `tailscale0`. Een socket op het LAN-adres luistert per definitie niet op Tailscale- of bridge-adressen; dat is de eerste grens en is op max2 zelf te meten (`ss -ltn` toont alleen `192.168.0.158:55432`; `nc -z -w2 100.102.8.64 55432` faalt). De ufw-regel is de tweede grens.
 - Boot-race: een user-unit kan niet na `network-online.target` worden geordend, en een bind op een nog niet geconfigureerd adres laat de container bij daemon-herstel gestopt achter. Daarom start de stack niet via de restart-policy alleen maar via de user-unit `dev-postgres.service` (§4.5), die eerst op het adres wacht en dan `docker compose up -d` doet.
-- Dit sluit aan bij grill-besluit 3 (direct bereikbaar over het LAN, geen tunnel). Lukt binden op het adres met de builtin-portdriver aantoonbaar niet, dan is `0.0.0.0` met de ufw-regel én de INPUT-policy-controle uit §4.1 de terugval; die keuze wordt in het bewijsbestand vastgelegd.
+- Dit sluit aan bij grill-besluit 3 (direct bereikbaar over het LAN, geen tunnel). **Geen `0.0.0.0`-terugval in dit increment:** lukt binden op het LAN-adres met de builtin-portdriver aantoonbaar niet, dan stopt de proef als NO-GO en beslist JP (een wildcard-bind zou een negatieve controle vanaf een externe niet-LAN-peer vereisen, die deze proef niet heeft).
 - Geen Tailscale-publicatie in het eerste increment.
 
 ### 4.5 dev-postgres
@@ -131,8 +131,8 @@ Compose-stack in `/home/devdock/dev-docker/` (bron: `dev-docker/host/compose.yml
 | Env | `POSTGRES_USER=postgres` (superuser, alleen binnen de container gebruikt), `POSTGRES_PASSWORD` en `DEV_PASSWORD` uit `/home/devdock/dev-docker/.env` (0600) |
 | Resources | `mem_limit: 2g`, `shm_size: 256m` |
 | Healthcheck | `pg_isready -h 127.0.0.1 -p 5432 -U dev -d postgres` (over TCP: het tijdelijke initdb-proces luistert alleen op de unix-socket en zou anders al "gereed" melden vóór rol `dev` bestaat) |
-| Start | user-unit `dev-postgres.service` (`After=docker.service`, `ExecStartPre` wacht tot `ip -4 -o addr show enp4s0` het adres `192.168.0.158/` toont, `ExecStart=docker compose up -d`, `Restart=on-failure`, `WantedBy=default.target`); compose zelf `restart: unless-stopped` als tweede laag |
-| Init | `init/01-roles.sh` maakt de clientrol `dev` (`LOGIN CREATEDB`, géén superuser, wachtwoord `DEV_PASSWORD`) en `CREATE EXTENSION vector` in `template1`, zodat elke nieuwe database pgvector heeft zonder superuser; `init/02-devmeta.sql` maakt schema `devmeta` en de registertabel in database `postgres` |
+| Start | user-unit `dev-postgres.service`: `Type=oneshot`, `RemainAfterExit=yes`, `Wants=docker.service`, `After=docker.service`, `WorkingDirectory=/home/devdock/dev-docker`, `ExecStartPre` wacht (max. `TimeoutStartSec=180`) tot `ip -4 -o addr show enp4s0` het adres `192.168.0.158/` toont, `ExecStart=docker compose up -d`, `Restart=on-failure`, `WantedBy=default.target`; geslaagd = `active (exited)`. Compose zelf `restart: unless-stopped` als tweede laag: faalt de bind bij daemon-herstel, dan blijft de container gestopt en start de unit hem alsnog |
+| Init | `init/01-roles.sh` maakt de clientrol `dev` (`LOGIN CREATEDB`, géén superuser, wachtwoord `DEV_PASSWORD`), `CREATE EXTENSION vector` in `template1` (zodat elke nieuwe database pgvector heeft zonder superuser) en zet bovenaan `pg_hba.conf` de regel `host all postgres all reject` (eerste match wint; daarmee kan de superuser alleen lokaal via `docker exec` inloggen en verlaat zijn wachtwoord de container ook functioneel niet); `init/02-devmeta.sql` maakt schema `devmeta` en de registertabel in database `postgres` |
 
 De init-scripts in `docker-entrypoint-initdb.d` draaien **alleen bij een leeg volume**; een wachtwoordwijziging daarna vraagt `ALTER ROLE dev PASSWORD …` als `postgres` én een nieuwe `.env`, nooit alleen een van beide. Beide wachtwoorden worden door `install-user.sh` gegenereerd met `openssl rand -hex 24` (48 tekens `[0-9a-f]`, URL-veilig; base64 zou `/`, `+` en `=` kunnen bevatten en de URL breken) en alleen in `.env` geschreven. Ze staan nooit in deze repo, nooit in de s4m-queue-repo en komen op de Mac niet op schijf (§6.2, §7). Clients (de Mac, de tests) gebruiken uitsluitend de rol `dev`; beheer (databases aanmaken en droppen, het register) loopt via `docker exec … psql -U postgres` binnen de container, zodat het superuser-wachtwoord de container nooit verlaat. De helper percent-encodeert het wachtwoord in de URL toch, zodat een latere wijziging van de generator niets breekt.
 
@@ -159,7 +159,7 @@ Systemd user units van devdock: `dev-docker-prune.service` + `dev-docker-prune.t
 1. **Wegwerpcontainers:** alle containers behalve `dev-postgres`, zonder label `dev.keep=true`, met `Created` ouder dan 7 dagen: stop + `docker rm`.
 2. **Volumes:** dangling volumes zonder label `dev.keep=true`, met `CreatedAt` ouder dan 7 dagen (gemeten: `docker volume inspect` geeft `CreatedAt`, bv. `2026-09-27T13:01:26+02:00`), behalve `dev-postgres-data`: `docker volume rm`. Een volume zonder parseerbare `CreatedAt` wordt overgeslagen en gerapporteerd, nooit als "oud" behandeld.
 3. **Databases:** registerrijen met `keep=false` en `created_at < now() - interval '14 days'`, niet op de denylist: `DROP DATABASE IF EXISTS %I WITH (FORCE)` via `\gexec` (PostgreSQL ≥ 13; beëindigt verbindingen atomair), daarna de rij verwijderen. Onbekende databases buiten de denylist worden eerst geregistreerd (`prune:first-seen`), nooit direct gedropt.
-4. **Images, buildcache, netwerken.** Images: het script berekent de kandidaten zelf en verwijdert op ID, zodat dry-run en echte run hetzelfde pad delen: de set image-ID's in gebruik is `docker inspect --format '{{.Image}}' $(docker ps -aq)` (`docker ps --format '{{.ImageID}}'` bestaat niet in Docker 29.9, gemeten); kandidaat is elk image-ID uit `docker image ls --no-trunc --format '{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}'` dat niet in gebruik is, niet in `images.txt` staat en ouder is dan 168 h (`CreatedAt` is de bouwdatum, dus standaardimages zouden anders wekelijks worden verwijderd en in stap 5 opnieuw gepuld); verwijdering met `docker rmi <id>`, daarna `docker image prune -f` voor dangling lagen. Buildcache: `docker builder prune -af --filter until=168h`; de dry-run toont hiervoor alleen de omvang uit `docker buildx du` als **schatting**. Netwerken: `docker network prune -f --filter 'label!=dev.keep=true'`; dry-run = netwerken zonder endpoint en zonder het label. Het image van `dev-postgres` is aan een bestaande container gekoppeld én staat in `images.txt` en blijft; het compose-netwerk draagt `dev.keep=true`.
+4. **Images, buildcache, netwerken.** Images: het script berekent de kandidaten zelf en verwijdert op ID, zodat dry-run en echte run hetzelfde pad delen: de set image-ID's in gebruik is `docker inspect --format '{{.Image}}' $(docker ps -aq)` (alleen als `docker ps -aq` niet leeg is; `docker ps --format '{{.ImageID}}'` bestaat niet in Docker 29.9, gemeten); de set beschermde ID's is `docker image inspect --format '{{.Id}}' <ref>` voor elke regel van `images.txt` die lokaal aanwezig is (een digest-referentie staat in `image ls` als `<none>`-tag, dus vergelijking op naam werkt niet; afwezige referenties worden gerapporteerd, niet gepulld); kandidaat is elk image-ID uit `docker image ls --no-trunc --format '{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}'` dat in geen van beide sets zit en ouder is dan 168 h (`CreatedAt` is de bouwdatum, dus standaardimages zouden anders wekelijks worden verwijderd en in stap 5 opnieuw gepuld); verwijdering met `docker rmi <id>`, daarna `docker image prune -f` voor dangling lagen. Buildcache: `docker builder prune -af --filter until=168h`; de dry-run toont hiervoor alleen de omvang uit `docker buildx du` als **schatting**. Netwerken: `docker network prune -f --filter 'label!=dev.keep=true'`; dry-run = netwerken zonder endpoint en zonder het label. Het image van `dev-postgres` is aan een bestaande container gekoppeld én staat in `images.txt` en blijft; het compose-netwerk draagt `dev.keep=true`.
 5. **Standaardimages:** `pull-images.sh` opnieuw (§4.8).
 6. **Backups:** bestanden in `/home/devdock/dev-docker/backups/` ouder dan 30 dagen verwijderen (§5.2 fase 4).
 7. **Verslag:** journal plus `/home/devdock/dev-docker/prune.log` en `last-run.json` (tijdstip, per stap de kandidaten, de bewaarde items met reden, fouten). `max2-docker status` toont de laatste run.
@@ -184,6 +184,7 @@ dev-docker/
     init/02-devmeta.sql    registertabel
     prune.sh               opruimen, met --dry-run
     pull-images.sh / images.txt
+    systemd/dev-postgres.service      wacht op het LAN-adres, dan compose up
     systemd/dev-docker-prune.service, dev-docker-prune.timer
     systemd/50-dev-docker.conf   slice-drop-in (sjabloon)
 evidence/dev-docker/       bewijs van de praktijkproef en latere metingen
@@ -249,28 +250,41 @@ Implementatiekeuzes: alle beheeracties lopen via `docker --context max2-dev exec
 ## 7. Beveiliging
 
 - **Scheiding:** devdock heeft geen sudo, geen toegang tot `/var/run/docker.sock`, geen hostpaden buiten zijn home. Een `docker rm` vanaf de Mac kan alleen dev-resources raken.
-- **Secrets:** beide Postgres-wachtwoorden alleen in `/home/devdock/dev-docker/.env` (0600) en in de container-env; het superuser-wachtwoord verlaat de container niet. Niet in Git, niet op de Mac-schijf, niet in Scrum4Me-issues. De helper toont het clientwachtwoord alleen op `--reveal`; agents gebruiken `db run`. Dit is bescherming door instructie: elke sessie met de SSH-sleutel kan het wachtwoord via `docker exec` opvragen, en een kindproces kan zijn configuratie printen (door `db run` gemaskeerd) of door een ander proces van dezelfde Mac-gebruiker worden geïnspecteerd.
+- **Secrets:** beide Postgres-wachtwoorden alleen in `/home/devdock/dev-docker/.env` (0600) en in de container-env; het superuser-wachtwoord verlaat de container niet en `pg_hba.conf` weigert `postgres` over het netwerk (§4.5). Niet in Git, niet op de Mac-schijf, niet in Scrum4Me-issues. De helper toont het clientwachtwoord alleen op `--reveal`; agents gebruiken `db run`. Dit is bescherming door instructie: elke sessie met de SSH-sleutel kan het wachtwoord via `docker exec` opvragen, en een kindproces kan zijn configuratie printen (door `db run` gemaskeerd) of door een ander proces van dezelfde Mac-gebruiker worden geïnspecteerd.
 - **Bereik:** Postgres is bereikbaar voor het LAN-subnet; het wachtwoord is de grens. Dev-data bevat per afspraak geen productiegegevens.
 - **Restrisico (geaccepteerd):** één clientrol `dev` (`CREATEDB`, geen superuser) met één wachtwoord voor alle databases, bereikbaar op het LAN. Compromittering raakt alle dev-databases en geeft toegang tot wat de rol binnen de container kan, niet tot de host of de productie-engine; rollen per database zijn buiten scope (§2).
 - **SSH:** bestaande sleutel; wachtwoordlogin blijft uit.
+- **Restrisico schijf (geaccepteerd):** de dev-engine deelt het bestandssysteem met de productie-engine (gemeten: `df_root_used_pct` = `df_docker_used_pct` in de P6-reeks, één volume van 914 GB met 578 GB vrij). Het slice-plafond begrenst geen schijf; een weggelopen build of database kan het volume vullen vóór de wekelijkse prune. `max2-docker status` en `prune.sh` tonen de vrije ruimte en waarschuwen onder 20 % (dezelfde grens als §7.8); de proef meet de vrije ruimte vóór en na (§9). Een quotum is buiten scope.
 
 ## 8. Capaciteit: headroomgate en budget
 
-De runnerpool rekent met de §7.8-gate uit het migratieontwerp (`scrum4me-server`-repo, `docs/forgejo-runner-pool/migratieontwerp.md` §7.8): de som van de geheugenlimieten van runner en DinD mag ten hoogste 50 % van de **laagste gemeten `MemAvailable` onder eigen productielast** zijn. Toegepast op max2 (bron: `docs/forgejo-runner-pool/evidence/stap-a/caps.md` in die repo):
+### 8.1 Wat §7.8 nu voor max2 betekent
+
+De runnerpool-regel staat in het migratieontwerp (`scrum4me-server`-repo, `docs/forgejo-runner-pool/migratieontwerp.md`), oorspronkelijk per stack (§7.8) en sinds **delta R17 host-breed**: de som van de geheugenlimieten over **alle** runnerstacks van een host mag ten hoogste 50 % van de laagste gemeten `MemAvailable` van die host zijn. Stand van zaken, uit de gepinde bronnen:
 
 | Grootheid | Waarde | Bron |
 |---|---|---|
-| Caps-som runner + DinD | 6,0 GiB (1 GiB + 5 GiB); live gemeten op max2: DinD `Memory=5368709120` per stack | caps.md; `docker inspect` 14-10-2026 |
-| Gate wordt ROOD onder | **12,0 GiB `MemAvailable`** | caps.md ("pas ROOD onder 12,0 GiB") |
-| N = 2-drempel (U4/P6) | 10,8 GiB in één steekproef | `evidence/n-stacks/2026-10-12-uitrol-stack-03.md` |
-| Laagste `MemAvailable` onder productielast, N = 2 | **21,53 GiB** (22 576 424 kB om 2026-10-12T12:28:21Z; 1584 samples, 2026-10-12 10:46Z – 2026-10-13 12:46Z) | kopie in deze repo: `evidence/dev-docker/2026-10-12-p6-memavailable-max2.csv` (sha256 `64afdefc…6be329`) met de sampler ernaast; origineel `max2:~/m52-p6/metrics.csv` |
-| Stap-A-momentopname (video-editor-stack uit) | 19,59 GiB | `evidence/stap-a/host-facts-max2.tsv` |
+| Caps per stack (runner + DinD) | 1 GiB + 5 GiB = 6,0 GiB; live gemeten op max2 per stack `Memory=5368709120` voor de DinD | `evidence/stap-a/caps.md`; `docker inspect` 14-10-2026 |
+| Stacks op max2 | **N = 2** (`forgejo-runner` en `forgejo-runner-03`, beide met DinD) | `docker ps` 14-10-2026; U4-record |
+| Caps-som host-breed (R17) | **12,0 GiB** | R17 §7.8 |
+| Laagste `MemAvailable` onder N = 2-productielast | **21,53 GiB** (22 576 424 kB om 2026-10-12T12:28:21Z; 1584 samples, 2026-10-12 10:46Z – 2026-10-13 12:46Z, resolutie ≈ 60 s) | `evidence/dev-docker/2026-10-12-p6-memavailable-max2.csv` (kopie van `max2:~/m52-p6/metrics.csv`); U2 (24 h, 1405 samples) gaf 21,67 GiB |
+| 50 %-budget | 10,77 GiB (P6) / 10,83 GiB (U2) | berekend |
+| Oordeel §7.8 host-breed | **ROOD**: 12,0 GiB > 10,77 GiB (55,7 %), ook op CPU (25 vCPU > 14) | R17 §7.8 rekenvoorbeeld; U4-record |
+| Besluit JP | **D7, 11-10-2026: waiver van §7.8 voor max2 op beide assen** (record-and-proceed; `preflight.sh` blijft eerlijk rood); P5 acceptatie co-locatierisico | U4-record (`evidence/n-stacks/2026-10-12-uitrol-stack-03.md`) |
+| Operationele rode lijn onder de waiver (P6-drempel, U4) | `MemAvailable` **< 10,8 GiB in één steekproef** → rood; plus mediane wachttijd > 440 s of host-OOM/throttling | U4-record regel 115 |
+| Historische N = 1-lijn | caps-som 6,0 GiB → rood onder 12,0 GiB `MemAvailable` | `caps.md` (vóór R17; alleen ter context) |
 
-**Toepassing op de dev-engine — een afgeleide regel, geen letterlijke §7.8.** §7.8 begrenst de som van de *runnercaps* op 50 % van de laagste `MemAvailable`; de dev-slice is geen runnercap en telt daarin niet mee. Letterlijk optellen zou `6,0 + 8,0 = 14,0 GiB` tegen `50 % × 21,53 = 10,77 GiB` geven en dus ROOD; dat is niet de bedoeling van de regel en wordt niet gebruikt. Deze spec hanteert in plaats daarvan de operationele lijn die uit §7.8 volgt: **`MemAvailable` moet op max2 boven 12,0 GiB blijven**, ook met de dev-engine op haar plafond. Deze lezing is een ontwerpkeuze van IDEA-258 en vraagt een expliciet besluit van JP als eigenaar van de gate (open punt §12).
+De eerdere revisies van deze spec gebruikten de N = 1-lijn (12,0 GiB) als "de gate"; dat was onjuist: de host is met twee stacks al rood onder de host-brede regel en draait onder waiver D7. De dev-engine komt dus bovenop een gewaiverde situatie. Daarom is de vraag aan JP niet "past 8 GiB onder de gate" maar: **mag er dev-last bij op een host waarvan de runnergate onder waiver staat, en welke operationele vloer geldt dan?** (§12).
 
-**Budgetregel:** `MemoryMax = min(8 GiB, laagste_MemAvailable − 12,0 GiB)`, afgerond omlaag op 0,5 GiB. Komt het afgeronde budget onder 2 GiB, dan **weigert** `bootstrap.sh` vóór iedere mutatie; het budget wordt nooit omhoog afgerond. Met de P6-reeks: `21,53 − 12,0 = 9,53` → **8 GiB**, marge 1,53 GiB. Met de stap-A-waarde zou het budget 7,5 GiB zijn; `bootstrap.sh` neemt de **laagste** van de aangeleverde reeksen. De reeks beslaat minimaal 24 uur aaneengesloten inclusief een werkdag met de huidige productielast (de P6-reeks van 26 uur voldoet). De invoer (waarde, bronpad, meetperiode) is een argument van `bootstrap.sh` en wordt in het bewijsbestand vastgelegd; zonder invoer weigert de preflight.
+### 8.2 Voorstel van deze spec (afgeleide regel, geen §7.8)
 
-**Meten tijdens de proef:** een sampler (zelfde opzet als `m52-p6/sampler.sh`, iedere 5 s `MemAvailable`) draait vanaf vóór `bootstrap.sh` tot na de testrun; de testrun zelf is de representatieve dev-belasting. **Stopregel:** één steekproef onder 12,0 GiB → `systemctl --user stop docker` als devdock, budget verlagen volgens de regel (met dezelfde weigering onder 2 GiB), proef opnieuw. Nooit de gate of de runnercaps verlagen (CLAUDE.md: "Haalt deze host de headroomgate niet, dan is dat een NO-GO en geen reden om de caps te verlagen").
+De dev-slice is geen runnercap en telt in de §7.8-som niet mee (letterlijk optellen zou 12 + 8 = 20 GiB tegen 10,77 GiB geven en is niet de bedoeling van de regel). Deze spec stelt een eigen **operationele vloer X** voor: `MemAvailable` op max2 blijft ook met de dev-engine op haar plafond boven X. Voorgesteld **X = 12,0 GiB**: strenger dan de U4-rode lijn van 10,8 GiB (die blijft onverkort gelden) en gelijk aan de historische N = 1-lijn, zodat de dev-engine de gewaiverde situatie niet verder verslechtert dan de pool ooit groen was. JP kiest X (§12); de budgetregel hieronder is parametrisch.
+
+**Budgetregel:** `MemoryMax = min(8 GiB, laagste_MemAvailable − X)`, afgerond omlaag op 0,5 GiB. Komt het afgeronde budget onder 2 GiB, dan **weigert** `bootstrap.sh` vóór iedere mutatie; het budget wordt nooit omhoog afgerond. Met de P6-reeks en X = 12,0: `21,53 − 12,0 = 9,53` → **8 GiB**, marge 1,53 GiB (met X = 10,8: 10,73 → 8 GiB, marge 2,73). `MemoryMax` is een plafond op het worstgeval, geen gemeten verbruik: dev-postgres idle en één testrun blijven daar naar verwachting ver onder, en dat wordt in de proef gemeten.
+
+**Invoer:** uitsluitend reeksen van ≥ 24 uur aaneengesloten met de huidige productielast (N = 2) en een werkdag erin; de P6-reeks (26 h, ≈ 60 s-resolutie: `vmstat 1 5` + `sleep 55`) voldoet. Een momentopname zoals stap A (19,59 GiB, zonder video-editor-stack) is geen reeks en telt niet mee. Waarde, bronpad, meetperiode en resolutie zijn `--series`-argumenten van `bootstrap.sh` (§4.1) en komen in het bewijsbestand; zonder invoer weigert de preflight. De ≈ 60 s-resolutie van P6 kan korte dips missen; de proefsampler meet daarom iedere 5 s.
+
+**Meten tijdens de proef:** een sampler (de P6-sampler met `sleep 55` → `sleep 4`, iedere 5 s `MemAvailable` en de vrije schijfruimte) draait vanaf vóór `bootstrap.sh` tot na de testrun; de testrun is de representatieve dev-belasting. **Stopregel:** één steekproef onder X → `systemctl --user stop docker` als devdock, budget verlagen volgens de regel (met dezelfde weigering onder 2 GiB), proef opnieuw. Een steekproef onder 10,8 GiB is bovendien de U4-rode lijn van de pool en wordt als zodanig aan JP gemeld. Nooit de runnercaps verlagen (CLAUDE.md: "Haalt deze host de headroomgate niet, dan is dat een NO-GO en geen reden om de caps te verlagen"); de waiver D7 wordt door deze spec niet gewijzigd.
 
 **Baseline productie-engine:** `docker ps -a --no-trunc --format '{{.ID}}\t{{.Image}}\t{{.Names}}\t{{.CreatedAt}}'` en `docker images --digests --format '{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.Digest}}'` van de productie-engine (geen statusvelden, die verschillen altijd) vóór en na de proef, met de tijdstempels van eventuele legitieme uitrollen in die periode (uit het Scrum4Me-/Forgejo-spoor); verschillen die daaruit verklaarbaar zijn, tellen niet als afwijking. De reboot-test (§9) valt buiten deze vergelijking en wordt als eigen gebeurtenis gelogd.
 
@@ -280,16 +294,16 @@ De runnerpool rekent met de §7.8-gate uit het migratieontwerp (`scrum4me-server
 
 **Stappen**
 
-1. Baseline (§8): productie-engine, `MemAvailable`-sampler starten, `ufw status verbose` (default deny incoming), `ufw status numbered` en `iptables -S INPUT` (§4.1 stap 1).
+1. Baseline (§8): productie-engine, sampler (5 s) starten, vrije schijfruimte (`df -B1 /var/lib/docker /home`), `ufw status verbose` (default deny incoming), `ufw status numbered` en `iptables-save -t filter` (§4.1 stap 1).
 2. `bootstrap.sh` (root, per scp en `ssh -t`, §4.1) met de `--series`-invoer; controle van de slice-limieten (§4.1 stap 4); `ufw status numbered` opnieuw.
-3. Mac: alias `max2-dev` in `~/.ssh/config` (§5.1); daarna `rsync` en `install-user.sh` via `ssh max2-dev` (§4.2); `systemctl --user status docker dev-postgres.service` en de timer controleren; `cat /sys/fs/cgroup/user.slice/user-<uid>.slice/memory.max`; op max2 `ss -ltn | grep 55432` → alleen `192.168.0.158:55432`, en `nc -z -w2 100.102.8.64 55432` → geweigerd (§4.4).
+3. Mac: alias `max2-dev` in `~/.ssh/config` (§5.1); daarna `rsync` en `install-user.sh` via `ssh max2-dev` (§4.2); `systemctl --user status docker dev-postgres.service` (`active (exited)`) en de timer controleren; `cat /sys/fs/cgroup/user.slice/user-<uid>.slice/memory.max`; op max2 `ss -ltn | grep 55432` → alleen `192.168.0.158:55432`, en `nc -z -w2 100.102.8.64 55432` → geweigerd (§4.4).
 4. Mac: Docker-context aanmaken en `docker --context max2-dev info` (§5.1).
 5. `max2-docker db create <project>_proef`; identiteitscheck **over het LAN-pad** vanaf de Mac, zonder URL in argv: `max2-docker db run <project>_proef -- psql -Atc 'select current_database(), current_user, inet_server_addr(), inet_server_port()'` (libpq staat op de Mac in `/opt/homebrew/opt/libpq/bin`; `psql` leest `PGHOST` enz. uit de omgeving die `db run` zet) → `<project>_proef`, `dev`, het containeradres, `5432`.
 6. Testrun: `max2-docker db run <project>_proef -- <testcommando>`; Docker Desktop **afgesloten** vóór de run; vooraf is gecontroleerd dat het testcommando zijn URL niet print (§6.1).
 7. Codex: één `max2-docker db list` vanuit een Codex-sessie.
 8. `max2-docker cleanup --dry-run`; daarna `db drop`.
-9. Baseline opnieuw (§8); sampler stoppen; laagste waarde noteren.
-10. Reboot-test, **na** de baseline en als aparte, gelogde gebeurtenis (herstart alle productiecontainers): `sudo reboot` van max2 op een door JP gekozen rustig moment; daarna `max2-docker status` → dev-postgres draait zonder handmatige `compose up`, en `ss -ltn` toont opnieuw alleen het LAN-adres (§4.4).
+9. Baseline opnieuw (§8), vrije schijfruimte opnieuw; sampler stoppen; laagste waarde noteren.
+10. Herstarttest zonder productie te raken: als root `systemctl stop user@<uid>.service && systemctl start user@<uid>.service` → `dev-postgres.service` doorloopt zijn wacht- en startpad en dev-postgres komt terug. Daarna de echte reboot-test, **na** de baseline en als aparte, gelogde gebeurtenis (herstart alle productiecontainers): `sudo reboot` van max2 op een door JP gekozen rustig moment; daarna `max2-docker status` → dev-postgres draait zonder handmatige `compose up`, en `ss -ltn` toont opnieuw alleen het LAN-adres (§4.4).
 11. Bewijsbestand `evidence/dev-docker/2026-MM-DD-praktijkproef.md`: commando's, uitvoer (gemaskeerde URL's), database-identiteit, testuitslag, baselinevergelijking, gate-invoer en -uitkomst, sampler-minimum.
 
 **Acceptatie** (alle punten):
@@ -299,10 +313,10 @@ De runnerpool rekent met de §7.8-gate uit het migratieontwerp (`scrum4me-server
 - Geen productiecontainer of -image is gewijzigd (baseline vóór/na identiek, of verklaard uit gelogde uitrollen).
 - `db list` toont de proefdatabase; `cleanup --dry-run` noemt haar bij de bewaarde items met reden `jonger dan 14 dagen` en noemt niets van de productie-engine.
 - De slice-limieten staan effectief (`memory.max` van `user-<uid>.slice` = budget).
-- Poort 55432 luistert uitsluitend op `192.168.0.158` (`ss -ltn`), de verbinding via `100.102.8.64` wordt geweigerd, en `iptables -S INPUT` plus `ufw status numbered` bevatten geen regel die 55432 buiten het LAN accepteert.
+- Poort 55432 luistert uitsluitend op `192.168.0.158` (`ss -ltn`), de lokale verbinding via `100.102.8.64` wordt geweigerd (bewijst alleen "geen listener daar", en dat is precies de claim), en de preflight-doorloop van `iptables-save -t filter` toont geen regel die onder de weigerregel van §4.1 valt.
 - dev-postgres komt na de reboot-test vanzelf terug (aparte acceptatieregel, los van de baselinevergelijking).
 - Codex heeft de skill één keer succesvol aangeroepen.
-- De gate-invoer en het sampler-minimum staan vast; geen steekproef onder 12,0 GiB.
+- De `--series`-invoer, X, het budget en het sampler-minimum staan vast; geen steekproef onder X (en geen onder 10,8 GiB); vrije schijfruimte vóór en na vastgelegd.
 - Het bewijsbestand bevat geen wachtwoord: `grep -F` op de letterlijke waarde (op dat moment via `docker exec` opgehaald en niet opgeslagen) en op `dev:` dat niet door `***` wordt gevolgd; een los hex-patroon is onbruikbaar omdat de image-digests in de baseline ook hex zijn.
 
 Een geslaagde `docker info` alleen haalt deze acceptatie niet.
@@ -315,12 +329,12 @@ Volledig omkeerbaar zonder productie te raken, in deze volgorde: als devdock `do
 
 | # | Punt | Hoe |
 |---|---|---|
-| 1 | 55432 is alleen vanaf het LAN bereikbaar | `ss -ltn` toont alleen `192.168.0.158:55432`; `nc` via het Tailscale-adres geweigerd; `iptables -S INPUT` en `ufw status numbered` zonder afwijkende accept; verbinding vanaf de Mac via `db run` |
-| 2 | Rootless bindt op `192.168.0.158` en dev-postgres komt na een reboot vanzelf terug (wachtende user-unit) | `compose up` via `dev-postgres.service`; reboot-test §9 stap 10; terugval `0.0.0.0` alleen bij aantoonbaar falende bind (§4.4) |
+| 1 | 55432 is alleen vanaf het LAN bereikbaar | `ss -ltn` toont alleen `192.168.0.158:55432`; `nc` via het Tailscale-adres geweigerd; `iptables-save -t filter`-doorloop zonder regel onder de weigerregel; verbinding vanaf de Mac via `db run` |
+| 2 | Rootless bindt op `192.168.0.158` en dev-postgres komt na een herstart vanzelf terug (wachtende user-unit) | `compose up` via `dev-postgres.service`; user-manager-herstart en reboot-test §9 stap 10; faalt de bind, dan NO-GO (§4.4) |
 | 3 | Docker-over-SSH vindt de rootless socket zonder login-shell | `docker --context max2-dev info` |
 | 4 | Slice-plafond is effectief en omvat dockerd en containers | `systemctl show user-<uid>.slice -p MemoryMax …`, `cat …/user-<uid>.slice/memory.max`, `systemd-cgtop` tijdens de testrun |
 | 5 | Mac-CLI zonder Desktop | fase 3: Homebrew-CLI, compose, buildx en keychain-helper met Desktop afgesloten |
-| 6 | Headroomgate | §8: invoer, budget, sampler-minimum ≥ 12,0 GiB |
+| 6 | Headroom | §8: `--series`-invoer, X (JP), budget, sampler-minimum ≥ X en ≥ 10,8 GiB; vrije schijfruimte |
 | 7 | Geen secrets in Git of bewijs | `git grep` op wachtwoordpatronen vóór elke commit; `grep` op het bewijsbestand |
 | 8 | Rootless-preflight | `bootstrap.sh` stap 1: AppArmor-profiel, `uidmap`, `slirp4netns`, delegatie |
 | 9 | Prune-dry-run | toont kandidaten én bewaarde items; registerstand voor en na identiek |
@@ -329,7 +343,7 @@ Volledig omkeerbaar zonder productie te raken, in deze volgorde: als devdock `do
 ## 12. Open punten
 
 - Exacte test en repo voor de praktijkproef (plan), met het selectiecriterium uit §9.
-- Of de rootlesskit-builtin-portdriver op `192.168.0.158` bindt (verwacht wel; anders de terugval uit §4.4).
+- Of de rootlesskit-builtin-portdriver op `192.168.0.158` bindt (verwacht wel; anders NO-GO van de proef, §4.4).
 - Of 8 GiB ruim genoeg is voor één Node-testrun plus Postgres; eerste meting in de proef (§8).
 - Beheer van de s4m-queue-repo: de skill komt daar in een eigen PR; volgorde: hostkant eerst, skill daarna, proef als laatste.
-- **Besluit JP (gate-eigenaar):** bevestiging dat de dev-slice niet in de §7.8-capsom meetelt en dat de lijn "`MemAvailable` ≥ 12,0 GiB met de dev-engine op haar plafond" de toepasselijke gate is (§8).
+- **Besluit JP (gate-eigenaar), op de juiste premisse (§8.1):** (a) mag er dev-last bij op max2 terwijl de runnergate host-breed rood is onder waiver D7; (b) welke operationele vloer X geldt (voorstel 12,0 GiB; de U4-lijn van 10,8 GiB blijft hoe dan ook gelden); (c) bevestiging dat de dev-slice niet in de §7.8-capsom meetelt. Zonder (a) en (b) start de proef niet.
