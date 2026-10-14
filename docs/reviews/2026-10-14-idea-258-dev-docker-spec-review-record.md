@@ -80,7 +80,39 @@ Afgewezen: geen.
 
 ## Ronde 3 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 3 @ `<r3_sha>`; context-pins ongewijzigd.
+**Gepind:** `dev-docker/SPEC.md` revisie 3 @ `03f041cefdb149c6e5ca4dc35e1d09a71d75170f`; context-pins ongewijzigd.
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `98643a7a-e702-4a1d-9946-75e63c6e0933` | `2c03e343-9ad4-45ea-9121-9f18e40e00bf` | job (SUCCEEDED) | `54a3a75e-e7ae-4a44-94d4-6bf332960966` | linked |
+| CLAUDE | `590fdd93-39b5-4015-bb67-0dcbeb9787c7` | `ba8fbeb3-4338-4ca9-a0bc-ded21e3900e4` | job (SUCCEEDED) | `af8bb0db-a17d-41eb-a0a8-b1a4da82fc0b` | linked |
+
+**Dispatch:** beide 08:00–08:01 UTC ingediend, state WAITING (waiting_for_capacity).
+
+**Uitslag:** CODEX **NO-GO** (0 BLOCKER, 1 MAJOR, 3 MINOR; 08:03 UTC). CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 7 MINOR; 08:04 UTC). Convergent: de LAN-grens van de `0.0.0.0`-publicatie hangt aan een niet-gemeten ufw-regellijst (codex MAJOR, claude F6 MINOR); quoting van het bootstrap-commando over ssh; dry-run-imageberekening vergelijkt namen met ID's.
+
+**Fixes ronde 2 volgens de reviewers:** codex 10 held, 3 partially (5, 7, 9); claude 11 held, 2 partially (5, 7).
+
+**Triage** (geverifieerd; aanvullende metingen 14-10-2026: `enp4s0` 192.168.0.158/24 statisch (`ipv4.method manual`), `tailscale0` 100.102.8.64/32; `docker ps --format {{.ImageID}}` bestaat niet in 29.9):
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 4 |
+|---|---|---|---|---|---|
+| 1 | codex M1 / claude F6 | MAJOR | LAN-grens niet gemeten; default-deny-check bewijst geen effectieve INPUT-policy; host heeft eigen INPUT-regels buiten ufw | accept | §4.4/§4.5: bind op het statische LAN-adres als eerste grens (kernel), ufw als tweede; boot-race opgelost met user-unit `dev-postgres.service` die op het adres wacht; §4.1 preflight toetst `iptables -S INPUT` + `ufw status numbered` op accepts voor 55432 buiten het LAN en generieke accepts op tailscale0/bridges; §9/§11: `ss -ltn` alleen LAN-adres, `nc` via Tailscale-adres geweigerd; `0.0.0.0` alleen als gemeten terugval |
+| 2 | codex m2 / claude F4 | MINOR | dry-run vergelijkt image-refs met ID's; `until` = bouwdatum; buildcache geen exacte lijst | accept | §4.7 stap 4: eigen kandidaatberekening op ID via `docker inspect --format {{.Image}}`, uitsluiting van `images.txt`, verwijderen met `docker rmi` zodat dry-run en echte run hetzelfde pad delen; buildcache expliciet schatting |
+| 3 | codex m3 / claude F1 | MINOR | quotes gaan verloren over ssh; interface kent één waarde terwijl §8 "laagste van de reeksen" zegt; pubkey-transport ongespecificeerd | accept | §4.1: één gequoteerde remote string, `scp` van script én pubkey, herhaalbare `--series <GiB>:<bron>` |
+| 4 | codex m4 | MINOR | onderliggend bewijs niet in de bundel | accept | P6-reeks en sampler als `evidence/dev-docker/` in deze repo (README met sha256); ronde 4 pint `caps.md` en `migratieontwerp.md` uit scrum4me-server |
+| 5 | claude F2 | MINOR | reboot-test vóór eindbaseline breekt sampler en baseline; statusvelden maken "identiek" ontoetsbaar | accept | §9: baseline en sampler-stop vóór de reboot; reboot als aparte gelogde acceptatieregel; §8 baseline-formats zonder statusvelden |
+| 6 | claude F3 | MINOR | init alleen op leeg volume; healthcheck via unix-socket slaagt tijdens init; `.env`-regeneratie | accept | §4.5: `pg_isready -h 127.0.0.1`; init eenmalig, wachtwoordwijziging = `ALTER ROLE` + `.env`; §4.2: `.env` alleen aanmaken als hij ontbreekt |
+| 7 | claude F5 | MINOR | `psql` niet op PATH van de Mac | accept | §6.2: `db run` zet `/opt/homebrew/opt/libpq/bin` vooraan in PATH; tekst verduidelijkt |
+| 8 | claude F7 | MINOR | `userdel -r` zonder user-manager te stoppen; drop-in te vroeg weg | accept | §10: `terminate-user`/`stop user@<uid>` vóór `userdel`; drop-in als laatste |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 3:** toegevoegd: user-unit `dev-postgres.service` (wachten op adres), INPUT-policy-controle in de preflight, negatieve bereikbaarheidscontrole, P6-bewijs in de repo, `--series`-interface; gewijzigd: terug naar bind op het LAN-adres (besluit 3 letterlijk) met `0.0.0.0` als gemeten terugval. Eerste bruikbare resultaat en praktijkproef ongewijzigd; reboot-test verschuift naar het einde. Spec 320 → 335 regels.
+
+## Ronde 4 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 4 @ `<r4_sha>`; context-pins: grill (rev `cmv7rt021000fyl174lrf4iyu`), PR-32-rapport @ `43f724b37c5f076e5cbbc1b7cbf1822080d9f3ec`, **nieuw:** `docs/forgejo-runner-pool/evidence/stap-a/caps.md` @ `96e0ac272d1f5ead51fa853bbf922eb605550831` en `docs/forgejo-runner-pool/migratieontwerp.md` @ `984f5949ab131469d1fc999c32569e36333ede23` (beide scrum4me-server, product `cmsx8zbdh0002hk7rcgxxr00k`).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
