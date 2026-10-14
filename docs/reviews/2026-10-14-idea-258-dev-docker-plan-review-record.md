@@ -211,3 +211,21 @@ Afgewezen: geen.
 - **Revisie 7** (deze commit) verschilt uitsluitend in de acht MINOR-polishpunten hierboven; wil JP die formeel bevestigd hebben, dan is dat één delta-ronde (reviewer: codex, want claude-geauthord).
 - **Verloop:** R1 1B/2M (maskering in argv) → R2 1B/4M (secretscan in argv, `/dev/tcp`) → R3 1B/3M (wrapper doodt eigen groep, secretscan verkeerde repo) → R4 1B/2M (detectie print de credential, `mktemp` 0600) → R5 1B/1M (`install -d` vóór controle, tick-referentie over twee units) → R6 GO/GO. Vanaf ronde 4 ging elke ronde uitsluitend over de drie shell-recepten (deadline, maskering/secretscan) en de `proof-checks.sh`-interface; vanaf ronde 5 zijn alle recepten lokaal gemeten vóór ze in de revisie kwamen. Geen enkele bevinding is afgewezen. Claude gaf GO in ronde 1, 4, 5 en 6; codex in ronde 6.
 - **Wat GO niet betekent:** geen autorisatie voor implementatie, merge, de praktijkproef of de ceremonie. De volgende stap is de JP-gate: na akkoord `create_sprint → create_pbi → create_story → create_task ×6` met schattingen uit `get_estimate_history`, daarna hardstop.
+
+## Ceremonie (14-10-2026, op JP's akkoord: "GO op rev. 6 volstaat, ga door met de ceremonie")
+
+Gecomponeerd via de Scrum4Me-MCP op product max2 (`cmsx8wyex0000hk7rx1428yyl`); `get_estimate_history` gaf 0 meetbare taken, dus de schattingen rusten op planomvang. **Hardstop: geen taak gestart.**
+
+| Object | Code | id |
+|---|---|---|
+| Sprint | S-2026-10-14-1 | `cmv86e4o90032yl17227laok1` |
+| PBI (source_docs: PLAN `cmv862rl0002tyl17h112kqpv` rev `cmv862rld002uyl17jfsuasju`, GRILL `cmv7rt01o000eyl178y3js2kd` rev `cmv7rt021000fyl174lrf4iyu`) | PBI-9 | `cmv86eehl0033yl17uignauew` |
+| Story | ST-019 | `cmv86evcv0036yl17hlwqv475` |
+| Taak 1 — host-bundel (180 min, $25) | T-52 | `cmv86ftlk0037yl17sj9rergx` |
+| Taak 2 — uitrol + LAN-grens + context (120 min, $15) | T-53 | `cmv86gj5q0038yl17vi02vjz8` |
+| Taak 3 — skill max2-docker (240 min, $35) | T-54 | `cmv86hayd0039yl17s2437j4z` |
+| Taak 4 — praktijkproef (120 min, $15) | T-55 | `cmv86hvwu003ayl17pzj9jepw` |
+| Taak 5 — herstart/reboot (60 min, $8) | T-56 | `cmv86icf3003byl17c6fbtn40` |
+| Taak 6 — Mac fase 2–3 (45 min, $6) | T-57 | `cmv86inyx003cyl17shgva84v` |
+
+Volgorde 1 → 2 → 3 → 4 → 5 → 6; taak 3 parallel aan 2. Uitvoering alleen op een aparte opdracht van JP (`update_task_status` per laag).
