@@ -36,11 +36,43 @@
 
 Afgewezen: geen.
 
-**Scope-delta ronde 1:** zeven → zes taken (context in taak 2); toegevoegd binnen bestaande taken: `proof-checks.sh`, deadline-functie, FIFO-maskering, ALARM-bewaking, schijfwaarschuwing; geschrapt: twee overrides, `client_addr`-claim. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 189 → 204 regels.
+**Scope-delta ronde 1:** zeven → zes taken (context in taak 2); toegevoegd binnen bestaande taken: `proof-checks.sh`, deadline-functie, FIFO-maskering, ALARM-bewaking, schijfwaarschuwing; geschrapt: twee overrides, `client_addr`-claim. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 189 → 211 regels.
 
 ## Ronde 2 — 2026-10-14
 
-**Gepind:** `dev-docker/PLAN.md` revisie 2 @ `<r2_sha>`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd sinds ronde 1).
+**Gepind:** `dev-docker/PLAN.md` revisie 2 @ `d800544c46ca5e2ba4648144bb34c4911e352e12`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd sinds ronde 1).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `97d50cca-9e36-4f94-a99b-f2122bec6ed1` | `a0825641-276c-46dc-b458-1a1210dadf9f` | job (SUCCEEDED) | `050b43af-a004-481d-9a4e-1bb7b1420a89` | linked |
+| CLAUDE | `cf1cf15f-88ce-4607-9884-ee1fd0c59edf` | `c65295ab-b827-4a51-9a4d-f0949d78f588` | job (SUCCEEDED) | `bd56670a-60fe-4f07-a2f0-6a360a01304a` | linked |
+
+**Uitslag:** CODEX **NO-GO** (1 BLOCKER, 3 MAJOR, 2 MINOR; 12:57 UTC). CLAUDE **NO-GO** (0 BLOCKER, 1 MAJOR, 9 MINOR; 13:01 UTC). Beide: zes taken minimaal, geen schrapkandidaat; afwijkingen sound. Convergent: secretscan met het wachtwoord in grep-argv en fail-open (codex BLOCKER / claude F8); `nc`/`tcp_open`-pre-check zonder test-seam zodat de positieve `db run`-tests het echte LAN raken (codex MAJOR / claude MAJOR); `proof-checks.sh` onder `set -e` stopt op verwachte niet-nul-resultaten (codex MAJOR / claude F6c); deadline-recept zonder procesboom-cleanup en met stdin `/dev/null` bij `&` (codex MAJOR / claude F3); test (g) zwak (codex m / claude F2).
+
+**Triage:**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 3 |
+|---|---|---|---|---|---|
+| 1 | codex F1 / claude F8 | BLOCKER / MINOR | secretscan: wachtwoord in grep-argv; `schoon` bij lege ophaal of grep-fout; `raw/` niet gescand | accept | taak 4 stap 7: `perl` leest de waarde uit de omgeving, scant `git ls-files evidence/dev-docker` (incl. `raw/`), onderscheidt LEK/schoon/FOUT-ophaal/FOUT-leeg/FOUT-lees; commit alleen bij `schoon` |
+| 2 | codex F4 / claude F1 | MAJOR / MAJOR | pre-check via bash-builtin `/dev/tcp` op een hard doel is niet te stubben → tests (c)/(f)/(g)/exit-7 vereisen een live LAN; taak 3 niet parallel | accept | pre-check = `nc -z -w3 192.168.0.158 55432` (programma op PATH, stub-`nc` met `MAX2_DOCKER_STUB_LAN=open|closed`); geen doelen instelbaar; test "LAN dicht → exit 3, kind niet gestart"; echte `nc` tegen `127.0.0.1:1` als unit-test; acceptatie-grep verbiedt nu ook `/dev/tcp` |
+| 3 | codex F2 / claude F6c | MAJOR / MINOR | `proof-checks.sh` onder `set -euo pipefail` sterft op `grep -c` = 0 en op de verwachte `nc`-weigering | accept | interface herschreven: bewust zonder `set -e`, `|| true` per blok, `nc`-status eerst gevangen, `SUMMARY`-regel met exit 0/1 op afwijking; `&&`-keten in taak 2 stap 6 stopt alleen op een echte afwijking |
+| 4 | codex F3 / claude F3 | MAJOR / MINOR | `with_deadline`: `kill <pid>` raakt geen kleinkinderen; achtergrondcommando krijgt stdin `/dev/null` (SQL verloren); 143 vs 124; killer-`sleep` houdt `$(…)` open | accept | perl-wrapper: eigen procesgroep (`setpgrp`), `fork`+`exec` met geërfde stdin/stdout/stderr, `alarm` → TERM/KILL op de hele groep, exit 124; `hang`-stub met kleinkind, test eist dat beide pids weg zijn; eigen deadline 120 s voor `cleanup --dry-run` (duur gemeten in taak 2) |
+| 5 | codex m1 / claude F2 | MINOR | (g) twee snapshots missen kortlevende processen; machinebreed → vals rood | accept | invariant: stub-log (argv+stdin) bevat nergens ruwe/encoded waarde of `postgresql://`; (g) wacht op het kind, scant alleen nakomelingen van de helper, grens benoemd |
+| 6 | claude F4 | MINOR | maskering: `set -e`-afbreking, perl-buffering, geen trap, lege waarde hergebruikt vorig patroon | accept | `rc=0; … || rc=$?`, `BEGIN{$|=1}`, `trap rm EXIT`, exit 4 bij leeg wachtwoord, interleaving benoemd |
+| 7 | claude F5 | MINOR | exit-3-patronen onvolledig; daemon-uit hoort bij 4 | accept | patroonlijst uitgebreid; `Cannot connect to the Docker daemon` → exit 4; één stub-test per patroon |
+| 8 | claude F6a/b/d | MINOR | `/tmp` leeg na reboot; proof direct na user-manager-herstart vóór de listener; journal-wachten vergt herhaalde sudo | accept | `scp` als eerste stap in taak 5; `--wait-listener`/`--wait-tick` in `proof-checks.sh` |
+| 9 | claude F7 | MINOR | §11 rij 10 niet in de echte proef | accept | taak 4 stap 2: `db run … pg_sleep(3)` met gelijktijdige `ps`-scan in het bewijs |
+| 10 | claude F9 | MINOR | `pgrep -x Docker` mogelijk vacuüm; `memory.peak` vertroebeld | accept | vóór/ná: `pgrep -fl 'Docker|com.docker'` en `docker --context desktop-linux info`; `memory.events` (`max`, `oom_kill`) + `anon` uit `memory.stat` als criterium |
+| 11 | claude F10 | MINOR | 23→28 tekens; `dry_run` in `last-run.json` strijdig met spec; `status` toont verouderde schijfstand; `nohup while` ongeldig; `psql` zonder `-w`; absolute stub-PATH; bash-versiecheck | accept | alle zeven verwerkt (sampler als `host/sampler.sh`; dry-run schrijft niets; `status` doet live `df`; `-w`; versiecheck exit 2) |
+| 12 | codex m2 | MINOR | externe bronnen blijven onverifieerbaar in de bundel | accept (benoemd) | header: historische bronnen zijn context, niet opnieuw geverifieerd in de plan-loop |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 2:** geen nieuwe taak; toegevoegd binnen taak 1 en 3: `sampler.sh`, `nc`-stub, perl-deadline-wrapper, `SUMMARY`/wachtopties in `proof-checks.sh`; geschrapt: `/dev/tcp`, `dry_run`-veld. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 211 → 221 regels.
+
+## Ronde 3 — 2026-10-14
+
+**Gepind:** `dev-docker/PLAN.md` revisie 3 @ `<r3_sha>`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
