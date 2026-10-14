@@ -121,8 +121,15 @@ else
   rood "cgroup v2 niet actief"
 fi
 
+# JP-besluit 14-10-2026 (ISS-17): ufw is op max2 inactief (gemeten; INPUT-policy ACCEPT). Dan is de eigen keten dev-docker-in de
+# enige LAN-grens voor tcp/55432 en wordt er geen ufw-regel geplaatst. Is ufw wél actief, dan blijft default-deny een eis.
 us=$(ufw status verbose 2>/dev/null || true)
-if grep -q '^Status: active' <<<"$us" && grep -q 'Default: deny (incoming)' <<<"$us"; then ok "ufw actief, Default: deny (incoming)"; else rood "ufw niet actief of niet default-deny voor incoming"; fi
+if grep -q '^Status: active' <<<"$us"; then
+  if grep -q 'Default: deny (incoming)' <<<"$us"; then ok "ufw actief, Default: deny (incoming)"; else rood "ufw actief maar niet default-deny voor incoming"; fi
+else
+  ok "ufw inactief (JP-besluit 14-10-2026): de LAN-grens voor tcp/55432 is uitsluitend de keten dev-docker-in"
+fi
+echo "INFO INPUT-policy: $(iptables -S INPUT 2>/dev/null | sed -n '1p')"
 
 sd=$(sshd -T 2>/dev/null || true)
 if [ -z "$sd" ]; then
@@ -233,8 +240,10 @@ if [ ! -e /var/lib/systemd/linger/devdock ]; then loginctl enable-linger devdock
 systemctl show "user-$UID_DD.slice" -p MemoryMax -p MemorySwapMax -p CPUQuotaPerSecUSec -p TasksMax
 [ -r "/sys/fs/cgroup/user.slice/user-$UID_DD.slice/memory.max" ] && echo "memory.max=$(cat "/sys/fs/cgroup/user.slice/user-$UID_DD.slice/memory.max")" || echo "memory.max: slice nog niet actief"
 
-# 5. ufw-regel
-if ufw status | grep -q '55432/tcp.*ALLOW.*192\.168\.0\.0/24'; then
+# 5. ufw-regel (alleen als ufw actief is)
+if ! ufw status 2>/dev/null | grep -q '^Status: active'; then
+  same "ufw inactief: geen ufw-regel (de keten dev-docker-in is de grens)"
+elif ufw status | grep -q '55432/tcp.*ALLOW.*192\.168\.0\.0/24'; then
   same "ufw-regel 55432/tcp vanaf 192.168.0.0/24"
 else
   ufw allow from 192.168.0.0/24 to any port 55432 proto tcp comment 'dev-postgres (IDEA-258)'

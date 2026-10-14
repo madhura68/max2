@@ -16,6 +16,12 @@ De productie-engine van `max2` (rootful, `/var/run/docker.sock`) wordt niet aang
 | `host/recovery-test.sh`, `host/proof-checks.sh`, `host/sampler.sh` | proefscripts: afgedwongen herstel, root-leescontroles met `SUMMARY`, 5 s-sampler |
 | `secretscan.sh` | per bewijscommit: scant de gestagede blobs op wachtwoord- en URL-patronen |
 
+## Netwerkgrens
+
+De LAN-grens voor tcp/55432 is de eigen keten `dev-docker-in` met één sprong op `INPUT`-positie 1 (SPEC §4.4). `ufw` is op max2 **inactief**
+(gemeten 14-10-2026, ISS-17; `INPUT`-policy `ACCEPT`), dus de spec-aanname "ufw als tweede grens" geldt niet: de keten is de enige grens.
+Dat is een besluit van JP (14-10-2026). `bootstrap.sh` plaatst daarom alleen een ufw-regel als ufw actief is.
+
 ## Uitrol (kort; de exacte regels staan in PLAN.md taak 2)
 
 1. Root-scripts naar `~/dd-run/` op max2 (niet naar het wereld-schrijfbare `/tmp`): `scp -r bootstrap.sh dev-docker-firewall.sh systemd <sleutel>.pub max2:dd-run/`.
