@@ -1,0 +1,10 @@
+[Unit]
+Description=dev-docker firewall: elke minuut de positie van de sprong herstellen (IDEA-258)
+
+[Timer]
+AccuracySec=1s
+OnBootSec=2min
+OnUnitActiveSec=1min
+
+[Install]
+WantedBy=timers.target
