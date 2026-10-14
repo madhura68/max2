@@ -233,7 +233,32 @@ Afgewezen: geen. Codex' voorbehoud over de serialisatie van het comment in `ipta
 
 ## Ronde 8 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 8 @ `<r8_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+**Gepind:** `dev-docker/SPEC.md` revisie 8 @ `a64b7a61101e57f9221c36c1992dccc39d8260fd`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `06e04f2c-f586-4a64-9097-fbfc27ce75dc` | `b293ad37-fe08-41b6-b29a-19bfc0729aba` | job (SUCCEEDED) | `2f6d485b-2b73-488b-938d-e9b92f2aa190` | linked |
+| CLAUDE | `e33dbb94-58cd-4536-bc15-0f825047e4c1` | `dd3c0e8c-69d5-4223-aba6-e7007d51b497` | job (SUCCEEDED) | `e0d4fff6-4028-46d6-964e-e37ca8af68bf` | linked |
+
+**Uitslag:** CODEX **NO-GO** (1 BLOCKER, 1 MAJOR, 1 MINOR; 08:58 UTC). CLAUDE **NO-GO** (0 BLOCKER, 1 MAJOR, 4 MINOR; 08:58 UTC). **Convergent en terecht:** de testregel van de rev-8-herstelproef (`-I INPUT 1 … -j RETURN` zonder matchcriteria) past in een ingebouwde keten de policy toe; onder ufw-default-deny is dat DROP voor alle ingress inclusief de SSH-sessie van de operator en alle productie-ingress — een fout die de auteur in rev. 8 zelf heeft geïntroduceerd. Tweede convergente bevinding: `chain_ok` accepteert de volgorde R2, RETURN, R1 (codex MAJOR, claude MINOR). Beide: fixes 4–7 van ronde 7 hielden; geen schrapkandidaat; alle §4.4-claims over dsh/owui kloppen met de boom.
+
+**Triage:**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 9 |
+|---|---|---|---|---|---|
+| 1 | codex F1 / claude F1 | BLOCKER / MAJOR | testregel `-j RETURN` in `INPUT` dropt al het inkomende verkeer; niet in de rollback | accept | §4.4: testregel matcht niets en is als restant onschadelijk (`-s 192.0.2.254/32 … -j DROP`, TEST-NET-1); hele proef als één root-opdracht met `trap … EXIT`-opruiming; expliciet verbod op matchloze regels en `RETURN` in `INPUT`; §9-acceptatie eist geen restant; §10 verwijdert een restant |
+| 2 | codex F2 / claude F3 | MAJOR / MINOR | `chain_ok` accepteert een permutatie met `RETURN` vóór een DROP | accept | `RETURN` moet de **laatste** regel zijn (met beide `-C`-checks en telling 3 is elke andere permutatie een afwijking; R1/R2-volgorde onbelangrijk, disjuncte predicaten); acceptatietekst "twee DROP-regels gevolgd door RETURN" |
+| 3 | codex F3 / claude F2 | MINOR | "eerste tick op 2 min" klopt niet: basis van `OnUnitActiveSec` is de boot-run, vroegste van beide wint; "30–120 s" was een schatting | accept | §4.4 herschreven: eerste tick ≈ 1 min na de boot-run, `OnBootSec` alleen vangnet, venster uitsluitend uit de journal gemeten; timerconfig ongewijzigd |
+| 4 | claude F4 | MINOR | venster van ms tussen `-D` en `-I` | accept (benoemen) | §4.4 noemt en accepteert het venster |
+| 5 | claude F5 | MINOR | derde INPUT-schrijver `llm-bench/aider/network.sh` (`-I INPUT 1`/`2`, geverifieerd regel 13–16) niet genoemd | accept | §4.1 stap 1 noemt hem; verouderde formulering "twee eigen DROP-regels bovenaan INPUT" daar ook gecorrigeerd |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 8:** gewijzigd: onschadelijke testregel met trap, `chain_ok` eist `RETURN` als laatste, timer-uitleg gecorrigeerd. Geen nieuw subsysteem; eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 384 → 397 regels. **Scope-herbeoordeling (ronde 8, cap 10):** ronde 5–8 gingen uitsluitend over §4.4 (firewallmechanisme en zijn bewijs); de rest van het document is door beide reviewers sinds ronde 5 stabiel verklaard. De bevindingen worden per ronde kleiner en concreter (ronde 8: fouten in mijn eigen rev-8-tekst, geen ontwerpkeuze). Een kleiner alternatief (geen eigen herstelproef; alleen controle na boot) zou de rev-7-MAJOR "bewijs is leeg" terugbrengen; daarom niet gekozen. Ronde 9 is niet als laatste aangekondigd; ronde 10 wordt dat wel.
+
+## Ronde 9 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 9 @ `<r9_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
