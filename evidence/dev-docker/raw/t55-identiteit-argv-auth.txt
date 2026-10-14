@@ -1,0 +1,17 @@
+## identiteit
+s4mqueue_proef|dev|172.18.0.2|5432
+rc=0
+## client_addr
+172.18.0.1
+rc=0
+## en0: 192.168.0.50
+## argv-hygiene
+snapshots=11 treffers=0 psql=ja-in=8
+## negatief
+psql: error: connection to server at "192.168.0.158", port 55432 failed: FATAL:  password authentication failed for user "dev"
+rc=2
+WARNING: password file "/dev/null" is not a plain file
+psql: error: connection to server at "192.168.0.158", port 55432 failed: fe_sendauth: no password supplied
+rc=2
+psql: error: connection to server at "192.168.0.158", port 55432 failed: FATAL:  pg_hba.conf rejects connection for host "172.18.0.1", user "postgres", database "postgres", no encryption
+rc=2

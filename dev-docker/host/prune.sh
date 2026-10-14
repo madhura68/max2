@@ -271,8 +271,11 @@ if [ "$PG_UP" = 1 ]; then
   finish images
 
   if [ "$DRY" = 1 ]; then
-    est=$(docker buildx du 2>/dev/null | tail -n1 || true)
-    printf 'C\tbuildcache ouder dan 168h (schatting: %s)\tbuildcache\n' "${est:-onbekend}" >"$work/cl"
+    est=$(docker builder du 2>/dev/null | awk '/^Total:/ {print $2}' || true)
+    case "$est" in
+      0B|0) : >"$work/cl" ;;                                    # lege buildcache: geen kandidaat
+      *) printf 'C\tbuildcache ouder dan 168h (schatting: %s)\tbuildcache\n' "${est:-onbekend}" >"$work/cl" ;;
+    esac
   else
     docker builder prune -af --filter until=168h >/dev/null 2>&1 || err "builder prune mislukt"
     printf 'K\tbuildcache\topgeruimd: alles ouder dan 168h\n' >"$work/cl"

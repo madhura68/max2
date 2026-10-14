@@ -77,3 +77,54 @@ $ docker context ls     # default, desktop-linux (huidig, fase 1), max2-dev
 | Tweede bootstrap-run wijzigt niets | ja, §2 |
 | Geen ALARM in de sampler | ja, §6 |
 | Geen secret in het bewijs | `secretscan.sh` volledig vóór de commit van dit bestand |
+
+# Deel 2 — praktijkproef T-55 (14-10-2026)
+
+Aanroeppad: `max2-docker` (s4m-queue PR 42, `~/.local/bin/max2-docker`), `MAX2_DOCKER_AGENT=claude`. Databasenaam `s4mqueue_proef`.
+
+## 7. Identiteit, argv-hygiëne, negatieve authenticatie (spec §9 stap 5–6, §11 rij 10)
+
+Bron: `raw/t55-identiteit-argv-auth.txt`.
+
+- `db create` gaf een gemaskeerde URL (`postgresql://dev:***@192.168.0.158:55432/s4mqueue_proef`); `db list` toont de rij met de aanvrager `mac:claude`.
+- Identiteit: `s4mqueue_proef|dev|172.18.0.2|5432` (database, rol, containeradres, containerpoort).
+- `client_addr` zoals gemeten: **172.18.0.1**, niet het LAN-adres van de Mac (`ipconfig getifaddr en0` = 192.168.0.50). Dat is het gateway-adres van het containernetwerk, vermoedelijk door de poortdoorgifte van de rootless engine (de oorzaak is niet apart gemeten). Zolang dat zo is, zien de bronadres-regels in `pg_hba.conf` geen LAN-adressen en kunnen ze LAN-clients niet onderscheiden. De LAN-grens ligt daarom, zoals ontworpen, in de keten `dev-docker-in` (§4.4) en niet in `pg_hba.conf`.
+- Argv-hygiëne: 11 momentopnamen van de nakomelingen van de lopende `db run … pg_sleep(3)`, in 8 daarvan was `psql` zichtbaar, **0 TREFFER** op een URL-patroon met gebruikersnaam en wachtwoord.
+- Negatief (met `PGPASSFILE=/dev/null`, `-w`): verkeerd wachtwoord → `password authentication failed for user "dev"`; leeg wachtwoord → `no password supplied`; rol `postgres` over TCP → `pg_hba.conf rejects connection for host "172.18.0.1", user "postgres"`.
+
+## 8. Basislijn, Docker Desktop uit, testrun (spec §9 stap 7, §11 rij 7)
+
+- Basislijn met Desktop aan (`raw/t55-baseline-npm-test.txt`, repo `~/Development/s4m-queue`, `main`, lokale `.env`): eerste poging 36 bestanden rood omdat de lokale test-database op `127.0.0.1:5433` niet draaide (afwijking 14: container `local-postgres-postgres-1` gestart en na de basislijn weer gestopt). Tweede poging: **63 bestanden groen, 4 rood** (462 tests groen, 18 overgeslagen). De vier rode zijn `test/ppe/{bootstrap-registry,controller-store,run-ledger,takeover}.test.ts`, alle met `PPE_CONTROLLER_DATABASE_URL_MISSING`: de variabele staat niet in de lokale omgeving. Dat is de basislijn en staat los van Docker.
+- Docker Desktop afsluiten, vier controles in `raw/t55-desktop.txt`: vóór 11 processen en `docker --context desktop-linux info` slaagt (`docker-desktop`); na `osascript -e 'quit app "Docker"'` liepen app en backend nog (afwijking 15); na `tell application "Docker Desktop" to quit` blijft alleen het door launchd beheerde root-hulpproces `com.docker.vmnetd` over (geen app, geen VM) en faalt `info` met "failed to connect to the docker API".
+- Testrun tegen max2 (`max2-docker db run s4mqueue_proef -- sh -c 'S4M_TEST_DATABASE_URL=$DATABASE_URL npm test'`, Desktop uit), twee keer (`raw/t55-testrun-1.log`, `raw/t55-testrun-2.log`): **62 bestanden groen, 5 rood**, 457 tests groen, 23 overgeslagen, 6,4 s. Rood: de vier `test/ppe`-bestanden uit de basislijn én **`test/work-item-permissions.test.ts`**: `permission denied to create role` bij `CREATE ROLE … NOLOGIN` (regel 44). De rol `dev` is `LOGIN CREATEDB` (spec §4.6) en mag geen rollen maken. Beide runs gaven hetzelfde resultaat.
+- **Gevolg voor de acceptatie:** de slagingsregel "niets faalt op verbinding, rechten of host" is niet gehaald. Eén bestand faalt op rechten en niet in de basislijn. Het besluit ligt bij JP, zie "Open besluit" onderaan.
+- Slice (`user-1001.slice`, `raw/t55-cgtop.txt`, `systemd-cgtop` als janpeter want `devdock` krijgt "Failed to determine supported controllers"): geheugen tijdens de run 1,4–1,5 GB, 127–141 taken. `memory.peak` vóór 1 590 194 176, ná run 1 1 680 224 256, ná run 2 1 735 147 520 (limiet 8 589 934 592); `memory.events` `max 0`, `oom 0`, `oom_kill 0`; `anon` 110 534 656 → 123 772 928 → 130 363 392 bytes.
+
+## 9. Register, opruiming, basislijn productie, sampler (spec §9 stap 9–10, §11 rij 9)
+
+Bron: `raw/t55-cleanup-drop.txt`, `raw/baseline-prod-after-t55*.txt`, `raw/t55-sampler.txt`.
+
+- `db list` vóór en na `cleanup --dry-run`: dezelfde rij (alleen de looptijd telt door), `s4mqueue_proef` bewaard als "jonger dan 14 dagen", `postgres` op de denylist, niets van de productie-engine; `dev-postgres` en het netwerk `dev-docker_default` bewaard (`dev.keep`), de volumestap meldt 0 kandidaten en `dev-postgres-data` bestaat nog. Het verslag meldt `dry_run: true`, schijf 63,5 % vrij.
+- Afwijking 16: de dry-run noemde de buildcache altijd als kandidaat met afgekapte schatting ("Total:"). `prune.sh` leest nu `docker builder du` en meldt een lege buildcache niet meer; selftest 10 van 10 en een dry-run op max2 bevestigen het.
+- `db drop s4mqueue_proef` → `db list` leeg; volgens `db list` en de dry-run bleven er geen `s4m_queue_bootstrap_*`-databases achter.
+- Productie-engine na de proef (`baseline-prod-after-t55.txt`, `-2.txt`): de image-lijst is identiek aan de eerdere meting (gesorteerd diff leeg). Verschil in `docker ps -a` alleen de twee wegwerp-jobcontainers van de runners.
+- Sampler gestopt na 541 regels (14:30:27Z t/m 15:15:37Z): **minimum `MemAvailable` 23 460 492 kB = 22,37 GiB** (14:45:51Z), **0 ALARM-regels**.
+
+## Open besluit voor JP
+
+`test/work-item-permissions.test.ts` maakt in elke run een tijdelijke rol aan en vraagt daarom `CREATEROLE`. Opties:
+
+1. **`CREATEROLE` aan `dev` geven** (rol blijft zonder superuser; alleen binnen deze dev-instantie): de test slaagt, de spec §4.6 en het register wijzigen mee. Het is een verruiming van een afgesproken grens.
+2. **Het bestand buiten de proef houden**, net als de vier `ppe`-bestanden, en de afwijking in de spec noteren: de rolrechten van `dev` blijven minimaal, die test draait dan alleen op de lokale database.
+
+## Acceptatie T-55 (stand)
+
+| Punt | Stand |
+|---|---|
+| Spec §9 identiteit, negatieve authenticatie, argv-hygiëne | ja, §7 |
+| Desktop aantoonbaar dicht tijdens de testrun | ja, §8 |
+| Testrun: alle DB-afhankelijke bestanden slagen | **nee**, één bestand op rechten (open besluit) |
+| `memory.events` `max 0` en `oom_kill 0`, piek genoteerd | ja, §8 |
+| Codex-sessie: één `db list` | **open**, vraagt een door JP gestarte Codex-sessie |
+| `cleanup --dry-run` en register ongewijzigd | ja, §9 |
+| `db drop`, basislijn productie gelijk, sampler zonder ALARM | ja, §9 |
