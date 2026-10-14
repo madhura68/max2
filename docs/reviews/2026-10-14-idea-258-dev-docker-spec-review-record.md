@@ -258,11 +258,30 @@ Afgewezen: geen.
 
 ## Ronde 9 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 9 @ `<r9_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+**Gepind:** `dev-docker/SPEC.md` revisie 9 @ `44abc5bc31ff75c614d2c77fc59ada35f79b879f`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
-| CODEX | (volgt) | | | | |
-| CLAUDE | (volgt) | | | | |
+| CODEX | `bba39437-1637-45fb-b26b-bd2121326396` | `12a05f25-4f59-46e3-abff-2d2884a52404` | job (SUCCEEDED) | `179971cd-b380-4b1d-98b2-c23f84fbb825` | linked |
+| CLAUDE | `70a95ff7-13be-4501-9150-847bc4175880` | `31193691-9d64-4008-a677-73b0b85c43c3` | job (SUCCEEDED) | `5cf2c338-4404-4584-8032-4c4ae9ec6fa7` | linked |
 
-**Uitslag:** (volgt)
+**Uitslag:** CODEX **GO** (0 BLOCKER, 0 MAJOR, 0 MINOR; 09:06 UTC). CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 3 MINOR; 09:06 UTC). **Dubbel GO — specfase afgerond op revisie 9.** Beide: alle vijf ronde-8-fixes hielden; geen schrapkandidaat; §8-cijfers opnieuw tegen de P6-CSV herrekend (min 21,53 GiB, 1584 samples); alle §4.4-claims over dsh/owui/llm-bench kloppen met de boom; het firewall-oneshot heeft geen `RemainAfterExit`, dus `systemctl start` voert hem opnieuw uit en de herstelproef is niet leeg.
+
+**Triage (MINOR, GO-compatibel; als polish verwerkt in revisie 10, niet opnieuw gereviewd):**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 10 |
+|---|---|---|---|---|---|
+| 1 | claude M1 | MINOR | ontbreken van `RemainAfterExit` is impliciet terwijl test en timer erop steunen | accept | §4.4: "bewust géén `RemainAfterExit`" met reden |
+| 2 | claude M2 | MINOR | `journalctl -u … -n 3` kan de `logger`-regel missen | accept | `journalctl -t dev-docker-firewall --since '-2min'` |
+| 3 | claude M3 | MINOR | uitvoering van het bash-fragment als "één root-opdracht" niet gespecificeerd | accept | scriptbestand `dev-docker/host/recovery-test.sh` via scp + `ssh -t`, opgenomen in §4.9 |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 9:** alleen verduidelijkingen; geen inhoudelijke wijziging; eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 397 → 400 regels.
+
+## Eindoordeel specfase
+
+- **GO-revisie:** `dev-docker/SPEC.md` revisie 9 @ `44abc5bc31ff75c614d2c77fc59ada35f79b879f` (sha256 `8ddff2ef196d6968076a71c84192d2b213fb19d7e8e5fa4b7a990689f672fd98`), dubbel GO in ronde 9 van maximaal 10.
+- **Revisie 10** (deze commit) verschilt uitsluitend in de drie MINOR-polishpunten hierboven; wil JP die formeel bevestigd hebben, dan is dat één delta-ronde (reviewer: codex, want claude-geauthord).
+- **Verloop:** R1 2B/6M → R2–R4 1M per ronde → R5–R9 uitsluitend §4.4 (firewallgrens en haar bewijs), waarbij ronde 6 en 8 convergente bevindingen gaven (positieblinde `ensure`; `-j RETURN`-testregel) en ronde 7 en 8 fouten in mijn eigen vorige revisie betroffen. Geen enkele bevinding is afgewezen.
+- **Wat GO niet betekent:** geen autorisatie voor implementatie, merge of de praktijkproef. De proef start niet vóór JP's besluiten in §12 (a: dev-last onder waiver D7; b: vloer X; c: dev-slice buiten de §7.8-capsom). De ideestatus blijft DRAFT (grill-/specschrijfpaden zijn pipeline-only); de planfase volgt alleen op een aparte opdracht van JP.
