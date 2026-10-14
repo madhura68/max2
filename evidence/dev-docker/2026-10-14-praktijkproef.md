@@ -158,6 +158,32 @@ Door JP uitgevoerd als één root-regel: `systemctl stop user@1001.service`, `sy
 - Productie-engine (janpeter, alleen lezen): alle containers die in de basislijn draaiden zijn nog `Up`. Alleen `media-organizer-migrate-1` (Exited 5 dagen geleden) en `tei-gpu` (Exited 2 weken geleden) staan niet `Up`; die waren al gestopt vóór de basislijn.
 - Het journal van de service toont ook de falende startpogingen van 16:58 (24 herstarts van de runc/systemd-fout, vóór de busctl-shim, afwijking 13). Die horen bij de uitrol en niet bij deze herstart.
 
-## 12. Reboot
+## 12. Reboot (spec §9 stap 10, tweede helft; spec §9-acceptatie 6 en 8)
 
-Volgt: JP kiest het moment (`ssh -t max2 'sudo reboot'`), daarna `proof-checks.sh --uid 1001 --wait-listener 200 --wait-tick 300` en de boot-venstermeting.
+JP draaide `sudo reboot` op max2 (kernel-start 17:48:20, `uptime -s` 17:48:17) en daarna één root-sessie `proof-checks.sh --uid 1001 --wait-listener 200 --wait-tick 300`. Ruwe uitvoer: `raw/proof-t56-reboot.log` (251 regels), `raw/baseline-prod-after-reboot.txt`, `raw/t56-status-na-reboot.txt`.
+
+- `SUMMARY jump_first=yes chain=ok jumps=1 testrule=0 listener=lan-only nc_ts=1 nc_lan=1 tick=ok`. Sprong eerst, keten R1/R2/RETURN, één sprong, geen testregel, `ss -ltn` alleen `192.168.0.158:55432`, `ss -tn 'sport = :55432'` leeg, beide `nc` geweigerd. `tick=ok`: een run van `dev-docker-firewall.service` ligt strikt ná de eerste boot-run van `dsh-firewall.service` en `owui-firewall.service`.
+- Zonder handmatig ingrijpen: `docker` en `dev-postgres.service` actief, `dev-postgres` `healthy` op `192.168.0.158:55432` (container gestart 17:48:35,99 lokale tijd, `dev-postgres.service` klaar 17:48:36,46, dus ongeveer 15 s na de kernel-start), `dev-docker-prune.timer` actief, de drie firewalltimers actief.
+
+**Boot-venster (gemeten, resolutie 1 s uit de journal in `raw/proof-t56-reboot.log`):**
+
+| Tijd | Gebeurtenis |
+|---|---|
+| 17:48:34 | eerste run `dev-docker-firewall.service`: "keten dev-docker-in opnieuw opgebouwd" (sprong op positie 1; docker.service klaar 17:48:34,6) |
+| 17:48:47 tot 17:48:48 | eerste run `dsh-firewall.service` en `owui-firewall.service` (zij voegen hun regels in) |
+| 17:49:35 | `dev-docker-firewall.service`: "sprong naar dev-docker-in hersteld op INPUT-positie 1" |
+
+Dat is een venster van **ongeveer 47 s** (17:48:48 tot 17:49:35, ± 1 s) waarin de sprong niet meer eerst stond, tegen een ontwerp van ten hoogste één timertik van 1 minuut. Gemeten is alleen het tijdstip van de herstelmelding. Niet getest is of poort 55432 in dat venster vanaf het LAN of Tailscale bereikbaar was; de keten stond er wel nog in, dus alleen door regels vóór de sprong kon verkeer erlangs. Latere runs (17:50:18, 17:51:19, 17:52:19) en de run van 17:50:48 van dsh/owui lieten de sprong ongemoeid; bij de tweede dsh/owui-ronde herstelde dev-docker de positie zonder melding, want `proof-checks.sh` meldt alleen bij een verplaatsing.
+
+**Productie-engine na de reboot** (`raw/baseline-prod-after-reboot.txt`, 20 regels): 18 containers `Up` (2 en 16 met respectievelijk 4 en 5 minuten), alle containers uit de basislijn die toen draaiden. Niet `Up` zijn alleen `media-organizer-migrate-1` (Exited 5 dagen geleden) en `tei-gpu` (Exited 2 weken geleden), al gestopt vóór de basislijn. Geen issue nodig (`max2:<component>:not-up-after-reboot` niet aan de orde).
+
+`max2-docker status` (exit 0): engine `max2 … name=rootless`, `dev-postgres` `Up 5 minutes (healthy)`, 0 databases in het register, "nog geen echte prune-run", schijf 63,6 % vrij. Dat bewijst het pad Mac naar max2 na de reboot.
+
+## Acceptatie T-56
+
+| Punt | Stand |
+|---|---|
+| Spec §9-acceptatie 6 (sprong op 1, keten, `ss`, `nc`) na user-manager-herstart en reboot | ja, §11 en §12 |
+| Spec §9-acceptatie 8 (dev-postgres komt zonder handwerk terug, `max2-docker status`) | ja, §12 |
+| Boot-venster als gemeten getal | ja, ongeveer 47 s (1 s resolutie); bereikbaarheid binnen het venster niet getest |
+| Productiecontainers na de reboot gelijk aan de basislijn | ja, §12 |

@@ -1,0 +1,20 @@
+dsh|Up 5 minutes
+forgejo-runner-03-dind-1|Up 5 minutes (healthy)
+forgejo-runner-03-runner-run-04bd41e84cc0|Up 4 minutes
+forgejo-runner-dind-1|Up 5 minutes (healthy)
+forgejo-runner-runner-run-9ad2a80ecd01|Up 4 minutes
+litellm|Up 5 minutes (healthy)
+media-organizer-migrate-1|Exited (0) 5 days ago
+media-organizer-postgres|Up 5 minutes (healthy)
+media-organizer-scan-worker|Up 5 minutes
+media-organizer-video-worker-1|Up 5 minutes
+media-organizer-web|Up 5 minutes
+open-webui|Up 5 minutes (healthy)
+scrum4me-agent-codex|Up 5 minutes (healthy)
+scrum4me-caddy|Up 5 minutes
+scrum4me-ops-dashboard|Up 5 minutes
+scrum4me-worker-idea-1|Up 5 minutes (healthy)
+scrum4me-worker-idea-2|Up 5 minutes (healthy)
+tei-gpu|Exited (0) 2 weeks ago
+when2watch-db-1|Up 5 minutes (healthy)
+when2watch-web-1|Up 5 minutes (healthy)
