@@ -144,7 +144,42 @@ Afgewezen: geen.
 
 ## Ronde 5 (14-10-2026)
 
-**Gepind:** `dev-docker/PLAN.md` revisie 5 @ `978e3162dee37d7a2f7f1b732c2f53ca0cfaffda` (reviewrecord-commit volgt; `PLAN.md` byte-identiek, sha256 `6d2c9e5e…`); `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+**Gepind:** `dev-docker/PLAN.md` revisie 5 @ `76c1bd93d3ec9f0c3ae927a7eb10134c78336526` (plan-commit `978e3162`; `PLAN.md` byte-identiek, sha256 `6d2c9e5e371776fe5bf922cef5f86b3e15ecb5c4a03f3e3b71dab3e45f5d4ea0`); `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `866ad9b4-9165-4ded-9736-2e2f90bdfba1` | `819d79e5-3062-433c-80b9-ffd688f2d51b` | job (SUCCEEDED) | `f109af78-50d4-4f27-9453-01a6eb99548d` | linked |
+| CLAUDE | `130c90b1-8d96-4239-b212-90e7c57f7c26` | `0e4499e8-5e18-43a0-be53-bc9e60d8bd00` | job (SUCCEEDED) | `fc7976ac-a191-4b87-bb5f-2015a5b42530` | linked |
+
+**Uitslag:** CODEX **NO-GO** (1 BLOCKER, 1 MAJOR, 2 MINOR; 13:34 UTC). CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 8 MINOR; 13:36 UTC). Beide: zes taken, geen schrapkandidaat; fixgroepen 1, 3 en 4 hielden; 2 en 5 gedeeltelijk. Convergent (codex B1 / claude F3): `install -d -o root -g root` op een bestaand pad volgt een symlink en wijzigt eigenaar/mode vóór de controle. Beide ronde-5-hoofdpunten betreffen tekst die in revisie 5 nieuw was (`install -d`; tick-referentie "eerste `Finished`").
+
+**Triage (alle bevindingen geaccepteerd; metingen vóór revisie 6, zie onder):**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 6 |
+|---|---|---|---|---|---|
+| 1 | codex B1 / claude F3 | BLOCKER / MINOR | `install -d` muteert een vooraf door devdock geplaatste symlink/map vóór de controle | accept | `mkdir -m 0755` zonder `-p` (EEXIST op bestaand pad/symlink, geen mutatie — gemeten op de Mac), dan controle `! -L`, `-d`, uid 0, mode 755, dan pas `mktemp`; geen `install`/`chown`/`chmod` op een bestaand pad; `scp` per `OUT=`-pad i.p.v. glob |
+| 2 | codex M1 | MAJOR | "eerste `Finished` van dsh/owui" is chronologisch over beide units; dsh 45 s, dev-docker 60 s, owui 75 s voldoet terwijl owui de sprong nog verplaatst | accept | referentie per unit (eerste `Finished` van elke unit met actieve timer), de latere van beide; actieve timer zonder `Finished` binnen de wachttijd → time-out; geen actieve timers → `n/a-dsh` |
+| 3 | codex m1 | MINOR | taak 5 verwacht "nog geen prune-run" terwijl de `Persistent`-timer al gelopen kan hebben | accept | beide uitkomsten geldig (disk-blok met `ran_at` óf de melding), exit 0 en live `df` |
+| 4 | codex m2 | MINOR | historische bronnen niet in de bundel | accept, geen wijziging | caveat staat in de herkomstzin |
+| 5 | claude F1 | MINOR | Secretscan-blok zonder guard op `cd`/branch; `exit` in een langlevende shell | accept | scriptbestand `dev-docker/secretscan.sh` (taak 1, shellcheck) met `cd … \|\| exit 1`, branch-check `FOUT-branch`, `--no-password` voor taak 1, commitbericht als argument |
+| 6 | claude F2 | MINOR | `evidence/dev-docker/raw/` wordt nergens aangemaakt | accept | `mkdir -p evidence/dev-docker/raw` in taak 2 stap 6 |
+| 7 | claude F4 | MINOR | controle-run zonder maskering kan een lokale URL in het bewijs zetten | accept | uitvoer naar `mktemp` buiten `evidence/`; alleen namen + eigen samenvatting in de baseline |
+| 8 | claude F5 | MINOR | versmalling van het spec-§9-patroon niet bij de afwijkingen | accept | afwijking 5 |
+| 9 | claude F6 | MINOR | `LEK` zonder bestandsnaam → herstel vraagt improvisatie met de waarde | accept | `LEK <pad>` per treffer (alleen de naam); gemeten: twee gestagede treffers → `LEK a.txt`, `LEK c.txt`, rc 1 |
+| 10 | claude F7a–d | MINOR | handlers na `fork`; acceptatiezin achterhaald; ssh-255 niet in de classificatie; `-G 3 -w 3` niet in combinatie gemeten | accept | handlers vóór `fork`; zin herschreven; ssh-exit 255 van een directe `ssh`-aanroep → exit 3 + stub `MAX2_DOCKER_STUB_SSH=rc255`; gemeten `nc -z -G 3 -w 3 10.255.255.1 55432` → rc 1 na 3 s |
+| 11 | claude F8 | MINOR | machinebrede `ps`-scan niet diagnosticeerbaar bij `TREFFER` | accept | scan beperkt tot de nakomelingen van de helper-pid (zoals test (g)); bij `TREFFER` alleen `ps -o pid=,comm=` |
+
+Afgewezen: geen.
+
+**Lokale metingen vóór revisie 6 (14-10-2026, Mac):** `mkdir -m 0755 <symlink-naar-map>` → `File exists`, rc 1, symlink en doelmap (0700) onveranderd; `nc -z -G 3 -w 3 10.255.255.1 55432` → rc 1 na 3 s; perl-scan met `LEK <pad>` → beide treffers genoemd, rc 1; het Secretscan-blok als bestand: `bash -n` en `shellcheck -S warning` schoon.
+
+**Scope-delta ronde 5:** één nieuw bestand in de max2-repo (`dev-docker/secretscan.sh`, het bestaande recept als script; geen nieuw subsysteem) en één nieuwe afwijking (5: greppatroon). Taken, acceptatie, eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 244 → 252 regels.
+
+**Herbeoordeling vóór ronde 6:** de ronde-5-hoofdpunten waren beide fouten in tekst die revisie 5 zelf toevoegde (`install -d`-volgorde; tick-referentie). De remedie in revisie 6 is in beide gevallen een kleinere en meetbare formulering (`mkdir` zonder `-p`; referentie per unit). Overwogen alternatief voor de hele `dd-proof`-constructie: `ssh -t max2 'sudo bash …' | tee evidence/…` (geen map, geen `mktemp`, geen `scp`); niet gekozen omdat het gedrag van de sudo-wachtwoordprompt in een pijplijn niet zonder JP aan het toetsenbord te meten is, terwijl de huidige constructie nu wel gemeten semantiek heeft. Geen uitbreiding; geen schrapkandidaat.
+
+## Ronde 6 (14-10-2026)
+
+**Gepind:** `dev-docker/PLAN.md` revisie 6 @ `__SHA__`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
