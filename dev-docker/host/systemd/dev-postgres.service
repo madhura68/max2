@@ -1,0 +1,19 @@
+[Unit]
+Description=dev-postgres (IDEA-258): wacht op het LAN-adres, dan docker compose up
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+TimeoutStartSec=180
+WorkingDirectory=%h/dev-docker
+Environment=DOCKER_HOST=unix://%t/docker.sock
+Environment=PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+ExecStartPre=/bin/bash -c 'until ip -4 -o addr show enp4s0 | grep -q 192.168.0.158/; do sleep 1; done'
+ExecStart=/usr/bin/docker compose up -d
+Restart=on-failure
+RestartSec=10
+
+[Install]
+WantedBy=default.target

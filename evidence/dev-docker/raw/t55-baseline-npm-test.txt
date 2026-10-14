@@ -1,0 +1,7 @@
+## baseline (Desktop aan, lokale test-db 127.0.0.1:5433)
+ Test Files  4 failed | 63 passed (67)
+      Tests  462 passed | 18 skipped (480)
+ FAIL  test/ppe/bootstrap-registry.test.ts
+ FAIL  test/ppe/controller-store.test.ts
+ FAIL  test/ppe/run-ledger.test.ts
+ FAIL  test/ppe/takeover.test.ts

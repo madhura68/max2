@@ -1,0 +1,26 @@
+SAME rootless docker.service actief
+SAME /home/devdock/.local/shim/busctl
+SAME /home/devdock/.config/systemd/user/docker.service.d/10-busctl-shim.conf
+SAME docker context rootless is standaard
+SAME /home/devdock/dev-docker/compose.yml
+SAME /home/devdock/dev-docker/init/01-roles.sh
+SAME /home/devdock/dev-docker/init/02-devmeta.sql
+SAME /home/devdock/dev-docker/prune.sh
+SAME /home/devdock/dev-docker/pull-images.sh
+SAME /home/devdock/dev-docker/images.txt
+SAME /home/devdock/.config/systemd/user/dev-postgres.service
+SAME /home/devdock/.config/systemd/user/dev-docker-prune.service
+SAME /home/devdock/.config/systemd/user/dev-docker-prune.timer
+SAME /home/devdock/dev-docker/.env bestaat (ongemoeid)
+pull pgvector/pgvector:pg17@sha256:cd4ccfdaf62cbfeb5c6ee19ef0dd663406d4ed740c320b324d016a90e85385b3
+pull node:24-bookworm-slim
+pull node:22-bookworm-slim
+pull debian:bookworm-slim
+pull alpine:3
+images gepulld: 5
+OK per-container geheugenlimiet werkt (memory.max=67108864)
+SAME enable dev-postgres.service
+SAME enable dev-docker-prune.timer
+SAME dev-postgres.service actief
+dev-postgres: Up About a minute (healthy)
+GEEN WIJZIGINGEN

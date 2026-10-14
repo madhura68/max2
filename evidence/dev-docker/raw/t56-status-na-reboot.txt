@@ -1,0 +1,6 @@
+engine: max2 [name=seccomp,profile=builtin name=rootless name=cgroupns]
+dev-postgres: Up 5 minutes (healthy)
+databases in het register: 0
+containers (alle): 1
+nog geen echte prune-run (last-run.json ontbreekt)
+schijf nu: 63.6 % vrij (624 GB van 981 GB)

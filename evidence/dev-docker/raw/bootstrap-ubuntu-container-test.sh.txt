@@ -1,0 +1,38 @@
+#!/usr/bin/env bash
+set -u
+apt-get update -qq >/dev/null 2>&1 || echo "apt-get update mislukt"
+mkdir -p /etc/apparmor.d /stub /stubstate /var/lib/systemd; touch /etc/apparmor.d/rootlesskit
+cat >/stub/systemctl <<'S'
+#!/usr/bin/env bash
+echo "systemctl $*" >>/stubstate/calls.log
+case "$1" in
+  show) case "$2" in user@*) echo "cpu memory pids";; *) echo "MemoryMax=(stub) $*";; esac;;
+  is-enabled) shift; [ "$1" = --quiet ] && shift; [ -e "/stubstate/enabled-$1" ];;
+  is-active) shift; [ "$1" = --quiet ] && shift; [ -e "/stubstate/active-$1" ];;
+  enable) touch "/stubstate/enabled-$2";;
+  start) touch "/stubstate/active-$2"; [ "$2" = dev-docker-firewall.service ] && touch /stubstate/jump; true;;
+  daemon-reload) true;;
+esac
+S
+printf '#!/usr/bin/env bash\necho "loginctl $*" >>/stubstate/calls.log; mkdir -p /var/lib/systemd/linger; touch /var/lib/systemd/linger/devdock\n' >/stub/loginctl
+printf '#!/usr/bin/env bash\ncase "$1" in status) echo "Status: inactive";; *) echo "UFW-STUB-AANGEROEPEN $*" >>/stubstate/calls.log;; esac\n' >/stub/ufw
+cat >/stub/iptables <<'S'
+#!/usr/bin/env bash
+case "$*" in "-S INPUT") echo "-P INPUT ACCEPT"; [ -e /stubstate/jump ] && echo "-A INPUT -m comment --comment dev-docker -j dev-docker-in"; echo "-A INPUT -j ts-input";; *) echo "(iptables-stub $*)";; esac
+S
+printf '#!/usr/bin/env bash\necho "*filter"; echo COMMIT\n' >/stub/iptables-save
+printf '#!/usr/bin/env bash\necho "passwordauthentication no"\n' >/stub/sshd
+printf '#!/usr/bin/env bash\necho 1\n' >/stub/sysctl
+printf '#!/usr/bin/env bash\nif [ "${1:-}" = -s ] && [ "${2:-}" = docker-ce-rootless-extras ]; then exit 0; fi\nexec /usr/bin/dpkg "$@"\n' >/stub/dpkg
+chmod +x /stub/*; export PATH=/stub:$PATH
+echo 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAItestkeytestkeytestkeytestkeytestkey test@x' >/t/key.pub
+args=(--pubkey-file /t/key.pub --floor-gib 12.0 --series '21.53:test, 2026-10-12..2026-10-13, 60 s')
+echo "=== ONDERGRENS: uname=$(uname -m) cgroup=$(stat -fc %T /sys/fs/cgroup)"
+echo "=== RUN 1 (preflight-only)"; bash /src/bootstrap.sh --preflight-only "${args[@]}" 2>&1 | grep -vE '^[#*:-]|^COMMIT' ; echo "rc=${PIPESTATUS[0]}"
+echo "=== RUN 2 (echt)"; bash /src/bootstrap.sh "${args[@]}" 2>&1 | grep -vE '^[#*:]|^COMMIT'; echo "rc=${PIPESTATUS[0]}"
+echo "=== RUN 3 (idempotentie)"; bash /src/bootstrap.sh "${args[@]}" 2>&1 | grep -E '^(CHANGED|SAME|GEEN|KLAAR|FOUT|ROOD)'; echo "rc=${PIPESTATUS[0]}"
+echo "=== TOESTAND"; getent passwd devdock; id -nG devdock; grep devdock /etc/subuid /etc/subgid; ls -ld /home/devdock/.ssh | awk '{print $1,$3,$9}'; stat -c '%a %U' /home/devdock/.ssh/authorized_keys; wc -l </home/devdock/.ssh/authorized_keys
+cat /etc/systemd/system/user-*.slice.d/50-dev-docker.conf; grep -E '^(Before|After)' /etc/systemd/system/dev-docker-firewall.service; ls -l /usr/local/sbin/dev-docker-firewall.sh | awk '{print $1,$3,$9}'; ls /etc/systemd/system/dev-docker-firewall.*
+echo "--- stubcalls (zonder show):"; grep -v '^systemctl show' /stubstate/calls.log
+dpkg -s uidmap slirp4netns 2>/dev/null | grep -E '^(Package|Status)'
+echo "--- ufw-aanroepen:"; grep -c UFW-STUB /stubstate/calls.log

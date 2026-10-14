@@ -1,0 +1,145 @@
+== dev-postgres: 0 kandidaat/kandidaten, 1 bewaard
+   bewaard:   dev-postgres  (draait)
+== containers: 0 kandidaat/kandidaten, 1 bewaard
+   bewaard:   dev-postgres  (dev.keep)
+== volumes: 0 kandidaat/kandidaten, 0 bewaard
+== databases: 0 kandidaat/kandidaten, 1 bewaard
+   bewaard:   postgres  (denylist)
+== images: 0 kandidaat/kandidaten, 5 bewaard
+   bewaard:   c3de60bf2f9d node:22-bookworm-slim  (standaardimage (images.txt))
+   bewaard:   d6aa754f16b3 node:24-bookworm-slim  (standaardimage (images.txt))
+   bewaard:   7c7b2c966bc9 debian:bookworm-slim  (standaardimage (images.txt))
+   bewaard:   cd4ccfdaf62c pgvector/pgvector:<none>  (in gebruik)
+   bewaard:   294b683cb724 alpine:3  (standaardimage (images.txt))
+== buildcache: 1 kandidaat/kandidaten, 0 bewaard
+   kandidaat: buildcache ouder dan 168h (schatting: Total:
+== netwerken: 0 kandidaat/kandidaten, 4 bewaard
+   bewaard:   bridge  (standaardnetwerk)
+   bewaard:   dev-docker_default  (dev.keep)
+   bewaard:   host  (standaardnetwerk)
+   bewaard:   none  (standaardnetwerk)
+== standaardimages: 0 kandidaat/kandidaten, 0 bewaard
+== backups: 0 kandidaat/kandidaten, 0 bewaard
+--- verslag (dry-run: niets geschreven, geen registerrij, niets verwijderd)
+{
+  "ran_at": "2026-10-14T15:01:32Z",
+  "dry_run": true,
+  "steps": [
+    {
+      "name": "dev-postgres",
+      "candidates": [],
+      "kept": [
+        {
+          "id": "dev-postgres",
+          "reason": "draait"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "containers",
+      "candidates": [],
+      "kept": [
+        {
+          "id": "dev-postgres",
+          "reason": "dev.keep"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "volumes",
+      "candidates": [],
+      "kept": [],
+      "errors": []
+    },
+    {
+      "name": "databases",
+      "candidates": [],
+      "kept": [
+        {
+          "id": "postgres",
+          "reason": "denylist"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "images",
+      "candidates": [],
+      "kept": [
+        {
+          "id": "c3de60bf2f9d node:22-bookworm-slim",
+          "reason": "standaardimage (images.txt)"
+        },
+        {
+          "id": "d6aa754f16b3 node:24-bookworm-slim",
+          "reason": "standaardimage (images.txt)"
+        },
+        {
+          "id": "7c7b2c966bc9 debian:bookworm-slim",
+          "reason": "standaardimage (images.txt)"
+        },
+        {
+          "id": "cd4ccfdaf62c pgvector/pgvector:<none>",
+          "reason": "in gebruik"
+        },
+        {
+          "id": "294b683cb724 alpine:3",
+          "reason": "standaardimage (images.txt)"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "buildcache",
+      "candidates": [
+        "buildcache ouder dan 168h (schatting: Total:"
+      ],
+      "kept": [],
+      "errors": []
+    },
+    {
+      "name": "netwerken",
+      "candidates": [],
+      "kept": [
+        {
+          "id": "bridge",
+          "reason": "standaardnetwerk"
+        },
+        {
+          "id": "dev-docker_default",
+          "reason": "dev.keep"
+        },
+        {
+          "id": "host",
+          "reason": "standaardnetwerk"
+        },
+        {
+          "id": "none",
+          "reason": "standaardnetwerk"
+        }
+      ],
+      "errors": []
+    },
+    {
+      "name": "standaardimages",
+      "candidates": [],
+      "kept": [],
+      "errors": []
+    },
+    {
+      "name": "backups",
+      "candidates": [],
+      "kept": [],
+      "errors": []
+    }
+  ],
+  "disk": {
+    "total_bytes": 980666998784,
+    "avail_bytes": 623290675200,
+    "avail_pct": 63.5,
+    "warn_below_pct": 20,
+    "warning": false
+  }
+}

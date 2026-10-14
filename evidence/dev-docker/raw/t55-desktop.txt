@@ -1,0 +1,10 @@
+## Desktop-controles
+1 pgrep vóór: 11 processen
+2 info vóór: docker-desktop
+3 osascript rc=0
+4 pgrep ná: 10 processen
+4 info ná: request returned 500 Internal Server Error for API route and version http://%2FUsers%2Fjanpetervisser%2F.docker%2Frun%2F
+4 (herhaald na tweede quit) pgrep ná: 96972 /Library/PrivilegedHelperTools/com.docker.vmnetd;
+4 info ná: 
+launchd-helper: system/com.docker.vmnetd = {
+info rc=1 stderr: failed to connect to the docker API at unix:///Users/janpetervisser/.docker/run/docker.sock; check if the path is correc

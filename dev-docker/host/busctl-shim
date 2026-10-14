@@ -1,0 +1,9 @@
+#!/bin/sh
+# busctl-shim — workaround voor runc 1.5.2 op systemd 259 (Ubuntu 26.04), alleen voor de rootless engine van devdock.
+# runc bepaalt in een user-namespace (rootlesskit) via `busctl --user --no-pager status` en de regel `OwnerUID=` of het rootless is.
+# systemd 259 print die regel niet meer; DetectUID() faalt dan, runc kiest de systeem-bus en elke containerstart faalt met
+# "Access denied as the requested operation requires interactive authentication". Deze shim staat vooraan in het PATH van
+# docker.service (drop-in 10-busctl-shim.conf), roept de echte busctl aan en voegt de verwachte regel toe.
+/usr/bin/busctl "$@"; rc=$?
+case " $* " in *" --user "*" status "*) printf 'OwnerUID=%s\n' "${ROOTLESSKIT_PARENT_EUID:-$(id -u)}";; esac
+exit $rc

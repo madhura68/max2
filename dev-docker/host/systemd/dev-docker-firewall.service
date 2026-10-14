@@ -1,0 +1,11 @@
+[Unit]
+Description=dev-docker firewall: keten dev-docker-in en sprong op INPUT-positie 1 (IDEA-258)
+After=network-pre.target docker.service ufw.service tailscaled.service
+Before=user@__UID__.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/dev-docker-firewall.sh
+
+[Install]
+WantedBy=multi-user.target

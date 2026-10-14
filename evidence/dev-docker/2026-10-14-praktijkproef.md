@@ -1,0 +1,228 @@
+# Praktijkproef IDEA-258 — deel 1: hostkant, LAN-grens, Mac-context (T-53)
+
+**Datum:** 14-10-2026. **Uitvoerder:** mac:claude in opdracht van JP ("voer sprint uit"); root-regels door JP met `sudo` (`ssh -t`).
+**Host:** `max2`, Ubuntu 26.04.1 LTS, systemd 259, Docker 29.9.0, runc 1.5.2, containerd 2.4.1, rootlesskit 3.2. **Bundel:** PR 34, branch `feat/dev-docker-host`.
+Ruwe uitvoer staat in `evidence/dev-docker/raw/` (bestandsnamen hieronder). Dit bestand bevat geen wachtwoord; de URL-vorm in deze repo is altijd `…:***@…`.
+
+## Afwijkingen tijdens deze run (details in PR 34)
+
+| # | Wat | Gevolg |
+|---|---|---|
+| 7 | De gepinde digest `215ae4d4…` was de **arm64**-manifest; amd64 = `sha256:cd4ccfdaf62cbfeb5c6ee19ef0dd663406d4ed740c320b324d016a90e85385b3` | `compose.yml` en `images.txt` pinnen amd64 |
+| 11 | **ufw is op max2 inactief** (`Status: inactive`, `INPUT`-policy `ACCEPT`; `raw/baseline-root.log`), terwijl spec en plan "actief, default-deny" aannamen (ISS-17) | JP-besluit A: de keten `dev-docker-in` is de enige LAN-grens; geen ufw-regel |
+| 12 | Preflight vroeg `DelegateControllers` van de template `user@.service`; dat werkt niet (`raw/preflight.log` van de eerste run was daardoor rood) | instantie `user@<uid>.service` gebruikt |
+| 13 | **Rootless containers starten niet**: runc 1.5.2 leest `OwnerUID=` uit `busctl --user status`, systemd 259 print die regel niet meer; runc kiest dan de systeem-bus ("Access denied … interactive authentication"). Gemeten: zelfs `docker run alpine:3` faalde (`raw/install-user-run1.txt`) | `busctl`-shim voor `docker.service` van devdock (`host/busctl-shim`); daarna werkt de systemd-cgroupdriver en geldt `--memory` per container |
+
+## 1. Baseline en sampler (spec §9 stap 1)
+
+- Productie-engine vóór: `raw/baseline-prod-before.txt` (ps, 21 regels), `raw/baseline-prod-before-2.txt` (images, `df`, `MemAvailable`).
+- `ufw status verbose`, `ufw status numbered` en `iptables-save -t filter` als root: `raw/baseline-root.log` — `Status: inactive`, `:INPUT ACCEPT`.
+- Sampler gestart als janpeter (`nohup bash ~/sampler.sh`, pid 1741022) om 14:30Z; ALARM-watcher op de Mac (`~/dev-docker-alarm.log`).
+
+## 2. Gate en bootstrap (spec §9 stap 2)
+
+- Invoer: `--floor-gib 12.0 --series '21.53:evidence/dev-docker/2026-10-12-p6-memavailable-max2.csv, 2026-10-12T10:46Z..2026-10-13T12:46Z, ~60 s-resolutie'`.
+  Uitkomst: `X_eff=12.0 budget_gib=8 marge_gib=1.53`, `OK invoer en budget`.
+- Eerste preflight (16:31): `PREFLIGHT ROOD (2)` — delegatie (afwijking 12) en ufw (afwijking 11); niets gewijzigd (`raw/preflight.log` is door de latere run overschreven; de rode uitkomst staat in ISS-17 en de PR).
+- Tweede preflight (16:53): `PREFLIGHT GROEN` (`raw/preflight.log`).
+- `bootstrap.sh` echt (`raw/bootstrap-1.log`): 15 × `CHANGED` (pakketten `uidmap slirp4netns`, gebruiker `devdock` uid 1001, subid `devdock:200000:65536`, authorized_keys, slice-drop-in, firewallscript en units, linger).
+- Tweede run (`raw/bootstrap-2.log`): `0 × CHANGED`, `GEEN WIJZIGINGEN (uid=1001 MemoryMax=8589934592)`.
+- Slice: `MemoryMax=8589934592`, `MemorySwapMax=0`, `CPUQuotaPerSecUSec=8s`, `TasksMax=4096`; `memory.max` = `8589934592` (`raw/proof-2.log`).
+
+## 3. Engine (spec §9 stap 3)
+
+- Alias `max2-dev` in `~/.ssh/config` (`HostName max2`, `User devdock`, `ConnectTimeout 5`, `ServerAliveInterval 15`, `ServerAliveCountMax 2`, `BatchMode yes`): `ssh max2-dev id` → `uid=1001(devdock) gid=1001(devdock) groups=1001(devdock)`.
+- `rsync -a --delete dev-docker/host/ max2-dev:dev-docker-src/` en `install-user.sh`: run 1 stopte bij het starten van `dev-postgres.service` (afwijking 13, `raw/install-user-run1.txt`); run 2 slaagde (`raw/install-user-run2.txt`): `OK per-container geheugenlimiet werkt (memory.max=67108864)`, `dev-postgres: Up 6 seconds (healthy)`; run 3 (`raw/install-user-run3.txt`): `GEEN WIJZIGINGEN`.
+- Units (devdock): `docker` active, `dev-postgres.service` `active (exited)`, `dev-docker-prune.timer` active (volgende run zondag 2026-10-18 04:30).
+- Bind (spec §4.4, NO-GO-voorwaarde): `ss -ltn | grep 55432` → alleen `192.168.0.158:55432`; `docker ps` → `dev-postgres Up … (healthy) 192.168.0.158:55432->5432/tcp`. De builtin-poortdriver bindt dus op het LAN-adres.
+- `prune.sh --dry-run` via SSH: exit 0, duur onder 1 s (`raw/prune-dry-run-max2.txt`); het pgvector-image `cd4ccfdaf62c` staat als `in gebruik`, de vier andere standaardimages als `standaardimage (images.txt)`; niets van de productie-engine genoemd. De deadline van 120 s in de helper is ruim.
+
+## 4. LAN-grens en herstelproef (spec §9 stap 3, acceptatie 6)
+
+Eén root-sessie: `proof-checks.sh --uid 1001 --wait-listener 200`, daarna `recovery-test.sh`, daarna `proof-checks.sh --uid 1001`.
+
+| Moment | SUMMARY |
+|---|---|
+| vóór de herstelproef (`raw/proof-1.log`) | `jump_first=yes chain=ok jumps=1 testrule=0 listener=lan-only nc_ts=1 nc_lan=1 tick=skipped` |
+| ná de herstelproef (`raw/proof-2.log`) | `jump_first=yes chain=ok jumps=1 testrule=0 listener=lan-only nc_ts=1 nc_lan=1 tick=skipped` |
+
+- Eerste `-A`-regel van `INPUT`: `-A INPUT -m comment --comment dev-docker -j dev-docker-in`. Keten `dev-docker-in`: de twee DROP-regels (`! -i enp4s0` en `! -s 192.168.0.0/24 -i enp4s0`, beide `--ctstate NEW`, tcp/55432) gevolgd door `-j RETURN`.
+- Herstelproef (`raw/recovery.log`): eerste regel na het invoegen van de testregel = `-A INPUT -s 192.0.2.254/32 -m comment --comment dd-recovery-test -j DROP` (sprong verplaatst); na `systemctl start dev-docker-firewall.service` weer `-A INPUT -m comment --comment dev-docker -j dev-docker-in`; telling `1`; journal: `dev-docker-firewall[…]: sprong naar dev-docker-in hersteld op INPUT-positie 1`. Geen `dd-recovery-test`-restant (`testrule=0`).
+- `ss -tn 'sport = :55432'` na herstel: geen verbindingen. `nc -z -w2` vanaf max2 naar `100.102.8.64` en naar `192.168.0.158`: beide `rc=1` (geweigerd; de tweede bewijst dat de keten vuurt). De verbinding vanaf de Mac volgt in T-55.
+- Geheugen: `memory.events` van de slice `max 0`, `oom_kill 0`; `memory.peak` 1,57 GB (indicatie, bevat page cache). `iptables-save -t filter` als momentopname in `raw/proof-1.log` en `raw/proof-2.log`. In beide logs is het journalblok van de dsh-/owui-firewallunits (elke minuut een run, ruim 23.000 regels) ingekort tot de eerste en laatste 100 regels; alle dev-docker-regels staan er volledig in. `proof-checks.sh` begrenst dit blok voortaan zelf.
+
+## 5. Mac-context (spec §9 stap 4)
+
+```
+$ docker context create max2-dev --docker host=ssh://max2-dev
+$ docker --context max2-dev info --format '{{.Name}} {{.SecurityOptions}}'
+max2 [name=seccomp,profile=builtin name=rootless name=cgroupns]
+$ docker --context max2-dev ps --filter name=dev-postgres --format '{{.Names}} {{.Status}} {{.Ports}}'
+dev-postgres Up 14 seconds (healthy) 192.168.0.158:55432->5432/tcp
+$ docker context ls     # default, desktop-linux (huidig, fase 1), max2-dev
+```
+
+## 6. Headroom en baseline productie (spec §8)
+
+- Sampler (5 s, `~/dev-docker-proef-sampler.log`, 387 regels t/m 15:02Z): **minimum `MemAvailable` 23 460 492 kB = 22,37 GiB** (14:45:51Z), dus ≥ `X_eff` 12,0 GiB en ≥ 10,8 GiB; **0 ALARM-regels**. De testrun (T-55) en de sampler-stop volgen later; dit is het minimum tot en met de uitrol.
+- Productie-engine na: `raw/baseline-prod-after.txt`, `raw/baseline-prod-after-2.txt`. De image-lijst is identiek (51 regels, gesorteerd diff leeg). Het enige verschil in `docker ps -a` zijn twee wegwerp-jobcontainers van de runners (`forgejo-runner-03-runner-run-…`, `forgejo-runner-runner-run-…`), verklaard door de CI-runs van PR 42 in deze periode. Vrije schijf: 624 781 553 664 → 622 969 860 096 bytes (−1,8 GB, de images en data van devdock).
+
+## Acceptatie T-53
+
+| Punt | Stand |
+|---|---|
+| Spec §9 acceptatie 1 (context: `max2` en `name=rootless`) | ja, §5 |
+| Spec §9 acceptatie 5 (slice-limieten effectief) | ja, §2 en §4 |
+| Spec §9 acceptatie 6 (sprong op 1, keten R1/R2/RETURN, geen testregel-restant, `ss`, beide `nc` geweigerd; vóór en na herstelproef) | ja, §4; vóór/na user-manager-herstart en reboot volgt in T-56 |
+| Tweede bootstrap-run wijzigt niets | ja, §2 |
+| Geen ALARM in de sampler | ja, §6 |
+| Geen secret in het bewijs | `secretscan.sh` volledig vóór de commit van dit bestand |
+
+# Deel 2 — praktijkproef T-55 (14-10-2026)
+
+Aanroeppad: `max2-docker` (s4m-queue PR 42, `~/.local/bin/max2-docker`), `MAX2_DOCKER_AGENT=claude`. Databasenaam `s4mqueue_proef`.
+
+## 7. Identiteit, argv-hygiëne, negatieve authenticatie (spec §9 stap 5–6, §11 rij 10)
+
+Bron: `raw/t55-identiteit-argv-auth.txt`.
+
+- `db create` gaf een gemaskeerde URL (`postgresql://dev:***@192.168.0.158:55432/s4mqueue_proef`); `db list` toont de rij met de aanvrager `mac:claude`.
+- Identiteit: `s4mqueue_proef|dev|172.18.0.2|5432` (database, rol, containeradres, containerpoort).
+- `client_addr` zoals gemeten: **172.18.0.1**, niet het LAN-adres van de Mac (`ipconfig getifaddr en0` = 192.168.0.50). Dat is het gateway-adres van het containernetwerk, vermoedelijk door de poortdoorgifte van de rootless engine (de oorzaak is niet apart gemeten). Zolang dat zo is, zien de bronadres-regels in `pg_hba.conf` geen LAN-adressen en kunnen ze LAN-clients niet onderscheiden. De LAN-grens ligt daarom, zoals ontworpen, in de keten `dev-docker-in` (§4.4) en niet in `pg_hba.conf`.
+- Argv-hygiëne: 11 momentopnamen van de nakomelingen van de lopende `db run … pg_sleep(3)`, in 8 daarvan was `psql` zichtbaar, **0 TREFFER** op een URL-patroon met gebruikersnaam en wachtwoord.
+- Negatief (met `PGPASSFILE=/dev/null`, `-w`): verkeerd wachtwoord → `password authentication failed for user "dev"`; leeg wachtwoord → `no password supplied`; rol `postgres` over TCP → `pg_hba.conf rejects connection for host "172.18.0.1", user "postgres"`.
+
+## 8. Basislijn, Docker Desktop uit, testrun (spec §9 stap 7, §11 rij 7)
+
+- Basislijn met Desktop aan (`raw/t55-baseline-npm-test.txt`, repo `~/Development/s4m-queue`, `main`, lokale `.env`): eerste poging 36 bestanden rood omdat de lokale test-database op `127.0.0.1:5433` niet draaide (afwijking 14: container `local-postgres-postgres-1` gestart en na de basislijn weer gestopt). Tweede poging: **63 bestanden groen, 4 rood** (462 tests groen, 18 overgeslagen). De vier rode zijn `test/ppe/{bootstrap-registry,controller-store,run-ledger,takeover}.test.ts`, alle met `PPE_CONTROLLER_DATABASE_URL_MISSING`: de variabele staat niet in de lokale omgeving. Dat is de basislijn en staat los van Docker.
+- Docker Desktop afsluiten, vier controles in `raw/t55-desktop.txt`: vóór 11 processen en `docker --context desktop-linux info` slaagt (`docker-desktop`); na `osascript -e 'quit app "Docker"'` liepen app en backend nog (afwijking 15); na `tell application "Docker Desktop" to quit` blijft alleen het door launchd beheerde root-hulpproces `com.docker.vmnetd` over (geen app, geen VM) en faalt `info` met "failed to connect to the docker API".
+- Testrun tegen max2 (`max2-docker db run s4mqueue_proef -- sh -c 'S4M_TEST_DATABASE_URL=$DATABASE_URL npm test'`, Desktop uit), twee keer (`raw/t55-testrun-1.log`, `raw/t55-testrun-2.log`): **62 bestanden groen, 5 rood**, 457 tests groen, 23 overgeslagen, 6,4 s. Rood: de vier `test/ppe`-bestanden uit de basislijn én **`test/work-item-permissions.test.ts`**: `permission denied to create role` bij `CREATE ROLE … NOLOGIN` (regel 44). De rol `dev` is `LOGIN CREATEDB` (spec §4.6) en mag geen rollen maken. Beide runs gaven hetzelfde resultaat.
+- **Gevolg voor de acceptatie:** de slagingsregel "niets faalt op verbinding, rechten of host" is niet gehaald. Eén bestand faalt op rechten en niet in de basislijn. Het besluit ligt bij JP, zie "Besluit JP" onderaan.
+- Slice (`user-1001.slice`, `raw/t55-cgtop.txt`, `systemd-cgtop` als janpeter want `devdock` krijgt "Failed to determine supported controllers"): geheugen tijdens de run 1,4–1,5 GB, 127–141 taken. `memory.peak` vóór 1 590 194 176, ná run 1 1 680 224 256, ná run 2 1 735 147 520 (limiet 8 589 934 592); `memory.events` `max 0`, `oom 0`, `oom_kill 0`; `anon` 110 534 656 → 123 772 928 → 130 363 392 bytes.
+
+## 9. Register, opruiming, basislijn productie, sampler (spec §9 stap 9–10, §11 rij 9)
+
+Bron: `raw/t55-cleanup-drop.txt`, `raw/baseline-prod-after-t55*.txt`, `raw/t55-sampler.txt`.
+
+- `db list` vóór en na `cleanup --dry-run`: dezelfde rij (alleen de looptijd telt door), `s4mqueue_proef` bewaard als "jonger dan 14 dagen", `postgres` op de denylist, niets van de productie-engine; `dev-postgres` en het netwerk `dev-docker_default` bewaard (`dev.keep`), de volumestap meldt 0 kandidaten en `dev-postgres-data` bestaat nog. Het verslag meldt `dry_run: true`, schijf 63,5 % vrij.
+- Afwijking 16: de dry-run noemde de buildcache altijd als kandidaat met afgekapte schatting ("Total:"). `prune.sh` leest nu `docker builder du` en meldt een lege buildcache niet meer; selftest 10 van 10 en een dry-run op max2 bevestigen het.
+- `db drop s4mqueue_proef` → `db list` leeg; volgens `db list` en de dry-run bleven er geen `s4m_queue_bootstrap_*`-databases achter.
+- Productie-engine na de proef (`baseline-prod-after-t55.txt`, `-2.txt`): de image-lijst is identiek aan de eerdere meting (gesorteerd diff leeg). Verschil in `docker ps -a` alleen de twee wegwerp-jobcontainers van de runners.
+- Sampler gestopt na 541 regels (14:30:27Z t/m 15:15:37Z): **minimum `MemAvailable` 23 460 492 kB = 22,37 GiB** (14:45:51Z), **0 ALARM-regels**.
+
+## Besluit JP en herhaling na `CREATEROLE` (14-10-2026)
+
+JP koos voor `CREATEROLE` aan `dev` (via de vraag in de sessie). Doorgevoerd: `init/01-roles.sh` (`CREATE ROLE dev LOGIN CREATEDB CREATEROLE`), spec revisie 12 (§4.5, §4.9 en §7, niet opnieuw gereviewd) en op de draaiende instantie eenmalig `ALTER ROLE dev CREATEROLE` via de beheerroute (`docker --context max2-dev exec -i dev-postgres psql -U postgres`), omdat init-scripts alleen bij de eerste initialisatie draaien. Daarna `pg_roles`: `dev|rolsuper f|createdb t|createrole t|replication f|bypassrls f|login t`.
+
+**Gemeten grenzen van de rol** (`raw/t55-rolecheck.txt`, als `dev` in `s4mqueue_proef`, PostgreSQL 17):
+
+| Poging | Uitkomst |
+|---|---|
+| `CREATE ROLE … NOLOGIN` | slaagt |
+| rol met `SUPERUSER`, `BYPASSRLS` of `REPLICATION` aanmaken | geweigerd (alleen rollen met dat attribuut mogen dat) |
+| eigen rol lid maken van `pg_read_all_data` | geweigerd (ADMIN-optie op die rol ontbreekt) |
+| `ALTER ROLE postgres PASSWORD …` | geweigerd (alleen een superuser wijzigt een superuser) |
+| rol `postgres` lid maken van een door `dev` gemaakte rol | **slaagt**; verwachtte ik niet, het geeft `dev` zelf geen extra rechten |
+| opruimen van de proefrol | slaagt, geen `zz_probe*` over |
+
+## 10. Herhaalde testrun na `CREATEROLE` (spec §9 stap 7)
+
+Zelfde opdracht, Desktop uit, nieuwe database `s4mqueue_proef` (`raw/t55-testrun-3.log`): **63 bestanden groen, 4 rood**, 462 tests groen, 18 overgeslagen, 6,5 s. Dat is gelijk aan de basislijn met Desktop aan: dezelfde vier `test/ppe`-bestanden rood met `PPE_CONTROLLER_DATABASE_URL_MISSING`, geen `permission denied`. `test/work-item-permissions.test.ts` slaagt nu.
+
+- Slice (`raw/t55-cgtop-3.txt`): geheugen 1,5 GB, 139–154 taken. `memory.peak` ongewijzigd 1 735 147 520 (limiet 8 589 934 592), `memory.events` `max 0`, `oom 0`, `oom_kill 0`, `anon` 140 832 768 bytes.
+- Opruiming (`raw/t55-cleanup-drop-3.txt`): dry-run laat `s4mqueue_proef` bewaren (jonger dan 14 dagen) en de buildcache als 0 kandidaten zien; `db drop`, daarna `db list` leeg. Op de instantie bestaan alleen de rollen `dev` en `postgres` en de database `postgres`: geen resten van de testrun.
+
+## Acceptatie T-55 (stand)
+
+| Punt | Stand |
+|---|---|
+| Spec §9 identiteit, negatieve authenticatie, argv-hygiëne | ja, §7 |
+| Desktop aantoonbaar dicht tijdens de testrun | ja, §8 |
+| Testrun: alle DB-afhankelijke bestanden slagen, geen verschil met de basislijn | ja, §10 (na besluit `CREATEROLE`; de eerste run faalde op één bestand, §8) |
+| `memory.events` `max 0` en `oom_kill 0`, piek genoteerd | ja, §8 en §10 |
+| Codex-sessie: één `db list` | ja: JP draaide `max2-docker db list` vanuit een Codex-sessie, exitcode 0, lege lijst (de proefdatabase was al verwijderd). Door JP gemeld, niet door mij gemeten; de skill staat via een symlink in `~/.codex/skills/` |
+| `cleanup --dry-run` en register ongewijzigd | ja, §9 en §10 |
+| `db drop`, basislijn productie gelijk, sampler zonder ALARM | ja, §9 |
+
+# Deel 3 — herstart en reboot (T-56)
+
+## 11. Herstart van de user-manager van devdock (spec §9 stap 10, eerste helft)
+
+Door JP uitgevoerd als één root-regel: `systemctl stop user@1001.service`, `systemctl start user@1001.service`, daarna `proof-checks.sh --uid 1001 --wait-listener 200`. Ruwe uitvoer: `raw/proof-t56-herstart.log` (620 regels; het journalblok van de dsh-/owui-units is begrensd door `proof-checks.sh`).
+
+- `SUMMARY jump_first=yes chain=ok jumps=1 testrule=0 listener=lan-only nc_ts=1 nc_lan=1 tick=skipped`, gelijk aan de metingen van deel 1.
+- Eerste `-A`-regel van `INPUT` is de sprong naar `dev-docker-in`, de keten heeft R1, R2 en RETURN, er is één sprong en geen restant van de testregel. `ss -ltn` toont alleen `192.168.0.158:55432`, beide `nc`-pogingen weigeren. Het firewalljournal toont geen nieuwe herstelmelding: de keten bleef staan, want de firewall hangt niet af van de user-manager.
+- Slice: `MemoryMax=8589934592`, `MemorySwapMax=0`, `CPUQuotaPerSecUSec=8s`, `TasksMax=4096`, `memory.max` 8589934592. De slice bleef bestaan, daarom staat `memory.peak` nog op 1 735 147 520.
+- `dev-postgres.service`: `active (exited)` sinds 17:30:58 (stop 17:30:55), `ExecStartPre` (wachten op 192.168.0.158) status 0, `docker compose up -d` status 0 en de melding "Container dev-postgres Running". De container (`restart: unless-stopped`) startte op 17:30:58 samen met de rootless engine, dus de service trof hem al draaiend aan. `docker ps`: `Up 46 seconds (healthy)` op `192.168.0.158:55432`. `docker`, `dev-postgres.service` en `dev-docker-prune.timer` zijn `active`.
+- `max2-docker status` (exit 0): engine `max2 … name=rootless`, `dev-postgres` healthy, 0 databases in het register, "nog geen echte prune-run", schijf 63,5 % vrij.
+- Productie-engine (janpeter, alleen lezen): alle containers die in de basislijn draaiden zijn nog `Up`. Alleen `media-organizer-migrate-1` (Exited 5 dagen geleden) en `tei-gpu` (Exited 2 weken geleden) staan niet `Up`; die waren al gestopt vóór de basislijn.
+- Het journal van de service toont ook de falende startpogingen van 16:58 (24 herstarts van de runc/systemd-fout, vóór de busctl-shim, afwijking 13). Die horen bij de uitrol en niet bij deze herstart.
+
+## 12. Reboot (spec §9 stap 10, tweede helft; spec §9-acceptatie 6 en 8)
+
+JP draaide `sudo reboot` op max2 (kernel-start 17:48:20, `uptime -s` 17:48:17) en daarna één root-sessie `proof-checks.sh --uid 1001 --wait-listener 200 --wait-tick 300`. Ruwe uitvoer: `raw/proof-t56-reboot.log` (251 regels), `raw/baseline-prod-after-reboot.txt`, `raw/t56-status-na-reboot.txt`.
+
+- `SUMMARY jump_first=yes chain=ok jumps=1 testrule=0 listener=lan-only nc_ts=1 nc_lan=1 tick=ok`. Sprong eerst, keten R1/R2/RETURN, één sprong, geen testregel, `ss -ltn` alleen `192.168.0.158:55432`, `ss -tn 'sport = :55432'` leeg, beide `nc` geweigerd. `tick=ok`: een run van `dev-docker-firewall.service` ligt strikt ná de eerste boot-run van `dsh-firewall.service` en `owui-firewall.service`.
+- Zonder handmatig ingrijpen: `docker` en `dev-postgres.service` actief, `dev-postgres` `healthy` op `192.168.0.158:55432` (container gestart 17:48:35,99 lokale tijd, `dev-postgres.service` klaar 17:48:36,46, dus ongeveer 15 s na de kernel-start), `dev-docker-prune.timer` actief, de drie firewalltimers actief.
+
+**Boot-venster (gemeten, resolutie 1 s uit de journal in `raw/proof-t56-reboot.log`):**
+
+| Tijd | Gebeurtenis |
+|---|---|
+| 17:48:34 | eerste run `dev-docker-firewall.service`: "keten dev-docker-in opnieuw opgebouwd" (sprong op positie 1; docker.service klaar 17:48:34,6) |
+| 17:48:47 tot 17:48:48 | eerste run `dsh-firewall.service` en `owui-firewall.service` (zij voegen hun regels in) |
+| 17:49:35 | `dev-docker-firewall.service`: "sprong naar dev-docker-in hersteld op INPUT-positie 1" |
+
+Dat is een venster van **ongeveer 47 s** (17:48:48 tot 17:49:35, ± 1 s) waarin de sprong niet meer eerst stond, tegen een ontwerp van ten hoogste één timertik van 1 minuut. Gemeten is alleen het tijdstip van de herstelmelding. Niet getest is of poort 55432 in dat venster vanaf het LAN of Tailscale bereikbaar was; de keten stond er wel nog in, dus alleen door regels vóór de sprong kon verkeer erlangs. Het journal bevat na 17:49:35 geen herstelmelding meer (17:50:18, 17:51:19, 17:52:19): de tweede dsh/owui-ronde van 17:50:48 verplaatste de sprong dus niet.
+
+**Productie-engine na de reboot** (`raw/baseline-prod-after-reboot.txt`, 20 regels): 18 containers `Up` (2 en 16 met respectievelijk 4 en 5 minuten), alle containers uit de basislijn die toen draaiden. Niet `Up` zijn alleen `media-organizer-migrate-1` (Exited 5 dagen geleden) en `tei-gpu` (Exited 2 weken geleden), al gestopt vóór de basislijn. Geen issue nodig (`max2:<component>:not-up-after-reboot` niet aan de orde).
+
+`max2-docker status` (exit 0): engine `max2 … name=rootless`, `dev-postgres` `Up 5 minutes (healthy)`, 0 databases in het register, "nog geen echte prune-run", schijf 63,6 % vrij. Dat bewijst het pad Mac naar max2 na de reboot.
+
+## Acceptatie T-56
+
+| Punt | Stand |
+|---|---|
+| Spec §9-acceptatie 6 (sprong op 1, keten, `ss`, `nc`) na user-manager-herstart en reboot | ja, §11 en §12 |
+| Spec §9-acceptatie 8 (dev-postgres komt zonder handwerk terug, `max2-docker status`) | ja, §12 |
+| Boot-venster als gemeten getal | ja, ongeveer 47 s (1 s resolutie); bereikbaarheid binnen het venster niet getest |
+| Productiecontainers na de reboot gelijk aan de basislijn | ja, §12 |
+
+# Deel 4 — Mac fase 2 en 3 (T-57, spec §5.2, §11 rij 5)
+
+Docker Desktop stond sinds T-55 uit. In T-57 is Desktop niet opnieuw gestart.
+
+## 13. Fase 2: standaardcontext
+
+- `docker context use max2-dev` gaf `Current context is now "max2-dev"`. `docker context ls`: `max2-dev` is nu de huidige context (`*`); `default` en `desktop-linux` bestaan nog.
+- `docker info --format '{{.Name}} {{.SecurityOptions}}'` → `max2 [name=seccomp,profile=builtin name=rootless name=cgroupns]`.
+- Start bij inloggen: Docker Desktop staat al uit (`settings-store.json` `AutoStart: false`; `sfltool dumpbtm` toont voor `Docker` `disabled`). Er was niets te wijzigen. Alleen het root-hulpproces `com.docker.vmnetd` bestaat nog als launchd-daemon, geen app en geen VM.
+
+## 14. Fase 3: Homebrew-CLI
+
+- Back-up vooraf: `~/.docker/config.json.bak-2026-10-14` (buiten Git).
+- `brew install docker docker-compose docker-buildx docker-credential-helper`: docker 29.9.0, docker-compose 5.6.0, docker-buildx 0.38.0, docker-credential-helper 0.9.10.
+- `~/.docker/config.json`: `credsStore` van `desktop` naar `osxkeychain`, `cliPluginsExtraDirs: ["/opt/homebrew/lib/docker/cli-plugins"]` toegevoegd, `currentContext` is `max2-dev`; de overige sleutels (`plugins`, `features`) bleven. Dat is het volledige verschil met de back-up. De `auths` zijn leeg.
+- Controles met Desktop afgesloten: `which docker` → `/opt/homebrew/bin/docker`, ook in een login-shell (`zsh -lic`); `docker --version` 29.9.0; `docker compose version` 5.6.0; `docker buildx version` 0.38.0 Homebrew; `docker buildx ls` toont de builder `max2-dev` (docker-driver, BuildKit v0.34.0, `linux/amd64`); `docker ps` toont `dev-postgres` (healthy); `docker run --rm --memory 64m alpine:3` → `memory.max` 67108864; `max2-docker status` werkt met de nieuwe CLI (exit 0).
+- Keychain: `docker-credential-osxkeychain list` toont alleen registry-URL's: `https://dhi.io`, `https://index.docker.io/v1/` en de bijbehorende token-sleutels. Er staat **geen** login voor `git.jp-visser.nl`. Ik heb geen `docker login` gedaan, want dat vraagt een wachtwoord; JP doet dat zelf als die registry nodig is.
+- De oude CLI uit de Desktop-app blijft staan (`/usr/local/bin/docker` wijst naar `/Applications/Docker.app/…`), maar staat in het pad achter Homebrew.
+
+## 15. Terugval
+
+Volgorde, zonder iets op max2 aan te raken:
+
+1. `cp ~/.docker/config.json.bak-2026-10-14 ~/.docker/config.json` (herstelt `credsStore: desktop` en `currentContext: desktop-linux`), of alleen `docker context use desktop-linux`.
+2. Docker Desktop starten (`open -a Docker`), de context `desktop-linux` wijst naar de Desktop-socket.
+3. `dev-postgres` op max2 blijft draaien en is onschadelijk: bind op het LAN-adres, de keten `dev-docker-in` beperkt de toegang tot het LAN.
+
+Fase 4 (Docker Desktop verwijderen) is bewust niet gedaan: eerst 14 dagen zonder terugval, plus een `pg_dumpall` van `local-postgres` naar `max2-dev:dev-docker/backups/`. Dat is een aparte taak in een volgende sprint.
+
+## Acceptatie T-57
+
+| Punt | Stand |
+|---|---|
+| Spec §11 rij 5: Homebrew-CLI, compose, buildx en keychain-helper met Desktop afgesloten | ja, §14 |
+| `docker context ls` toont `max2-dev` als huidige context | ja, §13 |
+| Desktop niet actief tijdens de controles | ja (alleen `com.docker.vmnetd`) |
+| Terugval gedocumenteerd | ja, §15 |
+| PR ter review | volgt na deze commit |

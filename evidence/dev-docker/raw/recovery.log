@@ -1,0 +1,4 @@
+-A INPUT -s 192.0.2.254/32 -m comment --comment dd-recovery-test -j DROP
+-A INPUT -m comment --comment dev-docker -j dev-docker-in
+1
+Oct 14 17:01:52 max2 dev-docker-firewall[1867639]: sprong naar dev-docker-in hersteld op INPUT-positie 1
