@@ -43,7 +43,44 @@ Afgewezen: geen. Deels anders opgelost: #4 (reproductie met bron in plaats van e
 
 ## Ronde 2 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 2 @ `<r2_sha>`; context-pins ongewijzigd (grill rev `cmv7rt021000fyl174lrf4iyu`, PR-32-rapport @ `43f724b37c5f076e5cbbc1b7cbf1822080d9f3ec`).
+**Gepind:** `dev-docker/SPEC.md` revisie 2 @ `a10a4d81d586d8acf46fd6cb43c70f8c8aae0cea`; context-pins ongewijzigd (grill rev `cmv7rt021000fyl174lrf4iyu`, PR-32-rapport @ `43f724b37c5f076e5cbbc1b7cbf1822080d9f3ec`).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `22b00c9c-c984-4d3c-98cb-3c0eb033eef3` | `f4e6928d-6521-4346-8294-d28129657810` | job (SUCCEEDED) | `c5bc4830-29f2-4711-84ff-c48f57fd323c` | linked |
+| CLAUDE | `eb94d1b0-7651-4a3b-a034-b37cfe6c53d2` | `35eaad4e-d20e-4ccf-a5e5-a2a123c2ff8a` | job (SUCCEEDED) | `2e987899-73b1-4a17-8057-adae5247fe96` | linked |
+
+**Dispatch:** beide 07:49–07:50 UTC ingediend, state WAITING (waiting_for_capacity).
+
+**Uitslag:** CODEX **NO-GO** (0 BLOCKER, 1 MAJOR, 3 MINOR; 07:53 UTC). CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 10 MINOR; 07:55 UTC). Convergent: §9 stap 4 expandeert `"$DATABASE_URL"` in de aanroepende shell vóór `db run` de omgeving zet; alias `max2-dev` wordt gebruikt vóór hij bestaat. Codex kon de diff tegen 69cc7d8 niet lezen (depth-1 checkout) en beoordeelde de volledige revisie; claude las pr32 tot regel 229.
+
+**Fixes ronde 1 volgens de reviewers:** codex 10 held, 2 partially (gate, transcript), 1 did not hold (LAN-check); claude 8 held, 5 partially (prune-netwerk, gate-lezing, dry-run-reden, transcript, LAN-check).
+
+**Triage** (geverifieerd tegen de spec en de hostfeiten):
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 3 |
+|---|---|---|---|---|---|
+| 1 | codex M1 / claude F1 | MAJOR | `psql "$DATABASE_URL"` wordt door de aanroeper geëxpandeerd; URL in argv zichtbaar in `ps` | accept | §6.1/§6.2/§9: `db run` zet ook `PGHOST/PGPORT/PGUSER/PGDATABASE/PGPASSWORD`; `psql -Atc …` zonder URL-argument; skillregel "nooit als argument" |
+| 2 | codex m2 / claude F3a | MINOR | alias `max2-dev` gebruikt vóór aanmaak | accept | §9 stappen herordend (alias → rsync+install → context) |
+| 3 | codex m3 / claude F1b | MINOR | kind-env is beleid, geen controle; kinduitvoer kan lekken | accept | §6.1/§7: expliciet "bescherming door instructie"; `db run` maskeert kinduitvoer (`--no-redact` niet voor agents); vooraf check van het testcommando; §11 rij 10 |
+| 4 | codex m4 | MINOR | minimumbudget: clampen vs weigeren | accept | §8: weigeren onder 2 GiB, nooit omhoog afronden; ook bij hernieuwde proef |
+| 5 | claude F2 | MINOR | `network prune` neemt netwerk van gestopte dev-postgres; stap-4-dry-run ongedefinieerd; geen `until`-filter; tag vs digest | accept | §4.7 stap 0: bij falen alleen stap 1 en stoppen; netwerk gelabeld `dev.keep=true` + `label!=`-filter; `until=168h`; dry-run-berekening beschreven; `images.txt` met dezelfde digest als compose |
+| 6 | claude F3b | MINOR | `scp -r` niet idempotent; bron en compose-map gemengd | accept | §4 intro/§4.2: `rsync -a --delete` naar `~/dev-docker-src/`, stack in `~/dev-docker/` |
+| 7 | claude F4 | MINOR | `bash -s` zonder argumenten; stdin-conflict; sudo zonder tty; AllowUsers | accept (gemeten: sshd heeft geen AllowUsers/AllowGroups) | §4.1: scp + `ssh -t sudo bash /tmp/bootstrap.sh --…`; `DEBIAN_FRONTEND=noninteractive`, apt `</dev/null`; preflight controleert `sshd -T` |
+| 8 | claude F5 | MINOR | §8 presenteert eigen lezing als §7.8; venster; drop-in na linger; cgtop toont geen limiet | accept | §8: expliciet als afgeleide regel met de letterlijke 50 %-berekening (14,0 > 10,77 ROOD) en waarom niet gebruikt; **besluit JP** als open punt §12; venster ≥ 24 h met werkdag; §4.1 drop-in vóór linger + `systemctl show`/`memory.max`-controle; §11 rij 4 |
+| 9 | claude F6 | MINOR | bind op vast IP kan racen met netwerk bij boot | accept | §4.4/§4.5: publicatie op `0.0.0.0` met ufw als grens (binnen grill-besluit 3); reboot-test §9 stap 9 en §11 rij 2 |
+| 10 | claude F7 | MINOR | reden "jonger dan 14 dagen" ontbrak; hex-grep vals positief door digests | accept | §4.7 redenlijst; §9 `grep -F` op de letterlijke waarde + `dev:` zonder `***` |
+| 11 | claude F8 | MINOR | CREATE/DROP DATABASE niet in DO-blok; `format('%I')` alleen met `\gexec` | accept | §4.6/§6.2/§4.7: losse statements met `\gexec`; registratie apart; faalsemantiek |
+| 12 | claude F9 | MINOR | Desktop-restanten (`cli-plugins`, `desktop-linux`, credsStore); dump zonder `--context` | accept | §5.2 fase 4 |
+| 13 | claude F10 | MINOR | `POSTGRES_USER=dev` is superuser; "alleen dev-data" overdreven | accept | §4.5: superuser `postgres` alleen in de container, clientrol `dev` met `CREATEDB`, pgvector in `template1`; `DEV_PASSWORD` apart; §7 herformuleerd |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 2:** toegevoegd: PG*-variabelen en uitvoermaskering in `db run`, clientrol zonder superuser, reboot-test, slice-limietcontrole, `until`-filters, netwerklabel; gewijzigd: publicatie op `0.0.0.0` i.p.v. het vaste IP (binnen besluit 3), bron- en compose-map gescheiden. Eerste bruikbare resultaat en praktijkproef ongewijzigd; één extra proefstap (reboot) en één JP-besluit (gate-lezing) als open punt. Spec 312 → 320 regels.
+
+## Ronde 3 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 3 @ `<r3_sha>`; context-pins ongewijzigd.
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
