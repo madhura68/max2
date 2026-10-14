@@ -256,6 +256,9 @@ if [ "$PG_UP" = 1 ]; then
   while IFS= read -r ref; do
     [ -n "$ref" ] || continue
     docker image inspect --format '{{.Id}}' "$ref" >>"$work/prot" 2>/dev/null || missing+=" $ref"
+    # Containerd-image-store (Docker 29): de tag verwijst naar de index-manifest, de digest-referentie naar de platform-manifest;
+    # `image ls` toont ze als twee ID's. Beide beschermen, anders wordt de index als "ongebruikt" kandidaat (gemeten op de Mac).
+    [[ $ref == *@* ]] && { docker image inspect --format '{{.Id}}' "${ref%@*}" >>"$work/prot" 2>/dev/null || true; }
   done <"$DD/images.txt"
   [ -n "$missing" ] && echo "   niet lokaal aanwezig (niet gepulld):$missing"
   docker image ls --no-trunc --format $'{{.ID}}\t{{.Repository}}:{{.Tag}}\t{{.CreatedAt}}' | classify images "$NOW" "$work/inuse" "$work/prot" >"$work/cl"

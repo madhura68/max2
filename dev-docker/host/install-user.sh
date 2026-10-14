@@ -34,7 +34,8 @@ fi
 export DOCKER_HOST=unix://$XDG_RUNTIME_DIR/docker.sock
 # De Docker-SSH-route (`docker system dial-stdio`) draait in een niet-interactieve shell zonder profiel: de context
 # staat in ~/.docker/config.json en werkt daar wel, DOCKER_HOST uit een profiel niet.
-if [ "$(docker context show 2>/dev/null)" = rootless ]; then same "docker context rootless is standaard"; else docker context use rootless >/dev/null; changed "docker context use rootless"; fi
+# Met DOCKER_HOST gezet meldt de CLI altijd context "default": de controle draait daarom zonder die variabele.
+if [ "$(env -u DOCKER_HOST docker context show 2>/dev/null)" = rootless ]; then same "docker context rootless is standaard"; else docker context use rootless >/dev/null; changed "docker context use rootless"; fi
 
 # 2. mappen en bestanden uit ~/dev-docker-src
 mkdir -p "$DST/init" "$DST/backups" "$UNITS"

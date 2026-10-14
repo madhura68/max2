@@ -28,6 +28,7 @@ services:
       start_period: 30s
 volumes:
   dev-postgres-data:
+    name: dev-postgres-data          # zonder name: zou compose het volume dev-docker_dev-postgres-data noemen (spec §4.5, §4.7)
     labels:
       dev.keep: "true"
 networks:
