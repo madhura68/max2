@@ -144,7 +144,40 @@ Afgewezen: geen.
 
 ## Ronde 5 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 5 @ `<r5_sha>`; context-pins: grill, PR-32-rapport, `caps.md` @ `96e0ac27…`, `migratieontwerp.md` @ `984f5949…`, **nieuw:** U4-record `docs/forgejo-runner-pool/evidence/n-stacks/2026-10-12-uitrol-stack-03.md` @ `9a5e084a9dc99760644131cdc1e25dd4d78fbbef` (scrum4me-server).
+**Gepind:** `dev-docker/SPEC.md` revisie 5 @ `5aa595650d96338247a3e75d0440ed7a42c97cfa`; context-pins: grill, PR-32-rapport, `caps.md` @ `96e0ac27…`, `migratieontwerp.md` @ `984f5949…`, **nieuw:** U4-record `docs/forgejo-runner-pool/evidence/n-stacks/2026-10-12-uitrol-stack-03.md` @ `9a5e084a9dc99760644131cdc1e25dd4d78fbbef` (scrum4me-server).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `58cc25f3-c928-4710-96ca-1d6538e8f12e` | `f7948a76-8281-413c-867e-010385be4fb9` | job (SUCCEEDED) | `894f5d2e-a2dd-410b-8e26-5c782549c66e` | linked |
+| CLAUDE | `2a13718a-dd90-4ea7-bb2f-5014815ebd62` | `c971ddfd-a092-42d5-bdfe-1ace33cb4b90` | job (SUCCEEDED) | `392394c7-eb71-44b0-a732-255e2917b9bb` | linked |
+
+**Dispatch:** beide 08:20–08:21 UTC ingediend, state WAITING (waiting_for_capacity); zes pins geaccepteerd.
+
+**Uitslag:** CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 6 MINOR; 08:25 UTC). CODEX **NO-GO** (0 BLOCKER, 1 MAJOR, 4 MINOR; 08:26 UTC). Convergent (codex MAJOR, claude F2 MINOR): de tailscale0-uitzondering in de weigerregel is onhoudbaar — een bind op het LAN-adres onderscheidt bestemmingen, geen ingress; onder het weak-host-model levert `-i tailscale0 -j ACCEPT` een pakket naar 192.168.0.158:55432 gewoon af. §8-cijfers door beide reviewers als correct bevestigd. Claude las `ontwerp` alleen R17 en `pr32` niet (`not_run`), zonder bevinding die erop steunt.
+
+**Fixes ronde 4 volgens de reviewers:** codex 5 held, 3 partially (1, 6, 8); claude 3 held, 2 grotendeels, 3 deels (1, 5, 6).
+
+**Triage** (geverifieerd; aanvullende metingen 14-10-2026 op max2: systemd 259; pgvector-entrypoint regels 266–285 voegen `host all all all <methode>` toe, initdb-sample zet loopback op `@authmethodhost@`; Tailscale `NetfilterMode: 2`; bestaand hostpatroon `dsh-firewall.sh`/`owui-firewall.sh` met `ensure`-DROP-regels op INPUT-positie 1 plus service + timer):
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 6 |
+|---|---|---|---|---|---|
+| 1 | codex M1 / claude F2 | MAJOR | tailscale0-uitzondering laat pakketten naar de LAN-gebonden listener door; bind ≠ ingress-grens | accept | §4.4: geen semantische doorloop meer; twee eigen DROP-regels bovenaan INPUT (`! -i enp4s0` en `-i enp4s0 ! -s 192.168.0.0/24`) via `dev-docker-firewall.sh` + service/timer (hostpatroon), `Before=user@<uid>.service`; controle = positie 1–2 en twee negatieve `nc`-tests vanaf max2 (incl. via `lo` naar het LAN-adres, bewijst dat de DROP vuurt); §4.1, §9, §10, §11 aangepast |
+| 2 | claude F1 | MINOR | evaluatiesemantiek van de doorloop onderbepaald | accept (vervalt) | de doorloop is vervangen door de expliciete regels; `iptables-save` alleen als momentopname |
+| 3 | claude F3 / codex m4 | MINOR | `ssh -G` geeft `~`-pad; `.pub` niet altijd aanwezig | accept | §4.1: tilde-expansie, `test -r`, expliciet pad bij meerdere identiteiten/agent |
+| 4 | claude F4 | MINOR | X ontbreekt in de bootstrap-interface | accept | §4.1: verplicht `--floor-gib <X>` zonder default, in het bewijsbestand |
+| 5 | claude F5 | MINOR | bronvermelding ROOD-rij vermengt P6-berekening met R17/U2-waarden | accept | §8.1 rij uitgesplitst (P6 10,77/55,7 %; R17 9,79/61 %; U2 10,83) |
+| 6 | claude F6a / codex m2 | MINOR | `sleep 4` geeft ≈ 8 s door `vmstat 1 5` | accept | §8.2: aparte lus met `sleep 5` zonder vmstat; werkelijke deltas in het bewijs |
+| 7 | claude F6b | MINOR | loopback-`trust` in pg_hba; onbekend welk bronadres de poortdriver presenteert; geen negatieve auth-test | accept (gemeten: entrypoint/initdb-gedrag) | §4.5: loopback-regels naar `scram-sha-256`, reject voor `postgres` bovenaan, `pg_ctl reload`; §9 stap 5: fout/leeg wachtwoord en `postgres` over TCP geweigerd, `client_addr` vastgelegd |
+| 8 | codex m3 | MINOR | `docker image prune -f` na de ID-berekening omzeilt de leeftijdsregel | accept | §4.7 stap 4: geschrapt; ongetagde images vallen onder dezelfde berekening |
+| 9 | codex m5 | MINOR | runtime-bewijs (entrypoint, systemd) niet in de bundel | accept | gemeten en in §4.5/§12 opgenomen; planpunt: image-digest + entrypoint-fragment pinnen |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 5:** toegevoegd: `dev-docker-firewall.sh` met service en timer (bestaand hostpatroon), `--floor-gib`, pg_hba-verharding, negatieve auth-tests; verwijderd: de semantische filtertabel-doorloop en de trailing `image prune`. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 349 → 363 regels.
+
+## Ronde 6 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 6 @ `<r6_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
