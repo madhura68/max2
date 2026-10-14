@@ -140,6 +140,6 @@ Zelfde opdracht, Desktop uit, nieuwe database `s4mqueue_proef` (`raw/t55-testrun
 | Desktop aantoonbaar dicht tijdens de testrun | ja, §8 |
 | Testrun: alle DB-afhankelijke bestanden slagen, geen verschil met de basislijn | ja, §10 (na besluit `CREATEROLE`; de eerste run faalde op één bestand, §8) |
 | `memory.events` `max 0` en `oom_kill 0`, piek genoteerd | ja, §8 en §10 |
-| Codex-sessie: één `db list` | **open**, vraagt een door JP gestarte Codex-sessie |
+| Codex-sessie: één `db list` | ja: JP draaide `max2-docker db list` vanuit een Codex-sessie, exitcode 0, lege lijst (de proefdatabase was al verwijderd). Door JP gemeld, niet door mij gemeten; de skill staat via een symlink in `~/.codex/skills/` |
 | `cleanup --dry-run` en register ongewijzigd | ja, §9 en §10 |
 | `db drop`, basislijn productie gelijk, sampler zonder ALARM | ja, §9 |
