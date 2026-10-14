@@ -144,7 +144,7 @@ Afgewezen: geen.
 
 ## Ronde 5 (14-10-2026)
 
-**Gepind:** `dev-docker/PLAN.md` revisie 5 @ `__SHA__`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+**Gepind:** `dev-docker/PLAN.md` revisie 5 @ `978e3162dee37d7a2f7f1b732c2f53ca0cfaffda` (reviewrecord-commit volgt; `PLAN.md` byte-identiek, sha256 `6d2c9e5e…`); `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
