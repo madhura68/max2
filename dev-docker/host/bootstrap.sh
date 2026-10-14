@@ -109,9 +109,14 @@ fi
 dpkg -s docker-ce-rootless-extras >/dev/null 2>&1 && ok "docker-ce-rootless-extras geïnstalleerd" || rood "docker-ce-rootless-extras ontbreekt"
 
 if [ "$(stat -fc %T /sys/fs/cgroup 2>/dev/null)" = cgroup2fs ]; then
-  dc=$(systemctl show user@.service -p DelegateControllers --value 2>/dev/null || true)
+  # `systemctl show user@.service` (template) werkt niet ("neither a valid invocation ID nor unit name", gemeten op max2): vraag een instantie.
+  dc=""
+  for u in ${UID_DD:+"$UID_DD"} ${SUDO_UID:+"$SUDO_UID"} 1000; do
+    dc=$(systemctl show "user@$u.service" -p DelegateControllers --value 2>/dev/null || true)
+    [ -n "$dc" ] && break
+  done
   miss=""; for c in cpu memory pids; do [[ " $dc " == *" $c "* ]] || miss+=" $c"; done
-  [ -z "$miss" ] && ok "cgroup v2, DelegateControllers van user@.service: $dc" || rood "DelegateControllers van user@.service mist:$miss (heeft: ${dc:-leeg})"
+  [ -z "$miss" ] && ok "cgroup v2, DelegateControllers van user@<uid>.service: $dc" || rood "DelegateControllers van user@<uid>.service mist:$miss (heeft: ${dc:-leeg})"
 else
   rood "cgroup v2 niet actief"
 fi
