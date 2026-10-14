@@ -106,7 +106,45 @@ Afgewezen: geen.
 
 ## Ronde 4 — 2026-10-14
 
-**Gepind:** `dev-docker/PLAN.md` revisie 4 @ `<r4_sha>`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+**Gepind:** `dev-docker/PLAN.md` revisie 4 @ `830077cb15b7086bbfd6f18c87bd1213a227e286`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `4cdf2d22-9bc8-4c82-b4f3-928d1cab908c` | `942058e3-c58b-4109-9fd2-084e4aef51c9` | job (SUCCEEDED) | `0f5c3461-91a6-40f0-9fe4-382aba59aa50` | linked |
+| CLAUDE | `207b35c6-d35e-4f6a-88b4-46b8531fac2f` | `93d3cab5-1cd1-4b3c-bf73-78f31c4906b4` | job (SUCCEEDED) | `3397f665-3cf9-4c57-b2e4-9b15abde9357` | linked |
+
+**Uitslag:** CODEX **NO-GO** (1 BLOCKER, 2 MAJOR, 4 MINOR; 13:22 UTC). CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 9 MINOR; 13:21 UTC). Beide: zes taken, geen schrapkandidaat; fixgroep 2 (deadline-wrapper) hield; fixgroep 1 (secretscan) hield gedeeltelijk; `nc -G 3` consistent met de metingen. Convergent (beide): `mktemp`-bestand is 0600 van root, dus de `scp` zonder sudo faalt; de alarm/`setpgrp`-race; exit 124 niet onderscheidbaar van een kind dat zelf 124 geeft.
+
+**Triage (alle bevindingen geaccepteerd; recepten vóór revisie 5 lokaal gemeten, zie onder):**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 5 |
+|---|---|---|---|---|---|
+| 1 | codex B1 | BLOCKER | `git grep -nE` en de `ps \| grep`-lus printen de gedetecteerde credential zelf in het transcript (spec §7) | accept | overal `-q`/`-l`, nooit `-n` zonder `-l`; `ps`-lus `grep -qE` met per snapshot `leeg`/`TREFFER`; `git grep` exit 1 = geen treffer, 0 of ≥ 2 stopt (gemeten: buiten een repo rc 128) |
+| 2 | codex M1 / claude F1 | MAJOR / MINOR | `mktemp` maakt 0600 van root; `scp` als janpeter faalt | accept | interface `proof-checks.sh`: `chmod 0644 "$out"`, regel `OUT=<pad>` vóór `SUMMARY`; map via `install -d -m 0755 -o root -g root` + eigenaar/symlink-check (`FOUT-proofdir`, claude F6) |
+| 3 | codex M2 / claude F2 | MAJOR / MINOR | perl leest werkboom i.p.v. gestagede blob; `unset pw` overschrijft de status; macOS-`xargs` start niets bij lege invoer (die-guard dood) en vertaalt exit 1 → 123; batches kunnen `schoon` na `LEK` printen | accept | nieuwe sectie **Secretscan**: één `perl`-aanroep leest paden van stdin (`-z`, `--diff-filter=d`) en de inhoud via `git show :<pad>` (list-form pipe, geen shell); `set -o pipefail`; `rc=$?` vóór `unset pw`; commit van precies de staged set, geen `add`/edit/`-a` ertussen. Gemeten in een scratch-repo: lege set → `FOUT-geen-bestanden` rc 255; staged secret → `LEK` rc 1; schoon → rc 0; werkboom gecorrigeerd maar index vuil → `LEK`; alleen verwijdering → FOUT; macOS `xargs -0` op lege invoer → niets gestart, rc 0 |
+| 4 | codex m1 / claude F4a | MINOR | alarm kan vuren vóór het kind `setpgrp` deed → `kill -$kid` ESRCH | accept | ouder doet na `fork` ook `setpgrp($kid,$kid)` (fout genegeerd); handler kilt `-$kid, $kid` |
+| 5 | codex m2 / claude F4b | MINOR | exit 124 niet onderscheidbaar van kind-exit 124 | accept | 124 gereserveerd; contract van de omhulde programma's benoemd; test `sh -c 'exit 124'` → 124 als aanvaarde dubbelzinnigheid |
+| 6 | codex m3 | MINOR | stub-`ssh`-contract noemt nog de oude gecombineerde `status`-aanroep | accept | twee aanroepen afzonderlijk + `MAX2_DOCKER_STUB_LASTRUN=missing` |
+| 7 | codex m4 | MINOR | historische bronnen (PR 32, caps/R17/U4) niet in de bundel | accept, geen wijziging | caveat staat al in de herkomstzin; geen nieuwe pins nodig |
+| 8 | claude F3 | MINOR | het `ps`-zoekpatroon `//dev:` in het bewijs trapt de eigen `//dev:[^*]`-scan af | accept | patroon `postgresql:[/]/\|[/]/dev:` (matcht zichzelf niet) |
+| 9 | claude F4c/d/e | MINOR | `exec`-fout niet gespecificeerd; Ctrl-C bereikt het kind niet; `kill -0` kan op een zombie slagen | accept | kind `exit 127` na mislukte `exec`; INT/TERM doorgestuurd naar `-$kid`; poll tot 1 s; tests 127/7 toegevoegd |
+| 10 | claude F5 | MINOR | secretscan in taak 2/5/6 niet of inconsistent benoemd; "één keer" | accept | sectie Secretscan "per bewijscommit"; expliciet in taak 1 (alleen grep), 2, 4, 5, 6; zelfcontrole §7 bijgewerkt |
+| 11 | claude F6 | MINOR | root-scripts uit wereld-schrijfbaar `/tmp`; `dd-proof` niet geverifieerd | accept | afwijking 4: `/home/janpeter/dd-run/` (0700) i.p.v. `/tmp` in taak 2 en 5; map-check in `proof-checks.sh` |
+| 12 | claude F7 | MINOR | `SUMMARY`-verwachting mist `tick=skipped`; "laatste `Finished`" is een bewegend doel; seconde-resolutie | accept | `tick=skipped` toegevoegd; referentie = **eerste** dsh/owui-`Finished` van deze boot, strikt later op `-o short-iso-precise` |
+| 13 | claude F8 | MINOR | `status` vóór de eerste echte prune-run: `cat` faalt → exit 4 | accept | `nog geen echte prune-run` + live `df`, exit 0; stub-modus en test; taak 5 stap 2 verwacht dit |
+| 14 | claude F9 | MINOR | controle-run "vóór stap 3 van alleen dat bestand" is niet uitvoerbaar (falende set pas bekend na de run) | accept | controle-run = één `npm test` zonder helper vóór het afsluiten van Desktop; falende set = baseline; alleen baseline-bestanden tellen niet mee, anders stop + JP |
+
+Afgewezen: geen.
+
+**Lokale metingen vóór revisie 5 (14-10-2026, Mac):** perl-wrapper met ouder-`setpgrp($kid,$kid)`, `kill -$kid,$kid`, `exit 127` na mislukte `exec`: `sh -c 'sleep 30 & sleep 30'` onder 2 s → rc 124 na 3 s, geen achtergebleven `sleep`; `sh -c 'exit 124'` → 124; `/nonexistent/prog` → 127; `kill -9 $$` → 137; `exit 7` → 7; stdin bereikt `cat`. Secretscan-recept zoals in de tabel bij #3.
+
+**Scope-delta ronde 4:** geen taak of subsysteem erbij; één nieuwe afwijking van de spec (4: pad van root-scripts, uitvoeringsdetail); het secretscan-recept verhuist uit taak 4 naar een eigen sectie die vijf taken delen. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 227 → 244 regels (sectie Secretscan + afwijking 4).
+
+**Herbeoordeling vóór ronde 5:** vier rondes op rij betroffen de drie recepten en de `proof-checks.sh`-interface; ronde 4 bracht één nieuw inzicht van buiten die recepten (de `//dev:`-scan trapt op haar eigen `ps`-patroon, de controle-run was onuitvoerbaar). Alle ronde-4-recepten zijn nu lokaal gemeten in plaats van alleen beredeneerd, wat de kans op een vijfde receptronde verkleint. Geen uitbreiding; geen schrapkandidaat.
+
+## Ronde 5 (14-10-2026)
+
+**Gepind:** `dev-docker/PLAN.md` revisie 5 @ `__SHA__`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
