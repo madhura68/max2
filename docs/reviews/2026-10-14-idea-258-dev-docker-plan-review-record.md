@@ -72,7 +72,41 @@ Afgewezen: geen.
 
 ## Ronde 3 — 2026-10-14
 
-**Gepind:** `dev-docker/PLAN.md` revisie 3 @ `<r3_sha>`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+**Gepind:** `dev-docker/PLAN.md` revisie 3 @ `e6f9c53cbfaf85814d6e11d4e82b41d3e61a2a0b`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `58b0e065-c985-4759-96a1-a4cf0e5bc4b0` | `9bd3cf51-7f2e-47f0-b5aa-fb6a86bc7d1a` | job (SUCCEEDED) | `6d8080f5-ded5-411e-a200-1a193863a8c6` | linked |
+| CLAUDE | `9c2241a2-479c-4909-a6ed-765874937a09` | `5ab4e101-83b7-4c98-ac59-e21f44ca9a24` | job (SUCCEEDED) | `c7ceb52f-25ea-4132-9760-10433d135dd7` | linked |
+
+**Uitslag:** CODEX **NO-GO** (1 BLOCKER, 1 MAJOR, 4 MINOR; 13:11 UTC). CLAUDE **NO-GO** (0 BLOCKER, 2 MAJOR, 8 MINOR; 13:10 UTC). Volledig convergent op de twee hoofdpunten: (1) de perl-wrapper deed `setpgrp` op zichzelf en doodde met `kill … -$$` zijn eigen groep vóór `exit 124`, en `$?>>8` maakt van een gesignaleerd kind exit 0 (codex MAJOR / claude MAJOR); (2) de secretscan draaide in de verkeerde repo (taak 4 zit in s4m-queue) op alleen getrackte bestanden, dus `schoon` bij een lege lijst en nieuwe `raw/`-bestanden ongescand (codex BLOCKER / claude MAJOR). Beide: zes taken minimaal; fixgroep 2 (nc-seam) en 5 (test g) gehouden.
+
+**Triage** (extra meting 14-10-2026 op de Mac: `nc -z -w3` naar een onbeantwoord adres duurt 75 s, `nc -z -G 3` 3 s, een gesloten lokale poort weigert direct — codex' MINOR over de nc-time-out was dus terecht en materieel):
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 4 |
+|---|---|---|---|---|---|
+| 1 | codex F1 / claude F2 | BLOCKER / MAJOR | secretscan: verkeerde repo, alleen getrackte bestanden, lege lijst → `schoon` | accept | taak 4 stap 7: expliciet `cd` naar de max2-checkout met branchcontrole; `git add -A evidence/dev-docker`; scan over `git diff --cached --name-only -z` via `xargs -0`; `die` bij lege lijst; commit alleen van de gescande staged set; nieuw bewijs → opnieuw stagen en scannen; globale `git grep --untracked` |
+| 2 | codex F2 / claude F1 | MAJOR / MAJOR | wrapper doodt zichzelf; `$?>>8` verliest signaaldood; ssh-connhelper mogelijk eigen pgid; tty-prompts | accept | kind doet `setpgrp(0,0)`, ouder blijft buiten de groep, `kill -$kid` TERM/KILL, `waitpid`, exit 124; status `($?&127) ? 128+($?&127) : $?>>8`; `BatchMode yes` + `ServerAliveCountMax 2` in de alias; residu (connhelper-pgid) benoemd; tests: `kill -9`-kind → 137, stub die zichzelf doodt → exit 4 |
+| 3 | claude F3 | MINOR | `dev:[^*]` matcht legitieme SSH-doelen | accept | patroon `//dev:[^*]` |
+| 4 | claude F4 | MINOR | daemon-uit-regel bevat ook `error during connect` | accept | `Cannot connect to the Docker daemon` eerst → 4; stub met de volledige regel |
+| 5 | claude F5 / codex m1 | MINOR | `--wait-tick` niet in `SUMMARY`, time-out en afwezige dsh/owui-runs ongedefinieerd, "run" ongedefinieerd | accept | `tick=<ok|n/a-dsh|timeout|skipped>` en `listener=timeout`; run = `Finished`-regel van deze boot; time-out → exit 1; n/a → venster "n.v.t." |
+| 6 | claude F6 | MINOR | root schrijft op voorspelbare naam in `/tmp` | accept | `mktemp` in root-eigen `/var/tmp/dd-proof/` (0755) |
+| 7 | claude F7 | MINOR | 120 s hangt van een taak-2-meting af terwijl taak 3 parallel loopt | accept | 120 s vast; taak 2 meldt alleen |
+| 8 | claude F8 | MINOR | `status`: JSON en `df` door één `jq` | accept | twee ssh-aanroepen |
+| 9 | claude F9 | MINOR | bash-versiecheck exit 2; `wait` onder `set -e` | accept | exit 64; `wait … || true` |
+| 10 | claude F10 | MINOR | `ps`-scan in de proef is één momentopname | accept | lus 0,2 s gedurende 4 s; grens benoemd |
+| 11 | codex m2 | MINOR | macOS `nc -w` begrenst een onbeantwoorde connect niet | accept (gemeten) | `nc -z -G 3 -w 3` onder `with_deadline 5`; test tegen `10.255.255.1` (onbeantwoord) én `127.0.0.1:1` (weigering) |
+| 12 | codex m3 | MINOR | sampler-`awk` leest een Mac-pad | accept | via `ssh max2 "awk …"` |
+| 13 | codex m4 | MINOR | historische bronnen niet in de bundel | accept (benoemd) | herkomst-zin aangescherpt: niet in de bundel, geen nieuwe bevinding |
+| 14 | codex (fixgroep 3) | MINOR | taak 1 "alle scripts `set -euo pipefail`" zonder uitzondering voor `proof-checks.sh` | accept | uitzondering expliciet |
+
+Afgewezen: geen.
+
+**Scope-herbeoordeling vóór ronde 4 (cap 10):** het plan is sinds ronde 1 niet gegroeid in taken (7 → 6) of in subsystemen; de rondes 2 en 3 gingen uitsluitend over de correctheid van drie shell-recepten in taak 3/4 (deadline, maskering, secretscan) en de interface van `proof-checks.sh`. Die recepten staan in het plan omdat beide reviewers in ronde 1 zero-context-uitvoerbaarheid eisten; weglaten zou de uitvoerder dezelfde fouten laten maken. Kleiner alternatief overwogen: de recepten vervangen door alleen contracten + tests — verworpen, omdat de tests de contracten al pinnen en de recepten het verschil maken tussen één en drie implementatierondes. Eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 221 → 227 regels.
+
+## Ronde 4 — 2026-10-14
+
+**Gepind:** `dev-docker/PLAN.md` revisie 4 @ `<r4_sha>`; `dev-docker/SPEC.md` rev. 11 @ dezelfde commit (ongewijzigd).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
