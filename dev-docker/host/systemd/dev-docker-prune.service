@@ -1,0 +1,11 @@
+[Unit]
+Description=dev-docker prune: leeftijdsgebaseerd opruimen (IDEA-258)
+Wants=docker.service
+After=docker.service
+
+[Service]
+Type=oneshot
+WorkingDirectory=%h/dev-docker
+Environment=DOCKER_HOST=unix://%t/docker.sock
+Environment=PATH=/usr/local/bin:/usr/bin:/usr/sbin:/bin:/sbin
+ExecStart=%h/dev-docker/prune.sh

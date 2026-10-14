@@ -1,0 +1,5 @@
+pgvector/pgvector:pg17@sha256:cd4ccfdaf62cbfeb5c6ee19ef0dd663406d4ed740c320b324d016a90e85385b3
+node:24-bookworm-slim
+node:22-bookworm-slim
+debian:bookworm-slim
+alpine:3

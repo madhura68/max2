@@ -1,0 +1,36 @@
+# dev-postgres (IDEA-258, spec §4.5). Draait onder devdock op de rootless engine; gestart door de user-unit dev-postgres.service.
+# Wachtwoorden komen uit ./.env (0600, door install-user.sh gegenereerd); nooit in Git.
+name: dev-docker
+services:
+  dev-postgres:
+    image: pgvector/pgvector:pg17@sha256:cd4ccfdaf62cbfeb5c6ee19ef0dd663406d4ed740c320b324d016a90e85385b3
+    container_name: dev-postgres
+    restart: unless-stopped
+    labels:
+      dev.role: postgres
+      dev.keep: "true"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD ontbreekt in .env}
+      DEV_PASSWORD: ${DEV_PASSWORD:?DEV_PASSWORD ontbreekt in .env}
+    ports:
+      - "192.168.0.158:55432:5432"
+    volumes:
+      - dev-postgres-data:/var/lib/postgresql/data
+      - ./init:/docker-entrypoint-initdb.d:ro
+    mem_limit: 2g
+    shm_size: 256m
+    healthcheck:
+      test: ["CMD", "pg_isready", "-h", "127.0.0.1", "-p", "5432", "-U", "dev", "-d", "postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+volumes:
+  dev-postgres-data:
+    labels:
+      dev.keep: "true"
+networks:
+  default:
+    labels:
+      dev.keep: "true"
