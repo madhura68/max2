@@ -38,6 +38,7 @@ een runc-versie die `OwnerUID` niet meer nodig heeft maakt de shim overbodig.
 3. Mac: alias `max2-dev` in `~/.ssh/config`; `rsync -a --delete dev-docker/host/ max2-dev:dev-docker-src/ && ssh max2-dev bash dev-docker-src/install-user.sh`.
 4. Mac: `docker context create max2-dev --docker host=ssh://max2-dev`; controle `docker --context max2-dev info --format '{{.Name}} {{.SecurityOptions}}'`.
 5. Beide bootstrap- en install-scripts zijn idempotent; een tweede run meldt alleen `SAME`.
+6. Instantie die met een oudere `01-roles.sh` (zonder `CREATEROLE`) is geïnitialiseerd: eenmalig `docker --context max2-dev exec -i dev-postgres psql -U postgres -c 'ALTER ROLE dev CREATEROLE'`. Init-scripts draaien alleen bij de eerste initialisatie.
 
 ## Gebruik
 

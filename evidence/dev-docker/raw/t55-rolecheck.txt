@@ -1,0 +1,54 @@
+             test             
+------------------------------
+ a: create role (moet slagen)
+(1 row)
+
+              ?column?              
+------------------------------------
+ b: superuser aanmaken (moet falen)
+(1 row)
+
+psql:/private/tmp/claude-501/-Users-janpetervisser-Development-max2--claude-worktrees-usage-ledger-b761cb/51a64054-46b1-4011-baed-5fe9e3a6ac7d/scratchpad/t55-rolecheck.sql:3: ERROR:  permission denied to create role
+DETAIL:  Only roles with the SUPERUSER attribute may create roles with the SUPERUSER attribute.
+              ?column?              
+------------------------------------
+ c: bypassrls aanmaken (moet falen)
+(1 row)
+
+psql:/private/tmp/claude-501/-Users-janpetervisser-Development-max2--claude-worktrees-usage-ledger-b761cb/51a64054-46b1-4011-baed-5fe9e3a6ac7d/scratchpad/t55-rolecheck.sql:4: ERROR:  permission denied to create role
+DETAIL:  Only roles with the BYPASSRLS attribute may create roles with the BYPASSRLS attribute.
+               ?column?               
+--------------------------------------
+ d: replication aanmaken (moet falen)
+(1 row)
+
+psql:/private/tmp/claude-501/-Users-janpetervisser-Development-max2--claude-worktrees-usage-ledger-b761cb/51a64054-46b1-4011-baed-5fe9e3a6ac7d/scratchpad/t55-rolecheck.sql:5: ERROR:  permission denied to create role
+DETAIL:  Only roles with the REPLICATION attribute may create roles with the REPLICATION attribute.
+                         ?column?                         
+----------------------------------------------------------
+ e: eigen rol lid maken van pg_read_all_data (moet falen)
+(1 row)
+
+psql:/private/tmp/claude-501/-Users-janpetervisser-Development-max2--claude-worktrees-usage-ledger-b761cb/51a64054-46b1-4011-baed-5fe9e3a6ac7d/scratchpad/t55-rolecheck.sql:6: ERROR:  permission denied to grant role "pg_read_all_data"
+DETAIL:  Only roles with the ADMIN option on role "pg_read_all_data" may grant this role.
+                     ?column?                     
+--------------------------------------------------
+ f: wachtwoord van postgres wijzigen (moet falen)
+(1 row)
+
+psql:/private/tmp/claude-501/-Users-janpetervisser-Development-max2--claude-worktrees-usage-ledger-b761cb/51a64054-46b1-4011-baed-5fe9e3a6ac7d/scratchpad/t55-rolecheck.sql:7: ERROR:  permission denied to alter role
+DETAIL:  Only roles with the SUPERUSER attribute may alter roles with the SUPERUSER attribute.
+                     ?column?                     
+--------------------------------------------------
+ g: postgres lid maken van eigen rol (moet falen)
+(1 row)
+
+  ?column?   
+-------------
+ h: opruimen
+(1 row)
+
+ rolname 
+---------
+(0 rows)
+

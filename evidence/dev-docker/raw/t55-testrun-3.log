@@ -1,0 +1,238 @@
+
+> s4m-queue@0.1.0 test
+> vitest run
+
+
+ RUN  v3.2.4 /Users/janpetervisser/Development/s4m-queue
+
+ ❯ test/ppe/takeover.test.ts (2 tests | 2 skipped) 3ms
+   ↓ controller takeover and crash recovery > lost response returns the original generation, then permits one fresh generation
+   ↓ controller takeover and crash recovery > generation three is exhausted and never creates generation four
+ ❯ test/ppe/controller-store.test.ts (6 tests | 6 skipped) 3ms
+   ↓ PpeControllerStore > classifies a provisioned database as UNBOUND and rejects ambiguous binding
+   ↓ PpeControllerStore > refuses a controller URL that equals the disposable test URL
+   ↓ PpeControllerStore > denies non-bootstrap access while the database has no binding
+   ↓ PpeControllerStore > binds one invocation to exactly one database identity
+   ↓ PpeControllerStore > registers resources and local children without command or environment fields
+   ↓ PpeControllerStore > rejects stale generation before replaying controller mutations
+ ❯ test/ppe/bootstrap-registry.test.ts (5 tests | 5 skipped) 4ms
+   ↓ bootstrap registry > hand-pins the exact family, payload and invocation JCS hashes
+   ↓ bootstrap registry > pins the complete phase chain and rejects invented phases
+   ↓ bootstrap registry > accepts only none for ordinal one and exact terminal predecessor for successors
+   ↓ bootstrap registry > converges after a lost response to one server-minted run and ACTIVE registry
+   ↓ bootstrap registry > rejects changed reuse and caller-supplied run/principal fields
+ ❯ test/ppe/run-ledger.test.ts (5 tests | 5 skipped) 3ms
+   ↓ append-only run ledger and operation receipts > appends one exact hash-linked event and replays it operation-key-first
+   ↓ append-only run ledger and operation receipts > database triggers reject update and delete of ledger events
+   ↓ append-only run ledger and operation receipts > validates payload and receipt hashes before decoding lookup results
+   ↓ append-only run ledger and operation receipts > rolls back a crash after ledger insert and retry commits exactly one event
+   ↓ append-only run ledger and operation receipts > rejects stale generation before replaying a ledger append
+presence scrum4me-server:claude: weg (geen watcher)
+ ✓ test/work-item-permissions.test.ts (5 tests) 524ms
+presence scrum4me-server:claude: weg (geen watcher, laatste drain 2026-10-14T15:18:49.899Z)
+presence mac:jp: weg (geen watcher)
+presence scrum4me-server:claude: weg (geen watcher, laatste drain 2026-10-14T15:18:49.899Z)
+presence mac:kimi: weg (geen watcher)
+presence scrum4me-server:codex: weg (geen watcher)
+presence max2:codex: weg (geen watcher)
+ ✓ test/cli.test.ts (22 tests) 1151ms
+ ✓ test/push.test.ts (10 tests) 1167ms
+   ✓ push-idempotency (M30) > zelfde sleutel twee keer: één rij, tweede call geeft de eerste id, precies één NOTIFY  469ms
+ ✓ test/inbox-in-reply-to.test.ts (7 tests) 1217ms
+   ✓ listenAndClaim met inReplyTo (--wait) > doet geen claim-poging op andermans reply, maar wel op de eigen  647ms
+ ✓ test/wait-reconnect.test.ts (3 tests) 1230ms
+   ✓ listenAndClaim — herverbinden na een weggevallen verbinding > overleeft een verbroken LISTEN-verbinding en claimt daarna gewoon  632ms
+ ✓ test/presence-db.test.ts (24 tests) 1404ms
+ ✓ test/archive.test.ts (10 tests) 1116ms
+ ✓ test/work-item-query.test.ts (12 tests) 1992ms
+   ✓ findByWorkItem > caps direct matches at 100, reports conservative truncation, orders and deduplicates replies  1063ms
+ ✓ test/bootstrap-controller-test-db.test.ts (2 tests) 2426ms
+   ✓ Forgejo controller database bootstrap > creates a distinct controller database and applies all queue migrations through pg  2424ms
+ ✓ test/vocab-drift.test.ts (9 tests) 2497ms
+   ✓ check-vocab-drift.sh — offline smoke (live check = CI-stap) > accepteert een ancestor-pin wanneer het canonieke vocabulaireblob gelijk bleef  426ms
+   ✓ check-vocab-drift.sh — offline smoke (live check = CI-stap) > accepteert een ancestor-pin wanneer alleen niet-vocabulaire exports veranderden  475ms
+   ✓ check-vocab-drift.sh — offline smoke (live check = CI-stap) > weigert een ancestor-pin met een verouderd canoniek vocabulaireblob  469ms
+   ✓ check-vocab-drift.sh — offline smoke (live check = CI-stap) > weigert een gitlink die niet in shared main is gemerged  432ms
+ ✓ test/wait.test.ts (2 tests) 1043ms
+   ✓ listenAndClaim > negeert notificaties van een ander type-categorie  623ms
+ ✓ test/marked-claim.test.ts (3 tests) 976ms
+   ✓ marked claims > renews and finishes only with exact token and every generation/fence  331ms
+ ✓ test/marked-consumer.test.ts (5 tests) 949ms
+presence max2:claude: weg (geen watcher)
+ ✓ test/notify.test.ts (8 tests) 1068ms
+presence max2:claude: weg (geen watcher)
+ ✓ test/marked-filter.test.ts (7 tests) 1087ms
+ ✓ test/watch-cli.integration.test.ts (5 tests) 2667ms
+   ✓ s4m-queue watch (procestest) > rooktest: --once emit de gepushte id en eindigt met exitcode 0  335ms
+   ✓ s4m-queue watch (procestest) > --types replies: emit alleen de antwoord-helft, mét in_reply_to  410ms
+ ✓ test/marked-cancel.test.ts (3 tests) 829ms
+ ✓ test/work-item-push.test.ts (10 tests) 746ms
+ ✓ test/schema.test.ts (7 tests) 474ms
+ ✓ test/marked-recovery.test.ts (3 tests) 761ms
+ ✓ test/cleanup.test.ts (7 tests) 700ms
+ ✓ test/reply.test.ts (4 tests) 575ms
+ ✓ test/marked-reply.test.ts (3 tests) 528ms
+ ✓ test/cleanup-columns.test.ts (5 tests) 666ms
+ ✓ test/lifecycle.test.ts (10 tests) 680ms
+ ✓ test/rules-apply.test.ts (11 tests) 490ms
+ ✓ test/dispatch-projection.test.ts (5 tests) 751ms
+ ✓ test/marked-push.test.ts (3 tests) 421ms
+ ✓ test/dispatch-cli.test.ts (20 tests) 66ms
+ ✓ test/ppe/verification-environment.test.ts (4 tests) 79ms
+ ✓ test/ppe/git-consumer.test.ts (5 tests) 50ms
+ ✓ test/ppe/repository-inspector.test.ts (8 tests) 108ms
+ ✓ test/ppe/jcs-vectors.test.ts (4 tests) 29ms
+ ✓ test/work-item.test.ts (23 tests) 224ms
+ ✓ test/marked-archive.test.ts (1 test) 240ms
+ ✓ test/ppe/plan-a-predecessor-input.test.ts (15 tests) 250ms
+ ✓ test/cold-store.test.ts (4 tests) 289ms
+ ✓ test/dispatch-run.test.ts (6 tests) 43ms
+ ✓ test/claim.test.ts (4 tests) 386ms
+ ✓ test/ppe/dispose.test.ts (6 tests) 40ms
+ ✓ test/ppe/broker-egress.test.ts (12 tests) 11ms
+ ✓ test/ppe/preflight-supervisor.test.ts (3 tests) 16ms
+ ✓ test/ppe/run-cleanup.test.ts (2 tests) 14ms
+ ✓ test/ppe/effective-graph.test.ts (2 tests) 13ms
+ ✓ test/ppe/local-child.test.ts (2 tests) 7ms
+ ✓ test/dispatch-config.test.ts (6 tests) 6ms
+ ✓ test/ppe/start-handshake.test.ts (14 tests) 12ms
+ ✓ test/meta.test.ts (22 tests) 4ms
+ ✓ test/ppe/lifecycle.test.ts (5 tests) 7ms
+ ✓ test/ppe/controller-cli.test.ts (4 tests) 8ms
+ ✓ test/ppe/launcher.test.ts (8 tests) 5ms
+ ✓ test/ppe/node-repair.test.ts (2 tests) 4ms
+ ✓ test/config.test.ts (16 tests) 3ms
+ ✓ test/ppe/bundle1-input.test.ts (8 tests) 6ms
+ ✓ test/ppe/integration.test.ts (3 tests) 4ms
+ ✓ test/ppe/status-records.test.ts (2 tests) 4ms
+ ✓ test/ppe/result-comparator.test.ts (10 tests) 3ms
+ ✓ test/review-documents.test.ts (3 tests) 3ms
+ ✓ test/ppe/gate-repair.test.ts (2 tests) 3ms
+ ✓ test/marked-contract.test.ts (3 tests) 3ms
+ ✓ test/rules-apply-blocks.test.ts (7 tests) 2ms
+ ✓ test/ppe/result-verifier.test.ts (9 tests) 3ms
+ ✓ test/watch.test.ts (12 tests) 6128ms
+   ✓ listenAndEmit > emit opnieuw na claim plus requeue binnen één herpoll-venster  321ms
+   ✓ listenAndEmit > emit opnieuw na requeue ook wanneer de claim-NOTIFY nooit aankwam  316ms
+   ✓ listenAndEmit > negeert andere adressen en antwoord-typen  703ms
+   ✓ listenAndEmit > rejectet bij een client-error en ruimt interval en beide listeners op  626ms
+   ✓ listenAndEmit — claim plus requeue tijdens een lopende scan > emit opnieuw wanneer beide NOTIFYs binnenkomen terwijl scan() nog loopt  334ms
+   ✓ watcher-hartslag (IDEA-194 §5.1) > schrijft bij start direct een presence-rij en ververst op de tick het volle tupel  681ms
+   ✓ watcher-hartslag (IDEA-194 §5.1) > hartslag doet geen pg_notify op het kanaal (met positieve controle)  797ms
+   ✓ watcher-hartslag (IDEA-194 §5.1) > een falende hartslag doodt de watch niet (spec §5.1 foutcontract)  534ms
+   ✓ watcher-hartslag (IDEA-194 §5.1) > overlap: na een gestopte all-watcher houdt de requests-watcher geen stale types vers  723ms
+   ✓ marked-grens (IDEA-192-semantiek, spec §7) > gemarkeerde pending rijen worden wél ge-emit — verzoek ÉN antwoord, met in_reply_to  330ms
+
+⎯⎯⎯⎯⎯⎯ Failed Suites 4 ⎯⎯⎯⎯⎯⎯⎯
+
+ FAIL  test/ppe/bootstrap-registry.test.ts [ test/ppe/bootstrap-registry.test.ts ]
+Error: PPE_CONTROLLER_DATABASE_URL_MISSING
+ ❯ EnvironmentControllerCredentialStore.resolve src/ppe/controller-store.ts:21:29
+     19|   async resolve(reference: string): Promise<ControllerDatabaseCredenti…
+     20|     const databaseUrl = process.env.PPE_CONTROLLER_DATABASE_URL;
+     21|     if (!databaseUrl) throw new Error('PPE_CONTROLLER_DATABASE_URL_MIS…
+       |                             ^
+     22|     return { databaseUrl, databaseIdentity: reference };
+     23|   }
+ ❯ PpeControllerStore.acquire src/ppe/controller-store.ts:58:54
+ ❯ test/ppe/bootstrap-registry.test.ts:13:36
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[1/8]⎯
+
+ FAIL  test/ppe/bootstrap-registry.test.ts [ test/ppe/bootstrap-registry.test.ts ]
+TypeError: Cannot read properties of undefined (reading 'client')
+ ❯ test/ppe/bootstrap-registry.test.ts:21:15
+     19| });
+     20| afterAll(async () => {
+     21|   await store.client.query('SELECT pg_advisory_unlock(16904)');
+       |               ^
+     22|   await store.close();
+     23| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[2/8]⎯
+
+ FAIL  test/ppe/controller-store.test.ts [ test/ppe/controller-store.test.ts ]
+Error: PPE_CONTROLLER_DATABASE_URL_MISSING
+ ❯ EnvironmentControllerCredentialStore.resolve src/ppe/controller-store.ts:21:29
+     19|   async resolve(reference: string): Promise<ControllerDatabaseCredenti…
+     20|     const databaseUrl = process.env.PPE_CONTROLLER_DATABASE_URL;
+     21|     if (!databaseUrl) throw new Error('PPE_CONTROLLER_DATABASE_URL_MIS…
+       |                             ^
+     22|     return { databaseUrl, databaseIdentity: reference };
+     23|   }
+ ❯ PpeControllerStore.acquire src/ppe/controller-store.ts:58:54
+ ❯ test/ppe/controller-store.test.ts:13:36
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[3/8]⎯
+
+ FAIL  test/ppe/controller-store.test.ts [ test/ppe/controller-store.test.ts ]
+TypeError: Cannot read properties of undefined (reading 'client')
+ ❯ test/ppe/controller-store.test.ts:21:15
+     19| });
+     20| afterAll(async () => {
+     21|   await store.client.query('SELECT pg_advisory_unlock(16904)');
+       |               ^
+     22|   await store.close();
+     23| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[4/8]⎯
+
+ FAIL  test/ppe/run-ledger.test.ts [ test/ppe/run-ledger.test.ts ]
+Error: PPE_CONTROLLER_DATABASE_URL_MISSING
+ ❯ EnvironmentControllerCredentialStore.resolve src/ppe/controller-store.ts:21:29
+     19|   async resolve(reference: string): Promise<ControllerDatabaseCredenti…
+     20|     const databaseUrl = process.env.PPE_CONTROLLER_DATABASE_URL;
+     21|     if (!databaseUrl) throw new Error('PPE_CONTROLLER_DATABASE_URL_MIS…
+       |                             ^
+     22|     return { databaseUrl, databaseIdentity: reference };
+     23|   }
+ ❯ PpeControllerStore.acquire src/ppe/controller-store.ts:58:54
+ ❯ test/ppe/run-ledger.test.ts:11:36
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[5/8]⎯
+
+ FAIL  test/ppe/run-ledger.test.ts [ test/ppe/run-ledger.test.ts ]
+TypeError: Cannot read properties of undefined (reading 'client')
+ ❯ test/ppe/run-ledger.test.ts:20:15
+     18| });
+     19| afterAll(async () => {
+     20|   await store.client.query('SELECT pg_advisory_unlock(16904)');
+       |               ^
+     21|   await store.close();
+     22| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[6/8]⎯
+
+ FAIL  test/ppe/takeover.test.ts [ test/ppe/takeover.test.ts ]
+Error: PPE_CONTROLLER_DATABASE_URL_MISSING
+ ❯ EnvironmentControllerCredentialStore.resolve src/ppe/controller-store.ts:21:29
+     19|   async resolve(reference: string): Promise<ControllerDatabaseCredenti…
+     20|     const databaseUrl = process.env.PPE_CONTROLLER_DATABASE_URL;
+     21|     if (!databaseUrl) throw new Error('PPE_CONTROLLER_DATABASE_URL_MIS…
+       |                             ^
+     22|     return { databaseUrl, databaseIdentity: reference };
+     23|   }
+ ❯ PpeControllerStore.acquire src/ppe/controller-store.ts:58:54
+ ❯ test/ppe/takeover.test.ts:9:36
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[7/8]⎯
+
+ FAIL  test/ppe/takeover.test.ts [ test/ppe/takeover.test.ts ]
+TypeError: Cannot read properties of undefined (reading 'client')
+ ❯ test/ppe/takeover.test.ts:18:15
+     16| });
+     17| afterAll(async () => {
+     18|   await store.client.query('SELECT pg_advisory_unlock(16904)');
+       |               ^
+     19|   await store.close();
+     20| });
+
+⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯⎯[8/8]⎯
+
+
+ Test Files  4 failed | 63 passed (67)
+      Tests  462 passed | 18 skipped (480)
+   Start at  17:18:49
+   Duration  6.46s (transform 856ms, setup 128ms, collect 2.81s, tests 38.22s, environment 6ms, prepare 2.31s)
+
+EXIT=1

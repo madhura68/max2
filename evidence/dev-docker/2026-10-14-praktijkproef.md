@@ -97,7 +97,7 @@ Bron: `raw/t55-identiteit-argv-auth.txt`.
 - Basislijn met Desktop aan (`raw/t55-baseline-npm-test.txt`, repo `~/Development/s4m-queue`, `main`, lokale `.env`): eerste poging 36 bestanden rood omdat de lokale test-database op `127.0.0.1:5433` niet draaide (afwijking 14: container `local-postgres-postgres-1` gestart en na de basislijn weer gestopt). Tweede poging: **63 bestanden groen, 4 rood** (462 tests groen, 18 overgeslagen). De vier rode zijn `test/ppe/{bootstrap-registry,controller-store,run-ledger,takeover}.test.ts`, alle met `PPE_CONTROLLER_DATABASE_URL_MISSING`: de variabele staat niet in de lokale omgeving. Dat is de basislijn en staat los van Docker.
 - Docker Desktop afsluiten, vier controles in `raw/t55-desktop.txt`: vóór 11 processen en `docker --context desktop-linux info` slaagt (`docker-desktop`); na `osascript -e 'quit app "Docker"'` liepen app en backend nog (afwijking 15); na `tell application "Docker Desktop" to quit` blijft alleen het door launchd beheerde root-hulpproces `com.docker.vmnetd` over (geen app, geen VM) en faalt `info` met "failed to connect to the docker API".
 - Testrun tegen max2 (`max2-docker db run s4mqueue_proef -- sh -c 'S4M_TEST_DATABASE_URL=$DATABASE_URL npm test'`, Desktop uit), twee keer (`raw/t55-testrun-1.log`, `raw/t55-testrun-2.log`): **62 bestanden groen, 5 rood**, 457 tests groen, 23 overgeslagen, 6,4 s. Rood: de vier `test/ppe`-bestanden uit de basislijn én **`test/work-item-permissions.test.ts`**: `permission denied to create role` bij `CREATE ROLE … NOLOGIN` (regel 44). De rol `dev` is `LOGIN CREATEDB` (spec §4.6) en mag geen rollen maken. Beide runs gaven hetzelfde resultaat.
-- **Gevolg voor de acceptatie:** de slagingsregel "niets faalt op verbinding, rechten of host" is niet gehaald. Eén bestand faalt op rechten en niet in de basislijn. Het besluit ligt bij JP, zie "Open besluit" onderaan.
+- **Gevolg voor de acceptatie:** de slagingsregel "niets faalt op verbinding, rechten of host" is niet gehaald. Eén bestand faalt op rechten en niet in de basislijn. Het besluit ligt bij JP, zie "Besluit JP" onderaan.
 - Slice (`user-1001.slice`, `raw/t55-cgtop.txt`, `systemd-cgtop` als janpeter want `devdock` krijgt "Failed to determine supported controllers"): geheugen tijdens de run 1,4–1,5 GB, 127–141 taken. `memory.peak` vóór 1 590 194 176, ná run 1 1 680 224 256, ná run 2 1 735 147 520 (limiet 8 589 934 592); `memory.events` `max 0`, `oom 0`, `oom_kill 0`; `anon` 110 534 656 → 123 772 928 → 130 363 392 bytes.
 
 ## 9. Register, opruiming, basislijn productie, sampler (spec §9 stap 9–10, §11 rij 9)
@@ -110,12 +110,27 @@ Bron: `raw/t55-cleanup-drop.txt`, `raw/baseline-prod-after-t55*.txt`, `raw/t55-s
 - Productie-engine na de proef (`baseline-prod-after-t55.txt`, `-2.txt`): de image-lijst is identiek aan de eerdere meting (gesorteerd diff leeg). Verschil in `docker ps -a` alleen de twee wegwerp-jobcontainers van de runners.
 - Sampler gestopt na 541 regels (14:30:27Z t/m 15:15:37Z): **minimum `MemAvailable` 23 460 492 kB = 22,37 GiB** (14:45:51Z), **0 ALARM-regels**.
 
-## Open besluit voor JP
+## Besluit JP en herhaling na `CREATEROLE` (14-10-2026)
 
-`test/work-item-permissions.test.ts` maakt in elke run een tijdelijke rol aan en vraagt daarom `CREATEROLE`. Opties:
+JP koos voor `CREATEROLE` aan `dev` (via de vraag in de sessie). Doorgevoerd: `init/01-roles.sh` (`CREATE ROLE dev LOGIN CREATEDB CREATEROLE`), spec revisie 12 (§4.5, §4.9 en §7, niet opnieuw gereviewd) en op de draaiende instantie eenmalig `ALTER ROLE dev CREATEROLE` via de beheerroute (`docker --context max2-dev exec -i dev-postgres psql -U postgres`), omdat init-scripts alleen bij de eerste initialisatie draaien. Daarna `pg_roles`: `dev|rolsuper f|createdb t|createrole t|replication f|bypassrls f|login t`.
 
-1. **`CREATEROLE` aan `dev` geven** (rol blijft zonder superuser; alleen binnen deze dev-instantie): de test slaagt, de spec §4.6 en het register wijzigen mee. Het is een verruiming van een afgesproken grens.
-2. **Het bestand buiten de proef houden**, net als de vier `ppe`-bestanden, en de afwijking in de spec noteren: de rolrechten van `dev` blijven minimaal, die test draait dan alleen op de lokale database.
+**Gemeten grenzen van de rol** (`raw/t55-rolecheck.txt`, als `dev` in `s4mqueue_proef`, PostgreSQL 17):
+
+| Poging | Uitkomst |
+|---|---|
+| `CREATE ROLE … NOLOGIN` | slaagt |
+| rol met `SUPERUSER`, `BYPASSRLS` of `REPLICATION` aanmaken | geweigerd (alleen rollen met dat attribuut mogen dat) |
+| eigen rol lid maken van `pg_read_all_data` | geweigerd (ADMIN-optie op die rol ontbreekt) |
+| `ALTER ROLE postgres PASSWORD …` | geweigerd (alleen een superuser wijzigt een superuser) |
+| rol `postgres` lid maken van een door `dev` gemaakte rol | **slaagt**; verwachtte ik niet, het geeft `dev` zelf geen extra rechten |
+| opruimen van de proefrol | slaagt, geen `zz_probe*` over |
+
+## 10. Herhaalde testrun na `CREATEROLE` (spec §9 stap 7)
+
+Zelfde opdracht, Desktop uit, nieuwe database `s4mqueue_proef` (`raw/t55-testrun-3.log`): **63 bestanden groen, 4 rood**, 462 tests groen, 18 overgeslagen, 6,5 s. Dat is gelijk aan de basislijn met Desktop aan: dezelfde vier `test/ppe`-bestanden rood met `PPE_CONTROLLER_DATABASE_URL_MISSING`, geen `permission denied`. `test/work-item-permissions.test.ts` slaagt nu.
+
+- Slice (`raw/t55-cgtop-3.txt`): geheugen 1,5 GB, 139–154 taken. `memory.peak` ongewijzigd 1 735 147 520 (limiet 8 589 934 592), `memory.events` `max 0`, `oom 0`, `oom_kill 0`, `anon` 140 832 768 bytes.
+- Opruiming (`raw/t55-cleanup-drop-3.txt`): dry-run laat `s4mqueue_proef` bewaren (jonger dan 14 dagen) en de buildcache als 0 kandidaten zien; `db drop`, daarna `db list` leeg. Op de instantie bestaan alleen de rollen `dev` en `postgres` en de database `postgres`: geen resten van de testrun.
 
 ## Acceptatie T-55 (stand)
 
@@ -123,8 +138,8 @@ Bron: `raw/t55-cleanup-drop.txt`, `raw/baseline-prod-after-t55*.txt`, `raw/t55-s
 |---|---|
 | Spec §9 identiteit, negatieve authenticatie, argv-hygiëne | ja, §7 |
 | Desktop aantoonbaar dicht tijdens de testrun | ja, §8 |
-| Testrun: alle DB-afhankelijke bestanden slagen | **nee**, één bestand op rechten (open besluit) |
-| `memory.events` `max 0` en `oom_kill 0`, piek genoteerd | ja, §8 |
+| Testrun: alle DB-afhankelijke bestanden slagen, geen verschil met de basislijn | ja, §10 (na besluit `CREATEROLE`; de eerste run faalde op één bestand, §8) |
+| `memory.events` `max 0` en `oom_kill 0`, piek genoteerd | ja, §8 en §10 |
 | Codex-sessie: één `db list` | **open**, vraagt een door JP gestarte Codex-sessie |
-| `cleanup --dry-run` en register ongewijzigd | ja, §9 |
+| `cleanup --dry-run` en register ongewijzigd | ja, §9 en §10 |
 | `db drop`, basislijn productie gelijk, sampler zonder ALARM | ja, §9 |

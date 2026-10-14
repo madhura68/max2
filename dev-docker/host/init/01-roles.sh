@@ -8,10 +8,11 @@ set -euo pipefail
 [ -n "${DEV_PASSWORD:-}" ] || { echo "FOUT: DEV_PASSWORD ontbreekt of is leeg" >&2; exit 1; }
 psql=(psql -v ON_ERROR_STOP=1 --no-psqlrc --username "$POSTGRES_USER")
 
-# Clientrol: geen superuser. Het wachtwoord gaat via \getenv naar psql, nooit via argv.
+# Clientrol: geen superuser. CREATEROLE (JP-besluit 14-10-2026, T-55): de s4m-queue-test maakt per run een tijdelijke rol.
+# Het wachtwoord gaat via \getenv naar psql, nooit via argv.
 "${psql[@]}" --dbname postgres <<'SQL'
 \getenv dev_pw DEV_PASSWORD
-CREATE ROLE dev LOGIN CREATEDB PASSWORD :'dev_pw';
+CREATE ROLE dev LOGIN CREATEDB CREATEROLE PASSWORD :'dev_pw';
 SQL
 
 # pgvector in template1: elke nieuwe database krijgt de extensie zonder superuser.
