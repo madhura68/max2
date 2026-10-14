@@ -206,7 +206,34 @@ Afgewezen: geen.
 
 ## Ronde 7 — 2026-10-14
 
-**Gepind:** `dev-docker/SPEC.md` revisie 7 @ `<r7_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+**Gepind:** `dev-docker/SPEC.md` revisie 7 @ `39b4367acab9f327a63e12d491661b8fa465185b`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
+
+| Slot | request id | root_message_id | job id | idempotency key | idea_link |
+|---|---|---|---|---|---|
+| CODEX | `db883d82-7695-4e81-8e6c-9fce40d12e07` | `3f8686a8-1e66-42b1-85a8-03bb2489bbf6` | job (SUCCEEDED) | `da43c37d-746c-422d-8ad0-90e21cc522ef` | linked |
+| CLAUDE | `af4654c5-3968-41f4-9d64-c4a6c8035421` | `cf7046c5-3ec2-4d24-a883-e1790457f8a9` | job (SUCCEEDED) | `f3d55da1-f7fd-4d02-a942-1588b5c73bfc` | linked |
+
+**Uitslag:** CODEX **GO** (0 BLOCKER, 0 MAJOR, 4 MINOR; 08:50 UTC). CLAUDE **NO-GO** (0 BLOCKER, 2 MAJOR, 3 MINOR; 08:47 UTC). Beide: alle ronde-6-fixes 2–7 hielden, fix 1 (keten + positiebewuste sprong) hield in het ontwerp maar niet in zijn bewijs; geen schrapkandidaat; §8/`X_eff` consistent met U4 regel 115.
+
+**Triage** (alle bevindingen tegen de boom geverifieerd: `dsh-firewall.service`/`owui-firewall.service` hebben geen `[Install]`; hun timers `OnBootSec=30s`, `OnUnitActiveSec=2min`; `ensure` = `-C || -I INPUT 1`):
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 8 |
+|---|---|---|---|---|---|
+| 1 | claude F1 / codex m1 | MAJOR (claude) / MINOR (codex) | herstelproef is leeg: `systemctl start dsh-firewall.service` voegt in de stabiele toestand niets in, de sprong blijft op 1 en de herstel-tak wordt nooit doorlopen | accept | §4.4/§9: verplaatsing expliciet afdwingen met een eigen testregel (`dd-recovery-test -j RETURN` op positie 1), service starten, sprong weer eerst + exact één sprong + journalmelding, testregel verwijderen |
+| 2 | claude F2 | MAJOR | `After=dsh-firewall.service owui-firewall.service` ordent niets: die units zitten niet in de boot-transactie en draaien 30–90 s na boot via hun timers, boven de vroeg geplaatste sprong; de reboot-controle is een race | accept | §4.4: `After=` zonder die units, boot-race als gemeten feit beschreven; timer `AccuracySec=1s`, `OnBootSec=2min`, `OnUnitActiveSec=1min`; boot-gat ≈ 30–120 s expliciet geaccepteerd; §9 stap 10: controle na de eerste tick, journal-tijdstempels in het bewijs |
+| 3 | claude F3 / codex m2 | MINOR | SIGPIPE onder pipefail; `-F` per tick opent een venster van ms | accept | §4.4: `iptables -S` eerst in variabele; keten alleen herbouwen als ze ontbreekt of afwijkt (`chain_ok`), normale tick muteert niets; restvenster benoemd |
+| 4 | codex m3 | MINOR | 5 min is cadans, geen hersteldeadline (`AccuracySec` ontbreekt) | accept | `AccuracySec=1s`, cadans 1 min, hersteltijd wordt in de proef gemeten |
+| 5 | codex m4 | MINOR | ufw-default-deny beschermt het `tailscale0`-pad niet (`ts-input` beslist); toegelaten verbindingen blijven na herstel bestaan | accept | §4.4: restrisico herschreven (scram enige bescherming op dat pad; ESTABLISHED blijft); `ss -tn 'sport = :55432'` na herstel in §9-acceptatie |
+| 6 | claude F4 | MINOR | rollback: één `-D` laat een tweede sprong staan, `-X` faalt | accept | §10: herhalen tot `-D` faalt |
+| 7 | claude F5 | MINOR | `max(X, 10,8)` dubbelzinnig; komma-invoer zonder hint | accept | `max(X, 10.8)` in code-context; exit-2-melding "gebruik een punt als decimaalteken" |
+
+Afgewezen: geen. Codex' voorbehoud over de serialisatie van het comment in `iptables -S` is verwerkt: de vergelijking test nu op het suffix `-j dev-docker-in`, onafhankelijk van quoting.
+
+**Scope-delta ronde 7:** gewijzigd: herstelproef met afgedwongen verplaatsing, timer 1 min/`AccuracySec=1s`/boot op 2 min, keten alleen bij afwijking herbouwen, logger-meldingen; toegevoegd: gemeten boot-venster en `ss`-controle in het bewijs. Geen nieuw subsysteem; eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 372 → 384 regels. Codex heeft GO gegeven; claude's twee MAJORs zijn beide bewijsprocedure-/orderingsfouten in §4.4 en gaan niet over het ontwerp van de keten zelf.
+
+## Ronde 8 — 2026-10-14
+
+**Gepind:** `dev-docker/SPEC.md` revisie 8 @ `<r8_sha>`; context-pins ongewijzigd (grill, pr32, caps, ontwerp, u4).
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
