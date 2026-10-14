@@ -183,7 +183,31 @@ Afgewezen: geen.
 
 | Slot | request id | root_message_id | job id | idempotency key | idea_link |
 |---|---|---|---|---|---|
-| CODEX | (volgt) | | | | |
-| CLAUDE | (volgt) | | | | |
+| CODEX | `c6d1699e-56fd-4239-83f9-9a0937dd5a1f` | `7c727519-74aa-4be9-98dc-acad32a204d6` | job (SUCCEEDED) | `5c611aa2-2aaa-4e90-be29-df83169258be` | linked |
+| CLAUDE | `0b07e172-ddfd-4e33-9ac9-7a06afb16894` | `a3f27ccc-f60b-4f14-b7a9-54a9a4c0b03f` | job (SUCCEEDED) | `d1416426-af52-4e22-b090-48f6844745df` | linked |
 
-**Uitslag:** (volgt)
+**Uitslag:** CODEX **GO** (0 BLOCKER, 0 MAJOR, 2 MINOR; 13:46 UTC). CLAUDE **GO** (0 BLOCKER, 0 MAJOR, 6 MINOR; 13:47 UTC). **Dubbel GO — planfase afgerond op revisie 6.** Beide: alle vier ronde-5-fixgroepen hielden; zes taken, geen schrapkandidaat; §9 (elf regels) en §11 (tien rijen) gedekt; geen tegenspraak met de metingen; codex herrekende de P6-CSV (1584 samples, min 22 576 424 kB = 21,53 GiB).
+
+**Triage (MINOR, GO-compatibel; als polish verwerkt in revisie 7, niet opnieuw gereviewd):**
+
+| # | Bron | Sev | Bevinding | Oordeel | Remedie in rev. 7 |
+|---|---|---|---|---|---|
+| 1 | codex m1 | MINOR | de regel "alle scripts `set -euo pipefail`" botst met `secretscan.sh` (vangt bewust niet-nul-statussen) | accept | uitzondering benoemd in taak 1 stap 1 |
+| 2 | codex m2 | MINOR | historische bronnen buiten de bundel | accept, geen wijziging | caveat blijft |
+| 3 | claude 1 | MINOR | `OUT=`/`SUMMARY`/chmod-volgorde dubbelzinnig; `\r` uit `ssh -t`; geen herstelpad bij `FOUT-proofdir` | accept | afsluitvolgorde vastgelegd (bestand: SUMMARY; stdout: OUT= dan SUMMARY); `tr -d '\r'`; `mv` (nooit `chown`) + issue `max2:dev-docker:proofdir-foreign` |
+| 4 | claude 2 | MINOR | branch-aanmaak en stagen per laag ontbreken in taak 1 | accept | `git switch -c feat/dev-docker-host`; per laag `git add <bestanden>` vóór `secretscan.sh --no-password` |
+| 5 | claude 3 | MINOR | gefaalde dsh/owui-run (`Failed with result`) telt niet als run → vals `tick=timeout` | accept | telt als afgeronde run; bij time-out journal handmatig beoordelen |
+| 6 | claude 4 | MINOR | echte `ps`-proef kan leeg-triviaal slagen (4 s-venster vóór het psql-kind) | accept | lus tot `kill -0 $hp` faalt (≤ 30 s), `psql=ja|nee` per snapshot, eis ≥ 1 `psql=ja` |
+| 7 | claude 5 | MINOR | `die`-exitcode is errno-afhankelijk, "rc ≥ 2" niet gegarandeerd | accept | expliciete `exit 2` i.p.v. `die` (gemeten: lege set → rc 2) |
+| 8 | claude 6 | MINOR | namen uit de ruwe controle-run-uitvoer halen is niet beschreven; bestand blijft staan | accept | `grep -E '^ *(FAIL|×|❯)' \| sed`, bestand niet tonen, daarna `rm` |
+
+Afgewezen: geen.
+
+**Scope-delta ronde 6:** alleen verduidelijkingen; geen inhoudelijke wijziging; eerste bruikbare resultaat en praktijkproef ongewijzigd. Plan 252 → 252 regels.
+
+## Eindoordeel planfase
+
+- **GO-revisie:** `dev-docker/PLAN.md` revisie 6 @ plan-commit `aff31062` / dispatch-pin `f98f8ab72e75d747b9a805a823f3ffb8778a28cc` (sha256 `97f51d251ee0e500e85c7a6c5a0f02feee4d40f634c042c3d032cbf8ad911862`), dubbel GO in ronde 6 van maximaal 10.
+- **Revisie 7** (deze commit) verschilt uitsluitend in de acht MINOR-polishpunten hierboven; wil JP die formeel bevestigd hebben, dan is dat één delta-ronde (reviewer: codex, want claude-geauthord).
+- **Verloop:** R1 1B/2M (maskering in argv) → R2 1B/4M (secretscan in argv, `/dev/tcp`) → R3 1B/3M (wrapper doodt eigen groep, secretscan verkeerde repo) → R4 1B/2M (detectie print de credential, `mktemp` 0600) → R5 1B/1M (`install -d` vóór controle, tick-referentie over twee units) → R6 GO/GO. Vanaf ronde 4 ging elke ronde uitsluitend over de drie shell-recepten (deadline, maskering/secretscan) en de `proof-checks.sh`-interface; vanaf ronde 5 zijn alle recepten lokaal gemeten vóór ze in de revisie kwamen. Geen enkele bevinding is afgewezen. Claude gaf GO in ronde 1, 4, 5 en 6; codex in ronde 6.
+- **Wat GO niet betekent:** geen autorisatie voor implementatie, merge, de praktijkproef of de ceremonie. De volgende stap is de JP-gate: na akkoord `create_sprint → create_pbi → create_story → create_task ×6` met schattingen uit `get_estimate_history`, daarna hardstop.
