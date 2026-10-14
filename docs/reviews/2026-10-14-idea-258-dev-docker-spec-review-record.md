@@ -277,7 +277,7 @@ Afgewezen: geen.
 
 Afgewezen: geen.
 
-**Scope-delta ronde 9:** alleen verduidelijkingen; geen inhoudelijke wijziging; eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 397 → 400 regels.
+**Scope-delta ronde 9:** alleen verduidelijkingen; geen inhoudelijke wijziging; eerste bruikbare resultaat en praktijkproef ongewijzigd. Spec 397 → 398 regels.
 
 ## Eindoordeel specfase
 
