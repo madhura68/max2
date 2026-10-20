@@ -189,6 +189,13 @@ class CheckCaseTest(unittest.TestCase):
         self.assertIn("sources/doc: is een symlink, of ligt onder een symlink", problems)
         self.assertIn("sources/__dispatch_input: is een symlink, of ligt onder een symlink", problems)
 
+    def test_a_symlink_as_the_file_itself_is_refused(self):
+        case_dir = make_case(self.tmp)
+        real = case_dir.parent / "doc-elders"
+        (case_dir / "sources" / "doc").rename(real)
+        (case_dir / "sources" / "doc").symlink_to(real)
+        self.assertIn("sources/doc: is een symlink, of ligt onder een symlink", check_case.check_case(case_dir))
+
     def test_an_unreadable_file_is_one_line_not_a_traceback(self):
         case_dir = make_case(self.tmp)
         target = case_dir / "sources" / "doc"

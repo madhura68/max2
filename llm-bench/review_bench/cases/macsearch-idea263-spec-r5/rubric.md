@@ -30,7 +30,7 @@ Twee kernen; één van beide is genoeg.
 - **Kern A, identiteit.** De cleanup (bij een crash, of bij de start) verwijdert wat er op het vastgelegde pad (`temp_path`, in route C de definitieve naam) staat, zonder te controleren dat het het eigen bestand is. Een vreemd bestand dat daarna op dat pad kwam, kan weg.
 - **Kern B, eenmaligheid.** Een cleanup die bij een start niet afkomt, wordt nooit opnieuw geprobeerd: het volume is bij die start niet aangekoppeld, of het verwijderen mislukt (ook in het foutpad, waarna het record `failed` wordt). Een half bestand blijft dan staan, in route C onder de definitieve naam.
 
-**Telt als:** een bevinding die het pad-zonder-identiteit noemt en het verwijderen van een vreemd bestand als gevolg; of een bevinding die noemt dat een cleanup die niet afkwam nooit opnieuw komt, met het achterblijven van een half bestand als gevolg.
+**Telt als:** een bevinding die het pad-zonder-identiteit noemt en het verwijderen van een vreemd bestand als gevolg; of een bevinding die noemt dat een cleanup die niet afkwam omdat het volume afwezig was of het verwijderen mislukte, nooit opnieuw komt, met het achterblijven van een half bestand als gevolg.
 **Telt niet als:** alleen de afweging van route C zelf (een half bestand onder de definitieve naam tot de volgende start), die JP aanvaardde; alleen "er staan geen tests voor"; een algemene opmerking over opruimen zonder een van beide gevolgen; een bevinding over de selectieregel van de startup-cleanup (dat is M1, zie de grens hieronder).
 
 **Grens tussen kern B en M1.** Het onderwerp van de bevinding beslist, niet het genoemde gevolg (beide kunnen een half bestand noemen):

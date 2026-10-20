@@ -68,4 +68,4 @@ De run-logs van beide jobs (`specr5_claude.log`, `specr5_codex.log`) staan op de
 python3 llm-bench/review_bench/check_case.py llm-bench/review_bench/cases/macsearch-idea263-spec-r5
 ```
 
-Exit 0 als elke hash in `case.json` klopt, de sleutels en hashes van `payload.dispatch.source_artifacts` in beide richtingen gelijk zijn aan `sources[]`, en de hash van `doc` in `review_documents` gelijk is aan die van `sources/doc`.
+Exit 0 als elk bestand dat `case.json` noemt een gewoon bestand binnen de case is (relatief, zonder symlink op de weg, zoals de loader van de harness eist) en zijn hash klopt, de sleutels en hashes van `payload.dispatch.source_artifacts` in beide richtingen gelijk zijn aan `sources[]` (zonder dubbele sleutels), en `review_documents` minstens één item heeft, elk een bron met de hash van zijn bestand. Anders exit 1, met één regel per afwijking.
