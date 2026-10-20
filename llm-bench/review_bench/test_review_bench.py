@@ -5,6 +5,7 @@ model, no network, no key.
 """
 import hashlib
 import json
+import os
 import shutil
 import subprocess
 import sys
@@ -112,8 +113,9 @@ class CheckCaseTest(unittest.TestCase):
         (case_dir / "case.json").write_text("{ niet af")
         done = run_cli(case_dir)
         self.assertEqual(done.returncode, 1)
-        self.assertEqual(done.stdout.strip().splitlines(), [done.stdout.strip().splitlines()[0]])
-        self.assertIn("case.json: niet te lezen als JSON", done.stdout)
+        lines = done.stdout.strip().splitlines()
+        self.assertEqual(len(lines), 1, lines)
+        self.assertIn("case.json: niet te lezen als JSON", lines[0])
         self.assertNotIn("Traceback", done.stderr)
 
     def test_a_missing_file_gives_exit_1(self):
@@ -158,6 +160,79 @@ class CheckCaseTest(unittest.TestCase):
         problems = check_case.check_case(case_dir)
         self.assertEqual(len(problems), 1, problems)
         self.assertIn("review_documents: doc heeft sha256 " + "2" * 64, problems[0])
+
+    def edit_case(self, case_dir, change):
+        case = json.loads((case_dir / "case.json").read_text())
+        change(case)
+        (case_dir / "case.json").write_text(json.dumps(case))
+
+    def edit_payload(self, case_dir, change):
+        """Changes payload.json and pins the new bytes, so only the change itself is a deviation."""
+        payload = json.loads((case_dir / "payload.json").read_text())
+        change(payload)
+        data = json.dumps(payload).encode()
+        (case_dir / "payload.json").write_bytes(data)
+        self.edit_case(case_dir, lambda case: case["payload"].update(sha256=sha(data)))
+
+    def test_an_absolute_path_is_refused(self):
+        case_dir = make_case(self.tmp)
+        self.edit_case(case_dir, lambda case: case["prompt"].update(file=str(case_dir / "review.md")))
+        problems = check_case.check_case(case_dir)
+        self.assertTrue(any("geen relatief pad binnen de case" in line for line in problems), problems)
+
+    def test_a_symlink_on_the_way_is_refused_as_the_loader_does(self):
+        case_dir = make_case(self.tmp)
+        real = case_dir.parent / "elders"
+        (case_dir / "sources").rename(real)
+        (case_dir / "sources").symlink_to(real)
+        problems = check_case.check_case(case_dir)
+        self.assertIn("sources/doc: is een symlink, of ligt onder een symlink", problems)
+        self.assertIn("sources/__dispatch_input: is een symlink, of ligt onder een symlink", problems)
+
+    def test_an_unreadable_file_is_one_line_not_a_traceback(self):
+        case_dir = make_case(self.tmp)
+        target = case_dir / "sources" / "doc"
+        target.chmod(0)
+        self.addCleanup(target.chmod, 0o644)
+        if os.access(target, os.R_OK):
+            self.skipTest("running as a user that reads everything")
+        done = run_cli(case_dir)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("sources/doc: niet te lezen (PermissionError)", done.stdout)
+        self.assertNotIn("Traceback", done.stdout + done.stderr)
+
+    def test_a_missing_payload_is_one_line(self):
+        case_dir = make_case(self.tmp)
+        (case_dir / "payload.json").unlink()
+        self.assertEqual(check_case.check_case(case_dir), ["payload.json: ontbreekt of is geen gewoon bestand"])
+
+    def test_a_source_key_twice_in_case_json_is_a_deviation(self):
+        case_dir = make_case(self.tmp)
+        self.edit_case(case_dir, lambda case: case["sources"].append(dict(case["sources"][0])))
+        self.assertIn("case.json: sleutel doc komt twee keer voor in sources", check_case.check_case(case_dir))
+
+    def test_an_artifact_key_twice_in_the_payload_is_a_deviation(self):
+        case_dir = make_case(self.tmp)
+        self.edit_payload(case_dir, lambda payload: payload["dispatch"]["source_artifacts"].append(dict(payload["dispatch"]["source_artifacts"][1])))
+        self.assertEqual(check_case.check_case(case_dir), ["source_artifacts: sleutel doc komt twee keer voor"])
+
+    def test_a_review_document_that_is_no_source_is_a_deviation(self):
+        case_dir = make_case(self.tmp)
+        self.edit_payload(case_dir, lambda payload: payload["dispatch"]["input"]["review_documents"]["items"].append({"key": "ander", "sha256": "3" * 64}))
+        self.assertEqual(check_case.check_case(case_dir), ["review_documents: 'ander' is geen bron in case.json"])
+
+    def test_an_unhashable_review_document_key_is_a_line_not_a_traceback(self):
+        case_dir = make_case(self.tmp)
+        self.edit_payload(case_dir, lambda payload: payload["dispatch"]["input"]["review_documents"]["items"][0].update(key=["doc"]))
+        done = run_cli(case_dir)
+        self.assertEqual(done.returncode, 1)
+        self.assertIn("review_documents: ['doc'] is geen bron in case.json", done.stdout)
+        self.assertNotIn("Traceback", done.stdout + done.stderr)
+
+    def test_no_review_documents_is_a_deviation_not_a_pass(self):
+        case_dir = make_case(self.tmp)
+        self.edit_payload(case_dir, lambda payload: payload["dispatch"]["input"]["review_documents"].update(items=[]))
+        self.assertEqual(check_case.check_case(case_dir), ["payload.json: dispatch.input.review_documents.items ontbreekt of is leeg"])
 
     def test_no_arguments_is_a_usage_error(self):
         done = subprocess.run([sys.executable, str(CHECK_CASE)], capture_output=True, text=True, timeout=30)

@@ -32,7 +32,7 @@ De request-ids, verdicts en tellingen staan in het review-record van MacSearch, 
 
 ## Hoe `__dispatch_input` is gereconstrueerd
 
-Productie levert `/sources/__dispatch_input` als de canonieke JSON van `dispatch.input` (scrum4me-docker `lib/dispatch-child.ts`, `canonicalJson` @`78e7347d`, met `environment_keys` ontdubbeld en gesorteerd). Het bestand zelf is niet bewaard; het is opnieuw gemaakt uit `payload.json` met dit script (`recon-dispatch-input.mjs`, aangeroepen als `node recon-dispatch-input.mjs payload.json sources/__dispatch_input`):
+Productie levert `/sources/__dispatch_input` als de canonieke JSON van `dispatch.input`: `canonicalDispatchInput` in scrum4me-shared `lib/queue-dispatch-validation.ts` @`b3d2b98` (r. 111-115, met `canonicalJson` op r. 99), de versie die scrum4me-docker @`78e7347d` als submodule `vendor/scrum4me-shared` pint. Die sorteert de sleutels, laat `undefined` weg, en ontdubbelt en sorteert `environment_keys`. Het bestand zelf is niet bewaard; het is opnieuw gemaakt uit `payload.json` met dit script (`recon-dispatch-input.mjs`, aangeroepen als `node recon-dispatch-input.mjs payload.json sources/__dispatch_input`). Het script slaat de schemacontrole `parseDispatchInput` over en neemt de input zoals hij is; dat de hash hieronder klopt, laat zien dat dat hier geen verschil maakt:
 
 ```js
 import fs from 'node:fs'

@@ -6,7 +6,7 @@
 It checks
 - every sha256 in case.json (prompt, payload, each source) against the file it names;
 - that the keys and hashes of payload.dispatch.source_artifacts equal those of sources[], in both directions;
-- that each review_documents item of the payload whose key is a source carries the sha256 of that source file.
+- that the payload lists at least one review_documents item, and that each one is a source and carries the sha256 of its file.
 
 Exit 0 if all of it holds. Otherwise exit 1, with one line per deviation on stdout. Standard library only.
 """
@@ -45,10 +45,21 @@ def check_pinned(case_dir, label, ref, problems):
     path = case_file(case_dir, ref["file"], problems)
     if path is None:
         return None
-    if not path.is_file() or path.is_symlink():
+    # As the loader of the harness (src/bench/review-case.ts): no symlink anywhere from the case dir down, the last part a plain file.
+    parts = Path(ref["file"]).parts
+    for i in range(1, len(parts) + 1):
+        part = case_dir.joinpath(*parts[:i])
+        if part.is_symlink():
+            problems.append(f"{ref['file']}: is een symlink, of ligt onder een symlink")
+            return None
+    if not path.is_file():
         problems.append(f"{ref['file']}: ontbreekt of is geen gewoon bestand")
         return None
-    found = sha256_of(path)
+    try:
+        found = sha256_of(path)
+    except OSError as err:
+        problems.append(f"{ref['file']}: niet te lezen ({type(err).__name__})")
+        return None
     if found != ref["sha256"]:
         problems.append(f"{ref['file']}: sha256 wijkt af: verwacht {ref['sha256']}, gevonden {found}")
     return found
@@ -65,7 +76,7 @@ def check_case(case_dir):
         return problems
 
     check_pinned(case_dir, "prompt", case.get("prompt"), problems)
-    check_pinned(case_dir, "payload", case.get("payload"), problems)
+    payload_ok = check_pinned(case_dir, "payload", case.get("payload"), problems) is not None
     sources = case.get("sources")
     if not isinstance(sources, list) or not sources:
         problems.append("case.json: sources ontbreekt of is leeg")
@@ -86,7 +97,7 @@ def check_case(case_dir):
             actual[key] = found
 
     payload_ref = case.get("payload")
-    if not isinstance(payload_ref, dict) or case_file(case_dir, payload_ref.get("file"), []) is None:
+    if not payload_ok:   # already one line; the rest needs the payload
         return problems
     payload = read_json(case_dir / payload_ref["file"], problems)
     dispatch = payload.get("dispatch") if isinstance(payload, dict) else None
@@ -101,8 +112,13 @@ def check_case(case_dir):
         problems.append(f"{payload_ref['file']}: dispatch.source_artifacts ontbreekt")
     else:
         for artifact in artifacts:
-            if isinstance(artifact, dict) and isinstance(artifact.get("key"), str):
-                declared[artifact["key"]] = artifact.get("sha256")
+            key = artifact.get("key") if isinstance(artifact, dict) else None
+            if not isinstance(key, str):
+                problems.append(f"source_artifacts: een element zonder key: {artifact!r}"[:200])
+            elif key in declared:
+                problems.append(f"source_artifacts: sleutel {key} komt twee keer voor")
+            else:
+                declared[key] = artifact.get("sha256")
     for key in sorted(set(declared) - set(pinned)):
         problems.append(f"source_artifacts: {key} staat niet in sources[] van case.json")
     for key in sorted(set(pinned) - set(declared)):
@@ -113,12 +129,12 @@ def check_case(case_dir):
 
     documents = dispatch.get("input", {}).get("review_documents") if isinstance(dispatch.get("input"), dict) else None
     items = documents.get("items") if isinstance(documents, dict) else None
-    if not isinstance(items, list):
-        problems.append(f"{payload_ref['file']}: dispatch.input.review_documents.items ontbreekt")
+    if not isinstance(items, list) or not items:
+        problems.append(f"{payload_ref['file']}: dispatch.input.review_documents.items ontbreekt of is leeg")
         return problems
     for item in items:
         key = item.get("key") if isinstance(item, dict) else None
-        if key not in pinned:
+        if not isinstance(key, str) or key not in pinned:
             problems.append(f"review_documents: {key!r} is geen bron in case.json")
         elif key in actual and item.get("sha256") != actual[key]:
             problems.append(f"review_documents: {key} heeft sha256 {item.get('sha256')}, het bronbestand {actual[key]}")

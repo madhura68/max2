@@ -28,10 +28,15 @@ Hiermee vult Claude per blind scoreblad één regel in `scores.jsonl` (M8 spec �
 
 Twee kernen; één van beide is genoeg.
 - **Kern A, identiteit.** De cleanup (bij een crash, of bij de start) verwijdert wat er op het vastgelegde pad (`temp_path`, in route C de definitieve naam) staat, zonder te controleren dat het het eigen bestand is. Een vreemd bestand dat daarna op dat pad kwam, kan weg.
-- **Kern B, eenmaligheid.** De cleanup draait maar één keer: alleen voor runs die bij die start `interrupted` worden, of hij wordt overgeslagen (volume niet aangekoppeld, crash tijdens de cleanup) en nooit opnieuw geprobeerd. Een half bestand blijft dan, in route C onder de definitieve naam.
+- **Kern B, eenmaligheid.** Een cleanup die bij een start niet afkomt, wordt nooit opnieuw geprobeerd: het volume is bij die start niet aangekoppeld, of het verwijderen mislukt (ook in het foutpad, waarna het record `failed` wordt). Een half bestand blijft dan staan, in route C onder de definitieve naam.
 
-**Telt als:** een bevinding die het pad-zonder-identiteit noemt en het verwijderen van een vreemd bestand als gevolg; of een bevinding die de eenmalige cleanup noemt en het achterblijven van een half bestand als gevolg.
-**Telt niet als:** alleen de afweging van route C zelf (een half bestand onder de definitieve naam tot de volgende start), die JP aanvaardde; alleen "er staan geen tests voor"; een algemene opmerking over opruimen zonder een van beide gevolgen.
+**Telt als:** een bevinding die het pad-zonder-identiteit noemt en het verwijderen van een vreemd bestand als gevolg; of een bevinding die noemt dat een cleanup die niet afkwam nooit opnieuw komt, met het achterblijven van een half bestand als gevolg.
+**Telt niet als:** alleen de afweging van route C zelf (een half bestand onder de definitieve naam tot de volgende start), die JP aanvaardde; alleen "er staan geen tests voor"; een algemene opmerking over opruimen zonder een van beide gevolgen; een bevinding over de selectieregel van de startup-cleanup (dat is M1, zie de grens hieronder).
+
+**Grens tussen kern B en M1.** Het onderwerp van de bevinding beslist, niet het genoemde gevolg (beide kunnen een half bestand noemen):
+- gaat de bevinding over de **selectieregel**, welke runs of records de startup-cleanup bekijkt (alleen runs die bij die start `interrupted` worden, een run die al `interrupted` is zoals de AC3a-fixture, een crash of herstart tijdens de cleanup of tussen de statusovergang en het verwijderen, idempotentie), dan is het **M1**, op elk label;
+- gaat ze over een **poging die niet afkomt en nooit terugkomt** omdat het volume bij die start afwezig is of het verwijderen mislukt, dan is het **kern B**;
+- noemt één bevinding beide, dan telt ze als kern B (F1), en M1 telt niet apart (regel 2).
 
 ### F2 — route C herhaalt vóór er een record is
 
@@ -41,9 +46,9 @@ Twee kernen; één van beide is genoeg.
 
 ### M1 — herhaalbare startup-cleanup
 
-**Kern.** De keuze welke runs de cleanup bij de start bekijkt, is niet herhaalbaar of niet consistent: alleen runs die bij die start `interrupted` worden, terwijl de AC3a-fixture al `interrupted` is, of een crash tussen de statusovergang en het verwijderen.
-**Telt als:** een eigen bevinding hierover, los van de bevinding die `f1` zet.
-**Telt niet als:** hetzelfde punt binnen de bevinding die F1 al raakt (regel 2: die telt dan als F1, kern B).
+**Kern.** De selectieregel van de startup-cleanup is niet herhaalbaar of niet consistent: alleen runs die bij die start `interrupted` worden, terwijl de AC3a-fixture al `interrupted` is, of een herstart tussen de statusovergang en het verwijderen, waarna de run niet meer geselecteerd wordt.
+**Telt als:** een eigen bevinding over die selectieregel (zie de grens bij F1), ook als ze een half bestand als gevolg noemt.
+**Telt niet als:** hetzelfde punt binnen een bevinding die ook kern A of kern B noemt (regel 2: die telt dan als F1).
 
 ### M2 — mislukte update `temp_path = NULL`
 
@@ -59,24 +64,27 @@ Twee kernen; één van beide is genoeg.
 
 **Kern.** `VOL_CAP_INT_RENAME_EXCL` telt alleen als de bijbehorende `valid`-bit gezet is, en een mislukte `getattrlist` moet route C geven; of: route A kan `EXDEV` geven, wat route B zou moeten worden in plaats van `failed`.
 **Telt als:** een bevinding over een van beide randgevallen van de routekeuze.
+**Telt niet als:** een algemene opmerking dat route A of `renamex_np` kan mislukken, zonder de validbit, een mislukte `getattrlist` of `EXDEV`; twijfel of de API's bestaan.
 
 ### M5 — AppleDouble-sidecars
 
 **Kern.** Op exFAT en SMB maakt het kopiëren van xattrs `._naam`-bestanden. AC7 en de cleanup houden daar geen rekening mee.
 **Telt als:** een bevinding over `._*`-sidecars.
+**Telt niet als:** een algemene opmerking over xattrs, ACL's of metadata die verloren gaan, zonder de sidecar-bestanden.
 
 ### M6 — de datum in F15
 
 **Kern.** F15 zegt dat de datums bewaard blijven "bij kopiëren", terwijl verplaatsen naar een ander volume ook via een kopie gaat.
 **Telt als:** een bevinding over die formulering of over de metadatatest die alleen kopiëren dekt.
+**Telt niet als:** een bevinding dat datums of metadata in een route niet gezet worden (dat is een andere bewering dan de formulering van F15).
 
 ## IJking op de productieresultaten
 
-Op de twee productieantwoorden in deze case geven de regels:
+Op de twee productieantwoorden in deze case geven de regels het volgende. "Eigen" is de nummering van het rapport zelf; zonder dat woord is het de nummering van deze rubric.
 
 | | f1 | f2 | minors | extra |
 |---|---|---|---|---|
-| `ref-result-claude.json` | `major` (M1, beide kernen) | `minor` (M3) | M2, M3, M4, M5, M6 (de eigen M2, M4, M5, M6, M7) | geen |
-| `ref-result-codex.json` | `major` (MAJOR 1, kern A) | `major` (MAJOR 2) | M1 (MINOR 1, eligibility) | geen (MINOR 2 over de historische verwijzingen is geen M-punt en geen MAJOR) |
+| `ref-result-claude.json` | `major` (eigen MAJOR M1: kern A en kern B, volume afwezig en mislukt verwijderen) | `minor` (eigen MINOR M3) | M2, M3, M4, M5, M6 (eigen M2, M4, M5, M6, M7) | geen |
+| `ref-result-codex.json` | `major` (eigen MAJOR 1, kern A) | `major` (eigen MAJOR 2) | M1 (eigen MINOR 1: de selectieregel, de AC3a-fixture en een herstart tussen statusovergang en verwijderen) | geen (eigen MINOR 2 over de historische verwijzingen is geen M-punt en geen MAJOR) |
 
 Beide voldoen aan de beslisregel van spec §1: `outcome: succeeded`, NO-GO en `f1` `major`.
