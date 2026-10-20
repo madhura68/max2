@@ -2,7 +2,7 @@
 """Review-bench driver (M8, Task 10): `harness review-bench` for each round and each configuration on max2, with a preflight, one ledger
 of the cost, a budget and the stop rules of spec 4.7. It follows task_bench/run.py (M7); what differs is said below.
 
-  ./run.py --harness "node /home/janpeter/Development/agent-harness-m8/dist/cli.js" --config harness.json --probe-dir $P \\
+  ./run.py --harness "node /srv/agent-harness/current/dist/cli.js" --config harness.json --probe-dir $P \\
       --case cases/macsearch-idea263-spec-r5 --models qwen3.8-or-128k claude-sonnet-5.5-or ... --runs 3 --out $R/venster \\
       --ledger $R/ledger.jsonl --budget 8 --key-file /run/user/1000/m8-litellm.key [--preflight] [--preflight-file F]
   (name the harness by its full path: a ~ is not expanded inside the quotes)
@@ -47,7 +47,8 @@ At the end of every call that runs (not the --preflight), also at an exit 3, 4 o
 {label, run, reason} for each expected run (--models x --runs) without a bench-result.json, the first reason that fits being
 `preflight afgewezen: <reason>`, `niet geprobed: <detail>`, `budget bereikt`, `gestopt (stopvlag)` or `gestopt na tweede benchfout op
 <label>`. A run that nothing of this explains is `niet gestart`; a call that ends in an error of the driver itself says `gestopt (fout)`.
-It is made from what is on disk, so a later call that finishes the work empties it. A --preflight leaves it alone, so that a new
+It is made from what is on disk, so a later call that finishes the work empties it. The rows of a label that the call does not name stay
+for as long as their runs have no bench-result.json (JP can skip a label in a later call, and its stop reason must not vanish). A --preflight leaves it alone, so that a new
 preflight of one configuration does not wipe the reasons of the last runs. If it cannot be written, that is said on stderr; the exit
 status of a call that was stopped (3, 4, 6) or failed stays what it was, and a call that was done becomes 2.
 
@@ -617,11 +618,30 @@ class Driver:
             return f"niet geprobed: {self.not_probed[label]}"
         return self.halt or SKIP_NOT_STARTED
 
+    def kept_rows(self):
+        """The rows of the skipped.json that is there now for a label this call does not name, as long as that run still has no
+        bench-result.json. A row that is no row (not a list, no plain label, no run of 1 or more, no reason) is not kept."""
+        try:
+            rows = json.loads((self.out / "skipped.json").read_text(encoding="utf-8"))
+        except (OSError, ValueError, RecursionError):
+            return []
+        kept = {}
+        for row in rows if isinstance(rows, list) else ():
+            if not (isinstance(row, dict) and isinstance(row.get("label"), str) and SEGMENT.fullmatch(row["label"])
+                    and row["label"] not in self.models and isinstance(row.get("run"), int) and not isinstance(row["run"], bool)
+                    and row["run"] >= 1 and isinstance(row.get("reason"), str)):
+                continue
+            if not existing_results(self.out / row["label"] / f"r{row['run']}", self.plan.case_id, row["label"]):
+                kept.setdefault((row["label"], row["run"]), {"label": row["label"], "run": row["run"], "reason": row["reason"]})
+        return list(kept.values())
+
     def write_skipped(self):
-        """Written again at the end of every call that runs: a line for each expected run without a bench-result.json, from what is on disk."""
+        """Written again at the end of every call that runs: a line for each expected run without a bench-result.json, from what is on disk,
+        and the rows of a label this call does not name that still have no result."""
         rows = [{"label": label, "run": n, "reason": self.skip_reason(label)}
                 for label in self.models for n in range(1, self.plan.runs + 1)
                 if not existing_results(self.out / label / f"r{n}", self.plan.case_id, label)]
+        rows += self.kept_rows()
         try:
             write_json(self.out / "skipped.json", rows)
         except OSError as e:

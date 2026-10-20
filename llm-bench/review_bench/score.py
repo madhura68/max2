@@ -5,7 +5,7 @@ run.py leaves on disk and writes nothing into a run.
   ./score.py sheets <out> [--only-f1]
   ./score.py smoke <dir> --scores <scores.jsonl>
   ./score.py report <out> --scores <scores.jsonl> --decisions <decisions.json> --ledger <file> --date <YYYY-MM-DD> --preflight <file>
-                     --models <configuration...> --runs <n> [--smoke-dir <dir> --smoke-scores <file>] [--results-dir <dir>]
+                     --models <configuration...> --runs <n> [--smoke-dir <dir> --smoke-scores <file>] [--notes <file.md>] [--results-dir <dir>]
 
 Every subcommand reads <out>/<label>/r<n>/*/bench-result.json (the layout of run.py). Of the results of one (label, n) the one that
 counts is a result of a model status (beoordeeld, limiet, resultaat_ongeldig) before any other, and then the newest by mtime; a tie
@@ -32,17 +32,22 @@ When neither claude-sonnet-5.5-or nor gpt-6.1-sol-or is kandidaat, every model i
 smoke. One line per run (status, outcome, verdict, f1) and then `rookproef: door` (exit 0) or `rookproef: stop` (exit 1). It is door
 when a result exists of qwen3.8-or-128k and of claude-sonnet-5.5-or, neither is a benchfout, and the runs of sonnet are beoordeeld with
 outcome succeeded, NO-GO and f1 major. A result that is missing is a stop, and so is a scores file that is not there: with no run
-beoordeeld there is no sheet and no scores. A scores file that is there but cannot be read is an error (exit 2).
+beoordeeld there is no sheet and no scores. A benchfout that sits next to the result that counts
+of a run gets one extra line; the gate does not look at it. A scores file that is there but cannot be read is an error (exit 2).
 
 report. <results-dir>/review-bench-<date>.md (default llm-bench/results): the verdict per model, the open models set against the harness
-controls (spec 4.9, "Eerste vergelijking"), cost, tokens, context and time, one row
-per run with the read_file calls on sources/doc from trace.jsonl (the path is normalised first: an absolute path with /<runId>/root/ in
-it becomes the part after it, then posixpath.normpath), every expected run (--models x --runs, also of a configuration that never ran)
-that was not judged with the first reason that fits, the preflight, the smoke, the production runs as context, and the ledger. The
-reason is, in this order: preflight afgewezen (the preflight file, or skipped.json), niet geprobed (the benchError, or skipped.json),
-the status of the result with its error code, budget bereikt or gestopt (skipped.json), niet gestart. A run with a result of a model
-status that is not beoordeeld says that status: it ran. The report is refused (exit 2) when a judged expected run has no sheet or no
-score, when a score cannot be used, or when an argument is wrong: a verdict from incomplete input would be a wrong one.
+controls (spec 4.9, "Eerste vergelijking"), cost, tokens, context and time, one row per run with the read_file calls on sources/doc from
+trace.jsonl (the path is normalised first: an absolute path with /<runId>/root/ in it becomes the part after it, then
+posixpath.normpath), every expected run (--models x --runs, also of a configuration that never ran) that was not judged with the first
+reason that fits, the preflight, the smoke, the production runs as context, the ledger, and the section "Venster, probes en afwijkingen".
+That section is the text of --notes, verbatim (the windows, the probe outcomes, the deviations, what the verdict means for a follow-up
+idea: nothing the generator can know, and a hand edit of the report would be lost at the next run); without --notes it says it is not
+filled in yet. The reason is, in this order: preflight afgewezen (the preflight file, or skipped.json), niet geprobed (the benchError,
+or skipped.json), gestopt (afgebroken) for a run that a signal stopped, the status of the result with its error code, budget bereikt or
+gestopt (skipped.json), niet gestart. A run with a result of a model status that is not beoordeeld says that status: it ran. The report
+is refused (exit 2) when a judged expected run has no sheet or no score, when a score cannot be used, when --notes or --smoke-scores is
+not a file (an empty --smoke-scores says that no smoke run was beoordeeld), or when an argument is wrong: a verdict from incomplete input
+would be a wrong one.
 
 Exit status: 0 done, 1 `rookproef: stop`, 2 the call or the input is wrong. Stdlib only.
 """
@@ -252,10 +257,11 @@ def newest(found):
     return max(pool, key=lambda f: (f.mtime_ns, f.directory.name))
 
 
-def collect(out, dropped=None):
+def collect(out, dropped=None, repeats=None):
     """{(label, n): Found} for <out>/<label>/r<n>/*/bench-result.json. Only a valid result whose own label is that of its directory.
     A bench-result.json that is there but is not one (unreadable, no valid status, another label) is left out, and its path under
-    <out> goes into the list dropped, when one is given."""
+    <out> goes into the list dropped, when one is given. repeats, a dict when one is given, gets {(label, n): how many benchfouten sit
+    next to the result that counts}."""
     out = Path(out)
     if not out.is_dir():
         raise ScoreError(f"{out} is not a directory")
@@ -274,7 +280,13 @@ def collect(out, dropped=None):
                     continue
                 found.setdefault((label_dir.name, int(match[1])), []).append(
                     Found(label_dir.name, int(match[1]), run_dir, path.stat().st_mtime_ns, result))
-    return {key: newest(candidates) for key, candidates in found.items()}
+    counting = {key: newest(candidates) for key, candidates in found.items()}
+    if repeats is not None:
+        for key, candidates in found.items():
+            others = sum(1 for c in candidates if c is not counting[key] and c.result["status"] == BENCHFOUT)
+            if others:
+                repeats[key] = others
+    return counting
 
 
 def read_key(out):
@@ -397,9 +409,15 @@ def normalise_path(path, run_id):
     return posixpath.normpath(path)
 
 
+def is_number(value):
+    """Whether value is a number the way the harness reads one (`typeof x === 'number'`): an int or a float, not a bool."""
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
 def count_sources_doc(trace_path, run_id):
     """(read_file calls on sources/doc, of which with an offset or a limit) from a trace.jsonl, None when there is no trace. A call whose
-    arguments are not parseable is no call on sources/doc. 'With offset/limit' is a call whose arguments carry that key."""
+    arguments are not parseable is no call on sources/doc. 'With offset/limit' is a call that pages the way the harness does
+    (src/worker/task-tools.ts): its offset or its limit is a number; a key with null or a string in it pages nothing."""
     total = limited = 0
     if not Path(trace_path).is_file():          # a named pipe is no file, and reading one would hang
         return None
@@ -422,7 +440,7 @@ def count_sources_doc(trace_path, run_id):
                     continue
                 if normalise_path(arguments["path"], run_id) == SOURCE_DOC:
                     total += 1
-                    limited += "offset" in arguments or "limit" in arguments
+                    limited += any(is_number(arguments.get(name)) for name in ("offset", "limit"))
     except OSError:
         return None
     return total, limited
@@ -498,9 +516,10 @@ def error_code(result):
 SmokeRow = namedtuple("SmokeRow", "label run status outcome verdict f1")
 
 
-def smoke_check(directory, scores_path):
-    """([SmokeRow], [problems]) of a smoke directory. No problems means `rookproef: door`."""
-    runs = collect(directory)
+def smoke_check(directory, scores_path, repeats=None):
+    """([SmokeRow], [problems]) of a smoke directory. No problems means `rookproef: door`. repeats, a dict when one is given, gets the
+    benchfouten that sit next to the result that counts of a run; the gate does not look at them."""
+    runs = collect(directory, repeats=repeats)
     # no run beoordeeld means no sheet, so no scores file to be written: that is a smoke that stops, not one that cannot be read
     by_run = scores_by_run(directory, scores_path, only_f1=True)[0] if Path(scores_path).exists() else {}
     skipped = load_skipped(directory)
@@ -536,9 +555,13 @@ def smoke_line(row):
 
 
 def command_smoke(args):
-    rows, problems = smoke_check(args.dir, args.scores)
+    repeats = {}
+    rows, problems = smoke_check(args.dir, args.scores, repeats)
     for row in rows:
         print(smoke_line(row))
+        if (row.label, row.run) in repeats:
+            n = repeats[(row.label, row.run)]
+            print(f"{row.label} r{row.run}: nog {n} {'benchfout' if n == 1 else 'benchfouten'} naast het resultaat dat telt")
     for problem in problems:
         print(f"stop: {problem}")
     print("rookproef: stop" if problems else "rookproef: door")
@@ -607,6 +630,8 @@ def explain(found, label, n, preflight, skipped):
         return "niet geprobed: " + one_line(R.not_probed_detail(found.result["benchError"]))
     if skip.startswith("niet geprobed"):
         return skip
+    if found and found.result.get("benchError") == R.ABORTED:       # stopped by a signal (HARNESS_ERROR "aborted"): a stop, no defect
+        return "gestopt (afgebroken)"
     if found:
         code = error_code(found.result)
         return f"{status}: {code}" if code else status
@@ -849,7 +874,29 @@ def follow_up(models, verdicts, valid):
     return "Geen enkel model buiten de controles is kandidaat; de uitkomst hierboven is de volledige uitslag."
 
 
-def build_report(date, models, runs, entries, unjudged, decisions, preflight, ledger, smoke, warnings):
+def notes_section(notes):
+    """The section the generator has no data for: the window or windows, the probe outcomes, the deviations and what the verdict means for
+    a follow-up idea (spec 4.9, 'Verder'). It comes from --notes, verbatim, so that a next `report` does not lose it."""
+    if notes is None:
+        return ["Dit deel is nog niet ingevuld: de vensters, de probe-uitslagen, de afwijkingen en wat het oordeel voor een vervolgidee betekent "
+                "komen uit een bestand met `--notes <bestand.md>`."]
+    return [notes.strip("\n")]
+
+
+def read_notes(path):
+    """The text of --notes. Not a file, not UTF-8 or nothing in it is an error: an empty section would read as 'filled in'."""
+    if not Path(path).is_file():
+        raise ScoreError(f"--notes {path} is not a file")
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except (OSError, ValueError) as e:
+        raise ScoreError(f"--notes {path} cannot be read: {type(e).__name__}") from None
+    if not text.strip():
+        raise ScoreError(f"--notes {path} is empty")
+    return text
+
+
+def build_report(date, models, runs, entries, unjudged, decisions, preflight, ledger, smoke, warnings, notes=None):
     groups = per_model(entries, models)
     records = {label: [e.record for e in group] for label, group in groups.items()}
     own = {label: model_oordeel(group) for label, group in records.items()}
@@ -882,6 +929,7 @@ def build_report(date, models, runs, entries, unjudged, decisions, preflight, le
               "De productieruns van dezelfde review, ter vergelijking. Het zijn geen bench-runs en ze tellen niet mee in het oordeel.", "",
               *table(["Run", "Uitvoerder", "Kosten"], [list(row) for row in PRODUCTION_RUNS]), "",
               "## Grootboek", "", *ledger_section(ledger), "",
+              "## Venster, probes en afwijkingen", "", *notes_section(notes), "",
               "## Grenzen en vervolg", "",
               "De bench dekt één case en alleen een document: geen shell, git of code lezen. De runs zijn blind met de hand gescoord, volgens "
               "de rubric van de case; JP besliste één keer per extra-key. Er is geen judge-model.", "",
@@ -905,6 +953,10 @@ def command_report(args):
     date = check_date(args.date)
     if bool(args.smoke_dir) != bool(args.smoke_scores):
         raise ScoreError("--smoke-dir and --smoke-scores go together: give both or neither")
+    if args.smoke_scores and not Path(args.smoke_scores).is_file():
+        # the `smoke` subcommand reads a missing file as 'no scores', for the moment it is called; a committed report would say so for good
+        raise ScoreError(f"--smoke-scores {args.smoke_scores} is not a file (an empty file says that no smoke run was beoordeeld)")
+    notes = read_notes(args.notes) if args.notes else None
     repeated = sorted({label for label in args.models if args.models.count(label) > 1})
     if repeated:
         raise ScoreError(f"--models names {', '.join(repeated)} more than once")
@@ -923,7 +975,7 @@ def command_report(args):
     skipped = load_skipped(out)
     smoke = smoke_check(args.smoke_dir, args.smoke_scores) if args.smoke_dir else None
     unjudged = [(e, why) for e in entries if (why := explain(e.found, e.label, e.run, preflight, skipped)) is not None]
-    text = build_report(date, args.models, args.runs, entries, unjudged, decisions, preflight, ledger, smoke, warnings)
+    text = build_report(date, args.models, args.runs, entries, unjudged, decisions, preflight, ledger, smoke, warnings, notes)
     results = Path(args.results_dir)
     results.mkdir(parents=True, exist_ok=True)
     path = results / f"review-bench-{date}.md"
@@ -957,7 +1009,8 @@ def build_parser():
     p.add_argument("--models", nargs="+", required=True, metavar="CONFIGURATION", help="the expected configurations, in this order")
     p.add_argument("--runs", type=R.positive_int, required=True, help="the expected runs per configuration")
     p.add_argument("--smoke-dir", help="the --out of the smoke runs")
-    p.add_argument("--smoke-scores", help="scores.jsonl of the smoke")
+    p.add_argument("--smoke-scores", help="scores.jsonl of the smoke (an existing file; an empty one when no smoke run was beoordeeld)")
+    p.add_argument("--notes", help="a markdown file for the section 'Venster, probes en afwijkingen': windows, probes, deviations, follow-up")
     p.add_argument("--results-dir", default=str(DEFAULT_RESULTS_DIR), help="where the report goes (default llm-bench/results)")
     return ap
 

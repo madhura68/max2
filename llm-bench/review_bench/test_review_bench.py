@@ -1307,6 +1307,58 @@ class StopTest(DriverBase):
         self.assertEqual(self.ran(), [(ALFA, 1)])             # it neither repeats that run nor goes on to the next
         self.assertEqual([row["cost_usd"] for row in self.ledger_rows()], [0.1])
 
+class SkippedKeepTest(DriverBase):
+    """skipped.json is made again by every call from the labels of that call; the rows of a label that a later call leaves out
+    (JP skips it, plan P3.2) stay for as long as those runs have no bench-result.json."""
+
+    STOP = f"gestopt na tweede benchfout op {BETA}"
+
+    def test_the_rows_of_a_label_a_later_call_does_not_name_stay_while_they_have_no_result(self):
+        stopped = self.drive([ALFA, BETA], runs=2, config={"labels": {BETA: {"status": "benchfout"}}})
+        self.assertEqual(stopped.returncode, 3, stopped.stderr)
+        self.assertEqual(self.skipped(), [{"label": ALFA, "run": 2, "reason": self.STOP}, {"label": BETA, "run": 2, "reason": self.STOP}])
+        self.assertEqual(self.drive([ALFA], runs=2).returncode, 0)             # JP skips beta: the next call does not name it
+        self.assertEqual(self.skipped(), [{"label": BETA, "run": 2, "reason": self.STOP}])      # alfa ran: its row is gone, beta's stays
+        self.seed(BETA, 2, "beoordeeld")                                         # now beta r2 has a result
+        self.assertEqual(self.drive([ALFA], runs=2).returncode, 0)
+        self.assertEqual(self.skipped(), [])
+
+    def test_a_label_the_call_does_name_is_made_again_not_kept(self):
+        self.assertEqual(self.drive([ALFA, BETA], runs=1, budget="1", config={"default": {"cost": 0.5}}).returncode, 4)           # budget: alfa r1 ran, beta r1 not
+        self.assertEqual(self.skipped(), [{"label": BETA, "run": 1, "reason": "budget bereikt"}])
+        self.pass_preflight(path=self.out / "preflight.json", rejected={BETA: "HTTP 400: nee"})              # beta is named again, and has a new reason
+        self.assertEqual(self.drive([ALFA, BETA], runs=1, budget="10").returncode, 0)
+        self.assertEqual(self.skipped(), [{"label": BETA, "run": 1, "reason": "preflight afgewezen: HTTP 400: nee"}])      # not also the old row
+        self.pass_preflight(path=self.out / "preflight.json")
+        self.assertEqual(self.drive([ALFA, BETA], runs=1, budget="10").returncode, 0)
+        self.assertEqual(self.skipped(), [])
+
+    def test_a_row_that_is_no_row_of_ours_is_not_kept(self):
+        self.out.mkdir()
+        (self.out / "skipped.json").write_text(json.dumps([
+            {"label": BETA, "run": 3, "reason": self.STOP},                       # kept: beta is not in this call and r3 has no result
+            {"label": "../buiten", "run": 1, "reason": "x"},                      # a label that is no plain path segment
+            {"label": BETA, "run": "1", "reason": "x"}, {"label": BETA, "run": 0, "reason": "x"}, {"label": BETA, "run": 1},
+            {"run": 1, "reason": "x"}, "tekst", 7, None]), encoding="utf-8")
+        self.assertEqual(self.drive([ALFA], runs=1).returncode, 0)
+        self.assertEqual(self.skipped(), [{"label": BETA, "run": 3, "reason": self.STOP}])
+
+    def test_a_skipped_json_that_is_not_a_list_is_replaced_not_a_crash(self):
+        self.out.mkdir()
+        for text in ("{ stuk", '{"a": 1}', '"tekst"'):
+            with self.subTest(text):
+                (self.out / "skipped.json").write_text(text, encoding="utf-8")
+                self.assertEqual(self.drive([ALFA], runs=1).returncode, 0)
+                self.assertEqual(self.skipped(), [])
+
+
+class DriverDocTest(unittest.TestCase):
+    def test_the_example_command_of_the_driver_names_the_release_that_p2_uses(self):
+        doc = load_driver_module().__doc__
+        self.assertIn('--harness "node /srv/agent-harness/current/dist/cli.js"', doc)
+        self.assertNotIn("agent-harness-m8", doc)
+
+
 class KeyFileTest(DriverBase):
     def test_a_key_file_with_a_trailing_newline_gives_the_bare_value(self):
         for what, content in (("a newline", DUMMY_KEY + "\n"), ("two newlines", DUMMY_KEY + "\n\n"), ("spaces and a newline", f"  {DUMMY_KEY} \r\n"),
@@ -2212,11 +2264,21 @@ class TraceTest(ScoreBase):
         self.assertEqual(self.count("trace-path-forms.jsonl", "an-other-run"), (5, 2))
         self.assertEqual(self.count("trace-path-forms.jsonl", "onbekende-run"), (4, 2))
 
-    def test_a_limit_without_an_offset_counts_as_limited_and_the_value_does_not_matter(self):
+    def count_calls(self, *calls):
         trace = self.tmp / "trace.jsonl"
-        calls = [{"path": "sources/doc", "limit": 5}, {"path": "sources/doc", "offset": None}, {"path": "sources/doc", "offset": 0}, {"path": "sources/doc"}]
         trace.write_text("".join(json.dumps({"type": "tool_call", "name": "read_file", "arguments": json.dumps(c)}) + "\n" for c in calls), encoding="utf-8")
-        self.assertEqual(self.S.count_sources_doc(trace, "r"), (4, 3))
+        return self.S.count_sources_doc(trace, "r")
+
+    def test_a_call_is_limited_only_when_offset_or_limit_is_a_number_as_the_harness_pages(self):
+        # agent-harness src/worker/task-tools.ts: `typeof args.offset === 'number'`: a key with null in it pages nothing
+        self.assertEqual(self.count_calls({"path": "sources/doc", "limit": 5}, {"path": "sources/doc", "offset": None},
+                                          {"path": "sources/doc", "offset": 0}, {"path": "sources/doc"}), (4, 2))
+
+    def test_a_number_is_an_int_or_a_float_and_nothing_else(self):
+        limited = [{"offset": 3}, {"limit": 5}, {"offset": 1.5}, {"offset": 3, "limit": None}, {"offset": None, "limit": 20}, {"offset": 0, "limit": 0}]
+        unlimited = [{"offset": True}, {"limit": False}, {"limit": "5"}, {"offset": [5]}, {"offset": {"n": 1}}, {"offset": None, "limit": None},
+                     {"offset": "", "limit": True}, {}]
+        self.assertEqual(self.count_calls(*({"path": "sources/doc", **c} for c in limited + unlimited)), (len(limited) + len(unlimited), len(limited)))
 
     @unittest.skipUnless(hasattr(os, "mkfifo"), "needs mkfifo")
     def test_a_trace_that_is_a_named_pipe_is_no_trace_and_does_not_hang(self):
@@ -2306,6 +2368,34 @@ class SmokeTest(ScoreBase):
         self.put(SONNET, 1, mtime=1_000_000_000)
         status, stdout, _ = self.smoke(sonnet=None)         # qwen is put by smoke
         self.assertEqual(status, 0, stdout)
+
+    def test_a_repeated_benchfout_next_to_the_result_that_counts_is_said_and_changes_no_gate(self):
+        self.put(QWEN, 1, "bench-result-benchfout.json", mtime=1_000_000_000)
+        self.put(SONNET, 1, "bench-result-not-probed.json", mtime=1_000_000_000)
+        self.put(SONNET, 1, "bench-result-benchfout.json", mtime=1_100_000_000)
+        self.put(SONNET, 1, "bench-result-limiet.json", mtime=900_000_000)          # an older model status is no benchfout: not counted
+        status, stdout, _ = self.smoke()                  # the judged qwen counts over its benchfout; sonnet is judged too, over two
+        self.assertEqual(status, 0, stdout)
+        lines = stdout.splitlines()
+        self.assertIn("rookproef: door", lines)
+        qwen_line = lines.index(f"{QWEN} r1: status=beoordeeld outcome=succeeded verdict=NO-GO f1=nee")
+        self.assertEqual(lines[qwen_line + 1], f"{QWEN} r1: nog 1 benchfout naast het resultaat dat telt")
+        sonnet_line = lines.index(f"{SONNET} r1: status=beoordeeld outcome=succeeded verdict=NO-GO f1=major")
+        self.assertEqual(lines[sonnet_line + 1], f"{SONNET} r1: nog 2 benchfouten naast het resultaat dat telt")
+        self.assertEqual(sum("naast het resultaat dat telt" in l for l in lines), 2)
+
+    def test_a_benchfout_that_counts_over_an_older_one_is_said_and_the_gate_still_stops(self):
+        self.put(SONNET, 1, "bench-result-benchfout.json", mtime=1_000_000_000)
+        self.put(SONNET, 1, "bench-result-benchfout.json", mtime=1_100_000_000)
+        status, stdout, _ = self.smoke(sonnet=None)
+        self.assertEqual(status, 1)
+        self.assertIn(f"{SONNET} r1: nog 1 benchfout naast het resultaat dat telt", stdout.splitlines())
+        self.assertTrue(stdout.rstrip().endswith("rookproef: stop"))
+
+    def test_no_repeat_no_extra_line(self):
+        status, stdout, _ = self.smoke()
+        self.assertEqual(status, 0)
+        self.assertNotIn("naast het resultaat dat telt", stdout)
 
     def test_without_a_judged_run_there_is_no_scores_file_and_smoke_is_a_stop_not_an_error(self):
         self.put(QWEN, 1, "bench-result-benchfout.json")
@@ -2653,6 +2743,98 @@ class ReportTest(ReportBase):
             "cfg-b": "preflight afgewezen: HTTP 400: ook uit de preflight",
             "cfg-c": "preflight afgewezen: HTTP 429: uit skipped.json",
             "cfg-d": "niet geprobed: geen probe voor cfg-d"})
+
+    def test_an_aborted_run_is_a_stop_not_a_bench_defect(self):
+        # a run stopped by Ctrl-C: benchError afgebroken, and an error HARNESS_ERROR "aborted" (agent-harness src/run.ts)
+        self.three(QWEN, "bench-result-benchfout.json", over={"benchError": "afgebroken", "error": {"code": "HARNESS_ERROR", "message": "aborted"}})
+        self.three("cfg-b", "bench-result-benchfout.json", over={"error": {"code": "HARNESS_ERROR", "message": "kapot"}})      # a real harness error
+        self.three("cfg-c", "bench-result-benchfout.json", over={"benchError": "afgebroken afgebroken"})                       # only starts like it
+        self.preflight_ok(QWEN, "cfg-b", "cfg-c")
+        self.write_scores(self.scores, [])
+        status, _, stderr, text = self.report([QWEN, "cfg-b", "cfg-c"], runs=1)
+        self.assertEqual(status, 0, stderr)
+        reasons = {self.cells(l)[0]: self.cells(l)[2] for l in self.section(text, "Runs zonder oordeel") if l.startswith("| ")}
+        self.assertEqual(reasons[QWEN], "gestopt (afgebroken)")
+        self.assertEqual(reasons["cfg-b"], "benchfout: HARNESS_ERROR")
+        self.assertEqual(reasons["cfg-c"], "benchfout: MODEL_ERROR")                  # a benchError that only starts like afgebroken
+
+    def test_a_rejected_preflight_still_wins_over_an_aborted_run(self):
+        self.three(QWEN, "bench-result-benchfout.json", over={"benchError": "afgebroken", "error": {"code": "HARNESS_ERROR", "message": "aborted"}})
+        self.preflight_ok(rejected={QWEN: "HTTP 400: nee"})
+        self.write_scores(self.scores, [])
+        _, _, _, text = self.report([QWEN], runs=1)
+        self.assertEqual([self.cells(l)[2] for l in self.section(text, "Runs zonder oordeel") if l.startswith(f"| {QWEN}")],
+                         ["preflight afgewezen: HTTP 400: nee"])
+
+    NOTES_SECTION = "Venster, probes en afwijkingen"
+
+    def test_without_notes_the_section_is_there_and_says_it_is_not_filled_in_yet(self):
+        self.populate_comparison()
+        _, _, _, text = self.report([SONNET, QWEN, FLASH])
+        lines = [l for l in self.section(text, self.NOTES_SECTION) if l.strip()]
+        self.assertEqual(len(lines), 1)
+        self.assertIn("nog niet ingevuld", lines[0])
+        self.assertIn("--notes", lines[0])
+
+    def test_notes_go_verbatim_into_the_section_between_the_ledger_and_the_limits(self):
+        self.populate_comparison()
+        notes = self.tmp / "notes.md"
+        body = ("### Venster 1\n\nGedraaid op max2, 2026-10-21, tussen 10:00 en 11:30 | zonder lopende jobs.\n\n"
+                "| Probe | Uitslag |\n| --- | --- |\n| qwen3.8-or-128k | aanvaard |\n\n- afwijking: één run opnieuw gedraaid (é, ≈, `code`)\n  - ingesprongen\n")
+        notes.write_text(body, encoding="utf-8")
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=("--notes", notes))
+        self.assertEqual(status, 0, stderr)
+        section = self.section(text, self.NOTES_SECTION)
+        self.assertEqual("\n".join(section).strip("\n"), body.strip("\n"))
+        self.assertNotIn("nog niet ingevuld", text)
+        self.assertLess(text.index("## Grootboek"), text.index(f"## {self.NOTES_SECTION}"))
+        self.assertLess(text.index(f"## {self.NOTES_SECTION}"), text.index("## Grenzen en vervolg"))
+
+    def test_notes_that_cannot_be_used_are_exit_2_and_no_report(self):
+        self.populate_comparison()
+        unreadable = self.tmp / "kapot.md"
+        unreadable.write_bytes(b"\xff\xfe geen utf-8 \x80")
+        blank = self.tmp / "leeg.md"
+        blank.write_text("  \n\n", encoding="utf-8")
+        a_directory = self.tmp / "map.md"
+        a_directory.mkdir()
+        for name, path in (("missing", self.tmp / "niet-er.md"), ("not utf-8", unreadable), ("blank", blank), ("a directory", a_directory)):
+            with self.subTest(name):
+                status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=("--notes", path))
+                self.assertEqual(status, 2)
+                self.assertIn("--notes", stderr)
+                self.assertIsNone(text)
+                self.assertFalse(self.results.exists())
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "needs mkfifo")
+    def test_notes_that_are_a_named_pipe_are_refused_without_a_read_that_hangs(self):
+        pipe = self.tmp / "pipe.md"
+        os.mkfifo(pipe)
+        argv = [sys.executable, str(SCORE), "report", str(self.out), "--scores", "s", "--decisions", "d", "--ledger", "l", "--date", "2026-10-20",
+                "--preflight", "p", "--models", QWEN, "--runs", "1", "--notes", str(pipe)]
+        try:
+            done = subprocess.run(argv, capture_output=True, text=True, timeout=20, stdin=subprocess.DEVNULL)
+        except subprocess.TimeoutExpired:
+            self.fail("score.py report read a named pipe as the notes and hung")
+        self.assertEqual(done.returncode, 2)
+        self.assertIn("is not a file", done.stderr)
+
+    def test_a_smoke_scores_file_that_is_not_there_is_refused_by_report_but_not_by_smoke(self):
+        self.populate_comparison()
+        smoke = self.tmp / "rook"
+        self.put(QWEN, 1, "bench-result-benchfout.json", out=smoke)
+        self.put(SONNET, 1, "bench-result-benchfout.json", out=smoke)
+        missing = self.tmp / "niet-er.jsonl"
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=("--smoke-dir", smoke, "--smoke-scores", missing))
+        self.assertEqual(status, 2)
+        self.assertIn("--smoke-scores", stderr)
+        self.assertIsNone(text)
+        self.assertFalse(self.results.exists())
+        self.assertEqual(self.run_main("smoke", smoke, "--scores", missing)[0], 1)          # the subcommand keeps its meaning: no scores, a stop
+        missing.write_text("", encoding="utf-8")                                              # an empty file is the way to say there is no sheet
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=("--smoke-dir", smoke, "--smoke-scores", missing))
+        self.assertEqual(status, 0, stderr)
+        self.assertIn("rookproef: stop", "\n".join(self.section(text, "Rookproef")))
 
     def test_a_result_that_is_dropped_is_named_in_the_warnings_by_its_path_under_out(self):
         self.three(QWEN, BEOORDEELD, BEOORDEELD, BEOORDEELD)
