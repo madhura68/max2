@@ -1703,6 +1703,7 @@ class StdlibOnlyTest(unittest.TestCase):
 SCORE = HERE / "score.py"
 SCORE_FIXTURES = HERE / "fixtures" / "score"
 QWEN, SONNET, SOL = "qwen3.8-or-128k", "claude-sonnet-5.5-or", "gpt-6.1-sol-or"
+LUNA, PRO, MINIMAX = "gpt-6-luna-or", "deepseek-v4-pro-or", "minimax-m3-or"
 FLASH, GLM = "deepseek-v4-flash-or", "glm-5.3-or"
 OPENROUTER = {      # the eight configurations of spec 4.6 and the OpenRouter model behind each
     "qwen3.8-or-128k": "qwen/qwen3.8-27b", "deepseek-v4-flash-or": "deepseek/deepseek-v4-flash",
@@ -2574,6 +2575,32 @@ class ReportTest(ReportBase):
                          {"onbeslist: runtime"})
         self.assertIn("niet aangetoond", "\n".join(lines))
         self.assertNotIn("Controle niet in --models", "\n".join(lines))
+
+    def test_the_groups_of_the_comparison_are_a_fixed_mapping_of_the_eight_configurations(self):
+        # spec 4.6, line 59: the five existing open models, gpt-6-luna as the proprietary one, and the two controls
+        S = self.S
+        self.assertEqual(S.OPEN_MODELS, (QWEN, FLASH, PRO, GLM, MINIMAX))
+        self.assertEqual(S.PROPRIETARY, (LUNA,))
+        self.assertEqual(tuple(S.CONTROLS), (SONNET, SOL))
+        self.assertEqual({label: S.model_group(label) for label in OPENROUTER},
+                         {QWEN: "open model", FLASH: "open model", PRO: "open model", GLM: "open model", MINIMAX: "open model",
+                          LUNA: "propriëtair, geen controle", SONNET: "harness-controle", SOL: "harness-controle"})
+        self.assertEqual(S.model_group("cfg-iets-anders"), "overig")
+
+    def test_the_first_comparison_groups_open_proprietary_controls_and_others(self):
+        models = [LUNA, "cfg-other", QWEN, SOL, MINIMAX, SONNET, PRO]               # not in the order of the groups
+        self.out.mkdir()
+        self.preflight_ok()
+        self.write_scores(self.scores, [])
+        status, _, stderr, text = self.report(models, runs=1)
+        self.assertEqual(status, 0, stderr)
+        rows = [self.cells(l)[:2] for l in self.section(text, "Eerste vergelijking: open modellen tegenover de harness-controles")
+                if l.startswith("| ") and not l.startswith("| ---")]
+        self.assertEqual(rows, [["Groep", "Model"],
+                                ["harness-controle", SOL], ["harness-controle", SONNET],                       # within a group, the order of --models
+                                ["open model", QWEN], ["open model", MINIMAX], ["open model", PRO],
+                                ["propriëtair, geen controle", LUNA],
+                                ["overig", "cfg-other"]])
 
     def test_a_model_that_never_ran_keeps_valt_af_and_the_main_table_says_why(self):
         self.three(SONNET, BEOORDEELD, BEOORDEELD, BEOORDEELD)

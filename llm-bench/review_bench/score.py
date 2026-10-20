@@ -99,8 +99,13 @@ OPENROUTER = {      # the configurations of spec 4.6 and the OpenRouter model be
 VENDOR_WORDS = ("claude", "anthropic", "sonnet", "gpt", "openai", "qwen", "deepseek", "glm", "z-ai", "z.ai", "minimax", "luna", "sol",
                 "opus", "haiku", "codex", "gemini", "kimi")
 CONTROLS = ("claude-sonnet-5.5-or", "gpt-6.1-sol-or")           # the harness controls of spec 1
+OPEN_MODELS = ("qwen3.8-or-128k", "deepseek-v4-flash-or", "deepseek-v4-pro-or", "glm-5.3-or", "minimax-m3-or")      # the five existing ones (spec 4.6)
+PROPRIETARY = ("gpt-6-luna-or",)                                # proprietary, and no control
 SMOKE_LABELS = ("qwen3.8-or-128k", "claude-sonnet-5.5-or")      # the smoke (spec 4.8, step 6): the first one is judged on not failing
 SMOKE_CONTROL = SMOKE_LABELS[1]                                 # ... the second on finding the known MAJOR
+
+GROUP_CONTROL, GROUP_OPEN, GROUP_PROPRIETARY, GROUP_OTHER = "harness-controle", "open model", "propriëtair, geen controle", "overig"
+GROUP_ORDER = (GROUP_CONTROL, GROUP_OPEN, GROUP_PROPRIETARY, GROUP_OTHER)
 
 GRADES = ("major", "minor", "nee")
 MINORS = tuple(f"M{n}" for n in range(1, 7))
@@ -682,6 +687,17 @@ def extras_of(model_entries, decisions):
     return [f"{key} ({decisions.get(key, 'open')})" for key in keys]
 
 
+def model_group(label):
+    """The group of a configuration in the comparison: a fixed mapping, with `overig` for a name that is in none of the lists."""
+    if label in CONTROLS:
+        return GROUP_CONTROL
+    if label in OPEN_MODELS:
+        return GROUP_OPEN
+    if label in PROPRIETARY:
+        return GROUP_PROPRIETARY
+    return GROUP_OTHER
+
+
 def model_name(label):
     return f"{label} (controle)" if label in CONTROLS else label
 
@@ -716,14 +732,14 @@ def verdict_table(models, groups, cells, decisions):
 
 
 def comparison_section(models, groups, cells, own, valid):
-    """Spec 4.9, 'Eerste vergelijking': the open models (every model that is no harness control) set against the controls, with the
-    verdict, the runs that comply and the runs in which F1 was found as major, and the validity of the bench."""
+    """Spec 4.9, 'Eerste vergelijking': the open models set against the controls, with gpt-6-luna as the proprietary one between them,
+    and a group `overig` for any other name. Per model the verdict, the runs that comply and the runs in which F1 was found as major,
+    and the validity of the bench. The controls come first, then the other groups, each in the order of --models."""
     def row(group_name, label):
         group = groups[label]
         return [group_name, label, cells[label], f"{sum(e.record['voldoet'] for e in group)}/{len(group)}",
                 f"{sum(1 for e in group if e.score and e.score['f1'] == 'major')}/{len(group)}"]
-    rows = [row("harness-controle", label) for label in models if label in CONTROLS]
-    rows += [row("open model", label) for label in models if label not in CONTROLS]
+    rows = [row(group, label) for group in GROUP_ORDER for label in models if model_group(label) == group]
     lines = [f"Geldigheid van de bench: {validity_text(own, valid)}", "",
              *table(["Groep", "Model", "Oordeel", "Voldoet", "F1 als major gevonden"], rows)]
     absent = [control for control in CONTROLS if control not in models]
