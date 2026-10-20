@@ -14,7 +14,7 @@
     "version": 1,
     "outcome": "succeeded",
     "summary": "Claude review, ronde 5: NO-GO. Gelezen via anthropic/claude-sonnet-5.5, ook wel GPT-6.1-sol of openai/gpt-6.1-sol.",
-    "report_markdown": "# Claude review\n\nIk ben Claude van Anthropic (Sonnet). Dit is geen oplossing en geen console-melding.\n\nConfiguraties in deze bench: qwen3.8-or-128k, Qwen3, deepseek-v4-flash-or, deepseek/deepseek-v4-pro, GLM-5.3 (z-ai/glm-5.3), minimax-m3-or, gpt-6-luna-or, LUNA, claude-sonnet-5.5-or, gpt-6.1-sol-or, sol.\n\n- MAJOR: een synthetische bevinding.\n",
+    "report_markdown": "# Claude review\n\nIk ben Claude van Anthropic (Sonnet). Dit is geen oplossing en geen console-melding.\n\nConfiguraties in deze bench: qwen3.8-or-128k, Qwen3, deepseek-v4-flash-or, deepseek/deepseek-v4-pro, GLM-5.3 (z-ai/glm-5.3), minimax-m3-or, gpt-6-luna-or, LUNA, claude-sonnet-5.5-or, gpt-6.1-sol-or, sol.\n\nVerwante families die een model van zichzelf kan noemen: Opus, Haiku, Codex, Gemini, Kimi en Z.ai (ook z-ai).\n\n- MAJOR: een synthetische bevinding.\n",
     "checks": [],
     "review": {
       "verdict": "NO-GO",

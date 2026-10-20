@@ -16,8 +16,9 @@ sheets. A sheet <out>/sheets/<id>.md for each run that ended beoordeeld, with <i
 result.summary and result.report_markdown. The link id -> run directory (a path under <out>) is in <out>/sheets-key.json and nowhere
 else; whoever scores does not open it. A second call keeps the ids it has and adds the new runs. The text of the model is masked first:
 every configuration name, every OpenRouter model of the bench and the words claude, anthropic, sonnet, gpt, openai, qwen, deepseek, glm,
-z-ai, minimax, luna and sol (a letter on either side makes it another word, a digit or a dash does not) become [model], in any case,
-because a report can name its own model. --only-f1 asks for f1 only (the smoke).
+z-ai, z.ai, minimax, luna, sol, opus, haiku, codex, gemini and kimi (a letter on either side makes it another word, a digit or a dash
+does not) become [model], in any case, because a report can name its own model, also one of a family the eight do not cover.
+--only-f1 asks for f1 only (the smoke).
 
 scores.jsonl, one line per sheet, written by hand with rubric.md:
   {"sheet", "f1": major|minor|nee, "f2": major|minor|nee, "minors": ["M1".."M6"], "extra": [{"key", "voorstel": geldig|ongeldig, "reden"}]}
@@ -30,9 +31,11 @@ When neither claude-sonnet-5.5-or nor gpt-6.1-sol-or is kandidaat, every model i
 
 smoke. One line per run (status, outcome, verdict, f1) and then `rookproef: door` (exit 0) or `rookproef: stop` (exit 1). It is door
 when a result exists of qwen3.8-or-128k and of claude-sonnet-5.5-or, neither is a benchfout, and the runs of sonnet are beoordeeld with
-outcome succeeded, NO-GO and f1 major. A result that is missing is a stop.
+outcome succeeded, NO-GO and f1 major. A result that is missing is a stop, and so is a scores file that is not there: with no run
+beoordeeld there is no sheet and no scores. A scores file that is there but cannot be read is an error (exit 2).
 
-report. <results-dir>/review-bench-<date>.md (default llm-bench/results): the verdict per model, cost, tokens, context and time, one row
+report. <results-dir>/review-bench-<date>.md (default llm-bench/results): the verdict per model, the open models set against the harness
+controls (spec 4.9, "Eerste vergelijking"), cost, tokens, context and time, one row
 per run with the read_file calls on sources/doc from trace.jsonl (the path is normalised first: an absolute path with /<runId>/root/ in
 it becomes the part after it, then posixpath.normpath), every expected run (--models x --runs, also of a configuration that never ran)
 that was not judged with the first reason that fits, the preflight, the smoke, the production runs as context, and the ledger. The
@@ -47,6 +50,7 @@ import argparse
 import importlib.util
 import json
 import math
+import os
 import posixpath
 import random
 import re
@@ -92,7 +96,8 @@ OPENROUTER = {      # the configurations of spec 4.6 and the OpenRouter model be
     "claude-sonnet-5.5-or": "anthropic/claude-sonnet-5.5",
     "gpt-6.1-sol-or": "openai/gpt-6.1-sol",
 }
-VENDOR_WORDS = ("claude", "anthropic", "sonnet", "gpt", "openai", "qwen", "deepseek", "glm", "z-ai", "minimax", "luna", "sol")
+VENDOR_WORDS = ("claude", "anthropic", "sonnet", "gpt", "openai", "qwen", "deepseek", "glm", "z-ai", "z.ai", "minimax", "luna", "sol",
+                "opus", "haiku", "codex", "gemini", "kimi")
 CONTROLS = ("claude-sonnet-5.5-or", "gpt-6.1-sol-or")           # the harness controls of spec 1
 SMOKE_LABELS = ("qwen3.8-or-128k", "claude-sonnet-5.5-or")      # the smoke (spec 4.8, step 6): the first one is judged on not failing
 SMOKE_CONTROL = SMOKE_LABELS[1]                                 # ... the second on finding the known MAJOR
@@ -242,8 +247,10 @@ def newest(found):
     return max(pool, key=lambda f: (f.mtime_ns, f.directory.name))
 
 
-def collect(out):
-    """{(label, n): Found} for <out>/<label>/r<n>/*/bench-result.json. Only a valid result whose own label is that of its directory."""
+def collect(out, dropped=None):
+    """{(label, n): Found} for <out>/<label>/r<n>/*/bench-result.json. Only a valid result whose own label is that of its directory.
+    A bench-result.json that is there but is not one (unreadable, no valid status, another label) is left out, and its path under
+    <out> goes into the list dropped, when one is given."""
     out = Path(out)
     if not out.is_dir():
         raise ScoreError(f"{out} is not a directory")
@@ -257,6 +264,8 @@ def collect(out):
                 path = run_dir / "bench-result.json"
                 result = R.load_bench_result(path)
                 if result is None or result.get("label") != label_dir.name:
+                    if dropped is not None and os.path.lexists(path):
+                        dropped.append(path.relative_to(out).as_posix())
                     continue
                 found.setdefault((label_dir.name, int(match[1])), []).append(
                     Found(label_dir.name, int(match[1]), run_dir, path.stat().st_mtime_ns, result))
@@ -418,6 +427,12 @@ def count_sources_doc(trace_path, run_id):
 # small formatters
 # ---------------------------------------------------------------------------------------------------------------------
 
+def runs_phrase(n, what):
+    """'1 run heeft er geen' / '2 runs hebben er geen': what is the rest of the sentence for the singular and the plural."""
+    singular, plural = what
+    return f"{n} {'run' if n == 1 else 'runs'} {singular if n == 1 else plural}"
+
+
 def one_line(text, limit=200):
     return " ".join(str(text).split())[:limit]
 
@@ -481,7 +496,8 @@ SmokeRow = namedtuple("SmokeRow", "label run status outcome verdict f1")
 def smoke_check(directory, scores_path):
     """([SmokeRow], [problems]) of a smoke directory. No problems means `rookproef: door`."""
     runs = collect(directory)
-    by_run, _ = scores_by_run(directory, scores_path, only_f1=True)
+    # no run beoordeeld means no sheet, so no scores file to be written: that is a smoke that stops, not one that cannot be read
+    by_run = scores_by_run(directory, scores_path, only_f1=True)[0] if Path(scores_path).exists() else {}
     skipped = load_skipped(directory)
     order = {label: n for n, label in enumerate(SMOKE_LABELS)}
     rows = []
@@ -562,6 +578,12 @@ def command_sheets(args):
 Entry = namedtuple("Entry", "label run found score record")      # one expected run: found is None when there is no result
 
 
+def not_probed(result):
+    """Whether a result is the benchfout of a configuration without an accepted probe: the harness never called a model."""
+    bench_error = result.get("benchError") if isinstance(result, dict) else None
+    return result.get("status") == BENCHFOUT and isinstance(bench_error, str) and bench_error.startswith(R.NOT_PROBED)
+
+
 def explain(found, label, n, preflight, skipped):
     """Why an expected run was not judged: the first reason that fits, in the order of the plan. None for a run that was judged."""
     status = found.result["status"] if found else None
@@ -576,9 +598,8 @@ def explain(found, label, n, preflight, skipped):
         return "preflight afgewezen: " + one_line(entry.get("reason") or "geen reden opgegeven")
     if skip.startswith("preflight afgewezen"):
         return skip
-    bench_error = found.result.get("benchError") if found else None
-    if isinstance(bench_error, str) and bench_error.startswith(R.NOT_PROBED):
-        return "niet geprobed: " + one_line(R.not_probed_detail(bench_error))
+    if found and not_probed(found.result):
+        return "niet geprobed: " + one_line(R.not_probed_detail(found.result["benchError"]))
     if skip.startswith("niet geprobed"):
         return skip
     if found:
@@ -624,18 +645,21 @@ def check_complete(entries, key):
             unscored.append(sheet)
     problems = []
     if unscored:
-        problems.append(f"{len(unscored)} beoordeelde runs hebben nog geen score: blad {', '.join(sorted(unscored))}")
+        problems.append(f"{len(unscored)} beoordeelde {'run heeft' if len(unscored) == 1 else 'runs hebben'} nog geen score: "
+                        f"blad {', '.join(sorted(unscored))}")
     if no_sheet:
-        problems.append(f"{no_sheet} beoordeelde runs hebben geen blad: draai `score.py sheets` opnieuw")
+        problems.append(f"{no_sheet} beoordeelde {'run heeft' if no_sheet == 1 else 'runs hebben'} geen blad: draai `score.py sheets` opnieuw")
     if problems:
         raise ScoreError("; ".join(problems))
 
 
-def warnings_for(entries, found, key, scores_path):
-    """What is left out, said once: results outside --models and --runs (a typo in --models shows here), and scores that belong to no
+def warnings_for(entries, found, key, scores_path, dropped=()):
+    """What is left out, said once: a bench-result.json that is no result (by its path under <out>; the report is made after the scoring,
+    and `sheets` says nothing of it), results outside --models and --runs (a typo in --models shows here), and scores that belong to no
     expected, judged run that counts. A score is named by its sheet only."""
     expected = {(e.label, e.run) for e in entries}
-    warnings = []
+    warnings = [f"{path} genegeerd: geen leesbaar resultaat van deze configuratie (onleesbaar, geen geldige status of een ander label)"
+                for path in dropped]
     outside = sorted(name for name in found if name not in expected)
     if outside:
         warnings.append("resultaten buiten --models en --runs genegeerd: " + ", ".join(f"{label} r{n}" for label, n in outside))
@@ -662,18 +686,50 @@ def model_name(label):
     return f"{label} (controle)" if label in CONTROLS else label
 
 
-def verdict_table(models, groups, verdicts, decisions):
+def never_ran_note(group, reasons):
+    """' (niet gedraaid: <reason>)' for a model of which no expected run got as far as a model: each has no result, or the benchfout of a
+    configuration without a probe. The reason is the first that fits the first run (preflight afgewezen, niet geprobed, budget bereikt,
+    gestopt ..., niet gestart), without its detail. The verdict word next to it does not change. '' for a model that did run."""
+    if not group or not all(e.found is None or not_probed(e.found.result) for e in group):
+        return ""
+    why = reasons.get((group[0].label, group[0].run))
+    return f" (niet gedraaid: {why.split(':')[0]})" if why else ""
+
+
+def verdict_cells(models, groups, verdicts, reasons):
+    """{model: verdict word, with the note of a model that never ran}."""
+    return {label: verdicts[label] + never_ran_note(groups[label], reasons) for label in models}
+
+
+def verdict_table(models, groups, cells, decisions):
     rows = []
     for label in models:
         group = groups[label]
         scored = [e.score for e in group if e.score and "minors" in e.score]
-        rows.append([model_name(label), verdicts[label], f"{sum(e.record['voldoet'] for e in group)}/{len(group)}",
+        rows.append([model_name(label), cells[label], f"{sum(e.record['voldoet'] for e in group)}/{len(group)}",
                      " / ".join(verdict_of(e.found.result) if e.found else "-" for e in group),
                      " / ".join(e.score["f1"] if e.score else "-" for e in group),
                      " / ".join(e.score["f2"] if e.score and "f2" in e.score else "-" for e in group),
                      decimal(mean([len(s["minors"]) for s in scored])) if scored else "-",
                      ", ".join(extras_of(group, decisions)) or "-"])
     return table(["Model", "Oordeel", "Voldoet", "Verdicts", "F1 per run", "F2 per run", "Minors (gem.)", "Extra's"], rows)
+
+
+def comparison_section(models, groups, cells, own, valid):
+    """Spec 4.9, 'Eerste vergelijking': the open models (every model that is no harness control) set against the controls, with the
+    verdict, the runs that comply and the runs in which F1 was found as major, and the validity of the bench."""
+    def row(group_name, label):
+        group = groups[label]
+        return [group_name, label, cells[label], f"{sum(e.record['voldoet'] for e in group)}/{len(group)}",
+                f"{sum(1 for e in group if e.score and e.score['f1'] == 'major')}/{len(group)}"]
+    rows = [row("harness-controle", label) for label in models if label in CONTROLS]
+    rows += [row("open model", label) for label in models if label not in CONTROLS]
+    lines = [f"Geldigheid van de bench: {validity_text(own, valid)}", "",
+             *table(["Groep", "Model", "Oordeel", "Voldoet", "F1 als major gevonden"], rows)]
+    absent = [control for control in CONTROLS if control not in models]
+    if absent:
+        lines += ["", f"Controle niet in --models: {', '.join(absent)}."]
+    return lines
 
 
 def usage_of(result):
@@ -783,18 +839,20 @@ def build_report(date, models, runs, entries, unjudged, decisions, preflight, le
     own = {label: model_oordeel(group) for label, group in records.items()}
     verdicts = oordelen(records)
     valid = bench_geldig(own)
+    cells = verdict_cells(models, groups, verdicts, {(e.label, e.run): why for e, why in unjudged})
     expected = len(entries)
     judged = sum(1 for e in entries if e.found is not None and e.found.result["status"] == JUDGED)
     unknown_cost = sum(1 for e in entries if e.found is not None and R.amount(usage_of(e.found.result).get("costUsd")) is None)
     lines = [f"# Review-bench {date}", "",
              f"Case `{CASE_ID}`. {judged} van {expected} verwachte runs beoordeeld ({len(models)} configuraties x {runs} runs).", "",
              f"Geldigheid van de bench: {validity_text(own, valid)}", "",
-             "## Oordeel per model", "", *verdict_table(models, groups, verdicts, decisions), "",
+             "## Oordeel per model", "", *verdict_table(models, groups, cells, decisions), "",
              "Oordeel: kandidaat is 3 van 3 runs die voldoen, twijfel 2 van 3, anders valt het model af; open zolang een extra geen beslissing heeft. "
              "Een run voldoet als het resultaat is aanvaard (beoordeeld), outcome succeeded is, het verdict NO-GO is, F1 als major is gevonden "
-             "en geen extra ongeldig is verklaard.", "",
+             "en geen extra ongeldig is verklaard. Een model dat nooit gedraaid heeft, valt af; waarom staat erbij.", "",
+             "## Eerste vergelijking: open modellen tegenover de harness-controles", "", *comparison_section(models, groups, cells, own, valid), "",
              "## Kosten, tokens, context en tijd", "", *cost_table(models, groups), "",
-             f"Kosten: alle runs met een bedrag ({unknown_cost} runs hebben er geen). De rest: runs met een modelstatus. "
+             f"Kosten: alle runs met een bedrag ({runs_phrase(unknown_cost, ('heeft er geen', 'hebben er geen'))}). De rest: runs met een modelstatus. "
              f"De piek is `peakInputTokens` naast het venster van {WINDOW}.", "",
              "## Per run", "", *run_table(entries), "",
              "## Runs zonder oordeel", ""]
@@ -840,11 +898,12 @@ def command_report(args):
     ledger = R.read_ledger(args.ledger)
     decisions = load_decisions(args.decisions)
     preflight = load_preflight(args.preflight, args.models)
-    found = collect(out)
+    dropped = []
+    found = collect(out, dropped)
     by_run, key = scores_by_run(out, args.scores, only_f1=False)
     entries = build_entries(args.models, args.runs, found, by_run, decisions)
     check_complete(entries, key)
-    warnings = warnings_for(entries, found, key, args.scores)
+    warnings = warnings_for(entries, found, key, args.scores, dropped)
     skipped = load_skipped(out)
     smoke = smoke_check(args.smoke_dir, args.smoke_scores) if args.smoke_dir else None
     unjudged = [(e, why) for e in entries if (why := explain(e.found, e.label, e.run, preflight, skipped)) is not None]

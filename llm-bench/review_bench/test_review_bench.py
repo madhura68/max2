@@ -1709,7 +1709,8 @@ OPENROUTER = {      # the eight configurations of spec 4.6 and the OpenRouter mo
     "deepseek-v4-pro-or": "deepseek/deepseek-v4-pro", "glm-5.3-or": "z-ai/glm-5.3", "minimax-m3-or": "minimax/minimax-m3",
     "gpt-6-luna-or": "openai/gpt-6-luna", "claude-sonnet-5.5-or": "anthropic/claude-sonnet-5.5", "gpt-6.1-sol-or": "openai/gpt-6.1-sol",
 }
-FAMILY_WORDS = ("claude", "anthropic", "sonnet", "gpt", "openai", "qwen", "deepseek", "glm", "z-ai", "minimax", "luna", "sol")
+FAMILY_WORDS = ("claude", "anthropic", "sonnet", "gpt", "openai", "qwen", "deepseek", "glm", "z-ai", "z.ai", "minimax", "luna", "sol",
+                "opus", "haiku", "codex", "gemini", "kimi")
 BEOORDEELD = "bench-result-beoordeeld.json"
 FIXTURE_RUN_ID = "synth-case-cfg-alfa-00000001"       # the runId of trace.jsonl in the fixtures
 
@@ -1909,6 +1910,28 @@ class MaskTest(ScoreBase):
         self.assertEqual(mask("Claude review"), "[model] review")
         self.assertEqual(mask("anthropic/claude-sonnet-5.5"), "[model]")
 
+    def test_a_letter_on_either_side_keeps_a_word_whole_on_both_sides(self):
+        # the lookbehind and the lookahead each hold one of these: without the first parasol would become para[model],
+        # without the second solution would become [model]ution
+        mask = self.S.mask_identity
+        for word in ("solution", "solid", "parasol", "console", "isolatie", "absolute", "gptx", "xgpt", "opusje", "reopus", "kimix", "codexen"):
+            with self.subTest(word):
+                self.assertEqual(mask(word), word)
+                self.assertEqual(mask(f"een {word}."), f"een {word}.")
+        for text, masked in (("(sol)", "([model])"), ("sol-or", "[model]-or"), ("a sol, b", "a [model], b"), ("SOL", "[model]"), ("Sol.", "[model].")):
+            with self.subTest(text):
+                self.assertEqual(mask(text), masked)
+
+    def test_families_outside_the_eight_are_masked_too_as_whole_words_in_any_case(self):
+        mask = self.S.mask_identity
+        for word in ("opus", "haiku", "codex", "gemini", "kimi", "z.ai", "z-ai"):
+            for text in (word, word.upper(), word.capitalize()):
+                with self.subTest(text):
+                    self.assertEqual(mask(f"een {text} hier"), "een [model] hier")
+        self.assertEqual(mask("Codex CLI en Gemini-2 en Kimi3"), "[model] CLI en [model]-2 en [model]3")
+        self.assertEqual(mask("Z.ai/GLM-5.3"), "[model]/[model]-5.3")
+        self.assertEqual(mask("zxai en z_ai"), "zxai en z_ai")                  # the dot is a dot, not any character
+
     def test_the_longest_name_goes_first_so_nothing_of_it_is_left_behind(self):
         self.assertEqual(self.S.mask_identity("gpt-6.1-sol-or en gpt-6.1-sol"), "[model] en [model]-6.1-[model]")
         self.assertEqual(self.S.mask_identity("openai/gpt-6.1-sol"), "[model]")
@@ -1944,6 +1967,7 @@ class SheetTest(ScoreBase):
         text = self.sheet_text(QWEN, 1)
         self.assertIn(result["result"]["report_markdown"].strip(), text)
         self.assertIn(result["result"]["summary"], text)
+        text = text.replace(self.sheet_ids()[(QWEN, 1)], "")          # the id is 8 random hex characters: it may hold "91500"
         for secret in (QWEN, result["runId"], directory.name, str(self.out), str(self.tmp), "costUsd", "0.12", "91500", "NO-GO", "provider_reported"):
             self.assertNotIn(secret, text)
 
@@ -1984,8 +2008,43 @@ class SheetTest(ScoreBase):
         self.assertEqual(self.sheet_ids()[(QWEN, 1)], sheet)
         text = self.sheet_text(QWEN, 1)
         self.assertEqual([l for l in text.splitlines() if l.startswith('{"sheet"')], ['{"sheet": "%s", "f1": "major|minor|nee"}' % sheet])
+        instruction = text.split("## ")[0].replace(sheet, "")      # the id is 8 random hex characters: it may hold "f2"
         for field in ("f2", "minors", '"extra"'):
-            self.assertNotIn(field, text.split("## ")[0])          # the instruction above the first heading asks for nothing else
+            self.assertNotIn(field, instruction)                   # the instruction above the first heading asks for nothing else
+
+    def test_two_fresh_calls_on_the_same_runs_give_different_ids(self):
+        for n in (1, 2, 3):
+            self.put(QWEN, n)
+            self.put(SONNET, n)
+        self.sheets()
+        first = set(self.sheet_ids().values())
+        shutil.rmtree(self.out / "sheets")
+        (self.out / "sheets-key.json").unlink()
+        self.sheets()
+        second = set(self.sheet_ids().values())
+        self.assertEqual((len(first), len(second)), (6, 6))
+        self.assertEqual(first & second, set())                  # six random ids of 32 bits each: a clash is a 1 in 100 million
+
+    def test_the_ids_are_made_after_the_runs_are_shuffled_not_in_the_order_of_the_directories(self):
+        # fixed stand-ins: the shuffle reverses, and uuid4 counts. Unshuffled, the first id would belong to the first run in order.
+        from unittest import mock
+
+        class Reversing:
+            def shuffle(self, items):
+                items.reverse()
+
+        counter = iter(range(1, 100))
+
+        def counting():
+            return type("Id", (), {"hex": f"{next(counter):08x}" + "0" * 24})()
+
+        for n in (1, 2):
+            self.put(SONNET, n)
+            self.put(QWEN, n)
+        with mock.patch.object(self.S.random, "SystemRandom", Reversing), mock.patch.object(self.S.uuid, "uuid4", counting):
+            self.sheets()
+        self.assertEqual({sheet: run for run, sheet in self.sheet_ids().items()},
+                         {"00000001": (QWEN, 2), "00000002": (QWEN, 1), "00000003": (SONNET, 2), "00000004": (SONNET, 1)})
 
     def test_the_sheet_sends_the_scorer_to_the_rubric_by_its_path_in_the_repo(self):
         self.put(QWEN, 1)
@@ -2247,6 +2306,45 @@ class SmokeTest(ScoreBase):
         status, stdout, _ = self.smoke(sonnet=None)         # qwen is put by smoke
         self.assertEqual(status, 0, stdout)
 
+    def test_without_a_judged_run_there_is_no_scores_file_and_smoke_is_a_stop_not_an_error(self):
+        self.put(QWEN, 1, "bench-result-benchfout.json")
+        self.put(SONNET, 1, "bench-result-limiet.json")
+        self.assertEqual(self.run_main("sheets", self.out, "--only-f1")[0], 0)          # nothing judged: no sheet, no key
+        self.assertFalse((self.out / "sheets-key.json").exists())
+        status, stdout, stderr = self.run_main("smoke", self.out, "--scores", self.tmp / "niet-er.jsonl")
+        self.assertEqual((status, stderr), (1, ""))
+        self.assertIn(f"{QWEN} r1: status=benchfout", stdout)
+        self.assertIn(f"{SONNET} r1: status=limiet", stdout)
+        self.assertTrue(stdout.rstrip().endswith("rookproef: stop"), stdout)
+
+    def test_no_results_and_no_scores_file_is_a_stop_too(self):
+        self.out.mkdir()
+        status, stdout, _ = self.run_main("smoke", self.out, "--scores", self.tmp / "niet-er.jsonl")
+        self.assertEqual(status, 1)
+        self.assertIn(f"{QWEN}: geen resultaat", stdout)
+        self.assertTrue(stdout.rstrip().endswith("rookproef: stop"), stdout)
+
+    def test_a_scores_file_that_is_there_but_garbled_stays_an_error(self):
+        self.put(QWEN, 1)
+        self.put(SONNET, 1)
+        self.run_main("sheets", self.out, "--only-f1")
+        (self.tmp / "scores.jsonl").write_text("dit is geen json\n", encoding="utf-8")
+        status, stdout, stderr = self.run_main("smoke", self.out, "--scores", self.tmp / "scores.jsonl")
+        self.assertEqual(status, 2)
+        self.assertIn("line 1", stderr)
+        self.assertNotIn("rookproef", stdout)
+        (self.tmp / "scores.jsonl").unlink()
+        (self.tmp / "scores.jsonl").mkdir()                                     # a directory is no file to treat as 'no scores'
+        self.assertEqual(self.run_main("smoke", self.out, "--scores", self.tmp / "scores.jsonl")[0], 2)
+
+    def test_a_judged_sonnet_without_a_scores_file_is_a_stop_on_f1(self):
+        self.put(QWEN, 1)
+        self.put(SONNET, 1)
+        self.run_main("sheets", self.out, "--only-f1")
+        status, stdout, _ = self.run_main("smoke", self.out, "--scores", self.tmp / "niet-er.jsonl")
+        self.assertEqual(status, 1)
+        self.assertIn("f1 ontbreekt", stdout)
+
     def test_a_scores_file_that_does_not_fit_the_key_is_an_error_not_a_stop(self):
         self.put(QWEN, 1)
         self.put(SONNET, 1)
@@ -2372,7 +2470,7 @@ class ReportTest(ReportBase):
         status, _, _, text = self.report([SONNET, QWEN, FLASH, GLM])
         self.assertEqual(status, 0)
         glm = self.cells(self.rows(self.section(text, "Oordeel per model"), GLM)[0])
-        self.assertEqual((glm[1], glm[2]), ("valt af", "0/3"))
+        self.assertEqual((glm[1], glm[2]), ("valt af (niet gedraaid: niet gestart)", "0/3"))          # the verdict word is still valt af
 
     def test_the_minors_are_the_mean_of_the_scored_runs_and_cost_is_mean_and_max_of_those_with_an_amount(self):
         for n, cost in enumerate((0.10, 0.20, None), start=1):
@@ -2439,6 +2537,141 @@ class ReportTest(ReportBase):
         reasons = [self.cells(l)[2] for l in self.section(text, "Runs zonder oordeel") if l.startswith("| cfg-a")]
         self.assertEqual(reasons[0], "limiet: COST_LIMIT_EXCEEDED")
         self.assertEqual(reasons[1:], ["preflight afgewezen: HTTP 400: later afgewezen"] * 2)
+
+    def test_the_first_comparison_sets_the_open_models_against_the_controls(self):
+        self.populate_comparison()          # sonnet 3 of 3, qwen 2 of 3, flash 1 of 3
+        ids = self.sheet_ids()
+        # qwen finds F1 as major in all three runs, but one of them has an extra that JP declares invalid: 2 of 3 comply, 3 of 3 hit
+        self.write_scores(self.scores, [grade(ids[(label, n)], **({"extra": [extra("x-verzonnen-api")]} if (label, n) == (QWEN, 1) else {}))
+                                        for label in (SONNET, QWEN) for n in (1, 2, 3)]
+                          + [grade(ids[(FLASH, n)], f1=f1) for n, f1 in ((1, "major"), (2, "nee"), (3, "minor"))])
+        self.decisions.write_text(json.dumps({"x-verzonnen-api": "ongeldig"}), encoding="utf-8")
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH, GLM])
+        self.assertEqual(status, 0, stderr)
+        lines = self.section(text, "Eerste vergelijking: open modellen tegenover de harness-controles")
+        rows = [self.cells(l) for l in lines if l.startswith("| ") and not l.startswith("| ---")]
+        self.assertEqual(rows[0], ["Groep", "Model", "Oordeel", "Voldoet", "F1 als major gevonden"])
+        self.assertEqual(rows[1:], [
+            ["harness-controle", SONNET, "kandidaat", "3/3", "3/3"],
+            ["open model", QWEN, "twijfel", "2/3", "3/3"],
+            ["open model", FLASH, "valt af", "1/3", "1/3"],
+            ["open model", GLM, "valt af (niet gedraaid: niet gestart)", "0/3", "0/3"]])
+        joined = "\n".join(lines)
+        self.assertIn("Geldigheid van de bench: in orde", joined)
+        self.assertIn(f"Controle niet in --models: {SOL}.", joined)
+        self.assertLess(text.index("## Oordeel per model"), text.index("## Eerste vergelijking: open modellen tegenover de harness-controles"))
+        self.assertLess(text.index("## Eerste vergelijking: open modellen tegenover de harness-controles"), text.index("## Kosten, tokens, context en tijd"))
+
+    def test_the_first_comparison_carries_the_runtime_verdict_and_the_validity_line(self):
+        self.populate_comparison()
+        self.put(SOL, 1)
+        self.score_runs({(SONNET, 1): dict(f1="minor"), (SONNET, 2): {}, (SONNET, 3): {}, (QWEN, 1): {}, (QWEN, 2): {}, (QWEN, 3): {},
+                         (FLASH, 1): {}, (FLASH, 2): {}, (FLASH, 3): {}, (SOL, 1): {}})
+        self.preflight_ok(SONNET, QWEN, FLASH, SOL)
+        _, _, _, text = self.report([SONNET, SOL, QWEN, FLASH])
+        lines = self.section(text, "Eerste vergelijking: open modellen tegenover de harness-controles")
+        self.assertEqual({self.cells(l)[2] for l in lines if l.startswith("| ") and not l.startswith("| ---") and self.cells(l)[0] != "Groep"},
+                         {"onbeslist: runtime"})
+        self.assertIn("niet aangetoond", "\n".join(lines))
+        self.assertNotIn("Controle niet in --models", "\n".join(lines))
+
+    def test_a_model_that_never_ran_keeps_valt_af_and_the_main_table_says_why(self):
+        self.three(SONNET, BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        self.three("cfg-ran", "bench-result-limiet.json", "bench-result-limiet.json", "bench-result-limiet.json")        # ran, to its limit
+        self.three("cfg-bad", "bench-result-benchfout.json", "bench-result-benchfout.json", "bench-result-benchfout.json")      # ran, failed
+        self.three("cfg-np", *["bench-result-not-probed.json"] * 3)               # a benchfout that never reached a model
+        self.three("cfg-late", BEOORDEELD, None, None)                           # r2 and r3 never started
+        (self.out / "skipped.json").write_text(json.dumps(
+            [{"label": "cfg-budget", "run": n, "reason": "budget bereikt"} for n in (1, 2, 3)]
+            + [{"label": "cfg-stop", "run": n, "reason": "gestopt na tweede benchfout op cfg-stop"} for n in (1, 2, 3)]), encoding="utf-8")
+        self.preflight_ok(SONNET, "cfg-ran", "cfg-bad", "cfg-np", "cfg-late", "cfg-budget", "cfg-stop", rejected={"cfg-pre": "HTTP 400: nee"})
+        self.score_runs({(SONNET, n): {} for n in (1, 2, 3)} | {("cfg-late", 1): dict(f1="nee")})
+        status, _, stderr, text = self.report([SONNET, "cfg-ran", "cfg-bad", "cfg-np", "cfg-late", "cfg-budget", "cfg-stop", "cfg-pre", "cfg-none"])
+        self.assertEqual(status, 0, stderr)
+        verdicts = {self.cells(l)[0]: self.cells(l)[1:3] for l in self.section(text, "Oordeel per model") if l.startswith("| cfg-")}
+        self.assertEqual(verdicts, {
+            "cfg-ran": ["valt af", "0/3"], "cfg-bad": ["valt af", "0/3"], "cfg-late": ["valt af", "0/3"],              # these did run: no note
+            "cfg-np": ["valt af (niet gedraaid: niet geprobed)", "0/3"],
+            "cfg-budget": ["valt af (niet gedraaid: budget bereikt)", "0/3"],
+            "cfg-stop": ["valt af (niet gedraaid: gestopt na tweede benchfout op cfg-stop)", "0/3"],
+            "cfg-pre": ["valt af (niet gedraaid: preflight afgewezen)", "0/3"],
+            "cfg-none": ["valt af (niet gedraaid: niet gestart)", "0/3"]})
+
+    def test_a_note_on_a_never_ran_model_also_follows_the_runtime_verdict(self):
+        self.three(QWEN, BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.preflight_ok(QWEN, rejected={FLASH: "HTTP 400: nee"})
+        _, _, _, text = self.report([QWEN, FLASH])                  # no control at all: onbeslist: runtime for everyone
+        cells = {self.cells(l)[0]: self.cells(l)[1] for l in self.section(text, "Oordeel per model") if l.startswith("| ")}
+        self.assertEqual(cells[FLASH], "onbeslist: runtime (niet gedraaid: preflight afgewezen)")
+        self.assertEqual(cells[QWEN], "onbeslist: runtime")
+
+    def test_a_rejected_preflight_wins_over_not_probed_whichever_file_says_which(self):
+        # a: the result is a not-probed benchfout and the preflight file rejects. b: nothing ran, skipped.json says niet geprobed and the
+        # preflight file rejects. c: the result is not-probed and skipped.json says preflight afgewezen (the preflight file is ok).
+        # d: nothing ran, skipped.json says niet geprobed and the preflight file is ok.
+        self.three("cfg-a", "bench-result-not-probed.json", over={"benchError": "CONFIGURATION_NOT_PROBED: geen probe voor cfg-a"})
+        self.three("cfg-c", "bench-result-not-probed.json", over={"benchError": "CONFIGURATION_NOT_PROBED: geen probe voor cfg-c"})
+        (self.out / "skipped.json").write_text(json.dumps([
+            {"label": "cfg-b", "run": 1, "reason": "niet geprobed: geen probe voor cfg-b"},
+            {"label": "cfg-c", "run": 1, "reason": "preflight afgewezen: HTTP 429: uit skipped.json"},
+            {"label": "cfg-d", "run": 1, "reason": "niet geprobed: geen probe voor cfg-d"}]), encoding="utf-8")
+        self.preflight_ok("cfg-c", "cfg-d", rejected={"cfg-a": "HTTP 400: uit de preflight", "cfg-b": "HTTP 400: ook uit de preflight"})
+        self.write_scores(self.scores, [])
+        status, _, stderr, text = self.report(["cfg-a", "cfg-b", "cfg-c", "cfg-d"], runs=1)
+        self.assertEqual(status, 0, stderr)
+        reasons = {self.cells(l)[0]: self.cells(l)[2] for l in self.section(text, "Runs zonder oordeel") if l.startswith("| cfg-")}
+        self.assertEqual(reasons, {
+            "cfg-a": "preflight afgewezen: HTTP 400: uit de preflight",
+            "cfg-b": "preflight afgewezen: HTTP 400: ook uit de preflight",
+            "cfg-c": "preflight afgewezen: HTTP 429: uit skipped.json",
+            "cfg-d": "niet geprobed: geen probe voor cfg-d"})
+
+    def test_a_result_that_is_dropped_is_named_in_the_warnings_by_its_path_under_out(self):
+        self.three(QWEN, BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        garbled = self.put(QWEN, 1)
+        (garbled / "bench-result.json").write_text("{ niet af", encoding="utf-8")
+        mislabelled = self.put(QWEN, 2, over={"label": "cfg-beta"})
+        no_status = self.put(QWEN, 3, over={"status": "kapot"})
+        a_directory = self.out / QWEN / "r3" / "synth-case-zonder-bestand"
+        (a_directory / "bench-result.json").mkdir(parents=True)
+        empty = self.out / QWEN / "r3" / "synth-case-leeg"
+        empty.mkdir()
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        status, _, stderr, text = self.report([QWEN])
+        self.assertEqual(status, 0, stderr)
+        warnings = "\n".join(self.section(text, "Waarschuwingen"))
+        for directory in (garbled, mislabelled, no_status, a_directory):
+            relative = f"{directory.relative_to(self.out).as_posix()}/bench-result.json"
+            self.assertIn(relative, warnings)
+            self.assertIn(relative, stderr)
+        self.assertNotIn(empty.name, warnings)                                   # a run directory without the file is nothing that was dropped
+        self.assertNotIn(str(self.out), warnings + stderr)                      # relative to <out>, not absolute
+        sheets = self.run_main("sheets", self.out)
+        self.assertNotIn("bench-result.json", sheets[1] + sheets[2])           # whoever scores sees no word of it
+
+    def test_no_dropped_result_no_warning_section(self):
+        self.populate_comparison()
+        _, _, stderr, text = self.report([SONNET, QWEN, FLASH])
+        self.assertNotIn("## Waarschuwingen", text)
+        self.assertEqual(stderr, "")
+
+    def test_the_count_of_runs_without_an_amount_has_its_singular_and_its_plural(self):
+        def without_amount(n):
+            usage = {k: v for k, v in fixture_json(BEOORDEELD)["usage"].items() if k != "costUsd"}
+            self.put(QWEN, n, over={"usage": usage})
+        for missing, expected in ((0, "0 runs hebben er geen"), (1, "1 run heeft er geen"), (2, "2 runs hebben er geen")):
+            with self.subTest(missing=missing):
+                shutil.rmtree(self.out, ignore_errors=True)
+                for n in (1, 2, 3):
+                    if n <= missing:
+                        without_amount(n)
+                    else:
+                        self.put(QWEN, n)
+                self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+                self.preflight_ok(QWEN)
+                _, _, _, text = self.report([QWEN])
+                self.assertIn(f"({expected})", text)
 
     def test_the_read_file_counts_of_each_run_come_from_its_trace(self):
         self.put(QWEN, 1, trace="trace.jsonl")
@@ -2568,13 +2801,19 @@ class ReportInputTest(ReportBase):
         stderr = self.refused()
         missing = self.sheet_ids()[(QWEN, 3)]
         self.assertIn(missing, stderr)
+        self.assertIn("1 beoordeelde run heeft nog geen score", stderr)
         self.assertNotIn(QWEN, stderr)                      # the message must not link a sheet to a configuration
+
+    def test_two_judged_runs_without_a_score_are_said_in_the_plural(self):
+        self.score_runs({(QWEN, 1): {}})
+        self.assertIn("2 beoordeelde runs hebben nog geen score", self.refused())
 
     def test_a_judged_run_without_a_sheet_is_refused_too(self):
         self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
         self.put(QWEN, 4)
         stderr = self.refused(runs=4)
         self.assertIn("geen blad", stderr)
+        self.assertIn("1 beoordeelde run heeft geen blad", stderr)
 
     def test_a_score_for_a_sheet_that_is_not_in_the_key_is_refused(self):
         self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
@@ -2735,7 +2974,16 @@ class EndToEndTest(DriverBase):
         by_label = {l.split("|")[1].strip().split(" (")[0]: [c.strip() for c in l.strip().strip("|").split("|")] for l in table if l.startswith("| ")}
         self.assertEqual(by_label[SONNET][1:3], ["kandidaat", "3/3"])
         self.assertEqual(by_label[QWEN][1:3], ["twijfel", "2/3"])
-        self.assertEqual(by_label[self.REJECTED][1:3], ["valt af", "0/3"])
+        self.assertEqual(by_label[self.REJECTED][1:3], ["valt af (niet gedraaid: preflight afgewezen)", "0/3"])
+        self.assertEqual(by_label[self.UNPROBED][1:3], ["valt af (niet gedraaid: niet geprobed)", "0/3"])
+        comparison = [[c.strip() for c in l.strip().strip("|").split("|")] for l in ReportBase.section(text, "Eerste vergelijking: open modellen tegenover de harness-controles")
+                      if l.startswith("| ") and not l.startswith("| ---")]
+        self.assertEqual(comparison, [
+            ["Groep", "Model", "Oordeel", "Voldoet", "F1 als major gevonden"],
+            ["harness-controle", SONNET, "kandidaat", "3/3", "3/3"],
+            ["open model", QWEN, "twijfel", "2/3", "2/3"],
+            ["open model", self.REJECTED, "valt af (niet gedraaid: preflight afgewezen)", "0/3", "0/3"],
+            ["open model", self.UNPROBED, "valt af (niet gedraaid: niet geprobed)", "0/3", "0/3"]])
         preflight = ReportBase.section(text, "Preflight")
         self.assertTrue(any(l.startswith(f"| {self.REJECTED} | afgewezen") for l in preflight), preflight)
         self.assertTrue(any(l.startswith(f"| {QWEN} | ok") for l in preflight), preflight)
