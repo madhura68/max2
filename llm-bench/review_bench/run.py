@@ -43,11 +43,13 @@ in the total (math.fsum). The budget (--budget) differs from M7 here: a run does
 would be more than the budget. The ceiling of a run is a soft one, and the margin of $2 under the limit of the key covers what a run
 goes over it.
 
-At the end of every call, also at an exit 3, 4 or 6, <out>/skipped.json is written again: a list of {label, run, reason} for each
-expected run (--models x --runs) without a bench-result.json, the first reason that fits being `preflight afgewezen: <reason>`,
-`niet geprobed: <detail>`, `budget bereikt`, `gestopt (stopvlag)` or `gestopt na tweede benchfout op <label>`. A run that nothing of
-this explains (after a --preflight, for the labels that were accepted) is `niet gestart`; a call that ends in an error of the driver
-itself says `gestopt (fout)`. It is made from what is on disk, so a later call that finishes the work empties it.
+At the end of every call that runs (not the --preflight), also at an exit 3, 4 or 6, <out>/skipped.json is written again: a list of
+{label, run, reason} for each expected run (--models x --runs) without a bench-result.json, the first reason that fits being
+`preflight afgewezen: <reason>`, `niet geprobed: <detail>`, `budget bereikt`, `gestopt (stopvlag)` or `gestopt na tweede benchfout op
+<label>`. A run that nothing of this explains is `niet gestart`; a call that ends in an error of the driver itself says `gestopt (fout)`.
+It is made from what is on disk, so a later call that finishes the work empties it. A --preflight leaves it alone, so that a new
+preflight of one configuration does not wipe the reasons of the last runs. If it cannot be written, that is said on stderr; the exit
+status of a call that was stopped (3, 4, 6) or failed stays what it was, and a call that was done becomes 2.
 
 Exit status: 0 done, 2 the call or a configuration is wrong (almost always before anything runs, but a RunError can also fall
 mid-run: a ledger that has become unreadable, a harness that cannot be started), 3 a second benchfout of one run, 4 the budget,
@@ -448,7 +450,7 @@ class Driver:
         self.plan, self.flag = plan, flag
         self.out, self.ledger, self.models = plan.out, plan.ledger, plan.models
         self.secrets = [plan.key]
-        self.verdicts = dict(plan.preflight or {})      # label -> {ok, reason}: the file read for the runs; made by the --preflight call
+        self.verdicts = dict(plan.preflight or {})      # label -> {ok, reason}: what the preflight file says (a run call only)
         self.not_probed = {}        # label -> detail, for the labels that said CONFIGURATION_NOT_PROBED in this call
         self.halt = None            # why the runs that did not start did not: the skip reason of the Stop, else None
 
@@ -472,10 +474,13 @@ class Driver:
 
     # --- the two kinds of call --------------------------------------------------------------------------------------------
 
-    def guarded(self, work):
-        """work(), and at its end, also when it ends in a Stop or an error, skipped.json."""
+    def run(self):
+        """rounds(), and at its end, also when it ends in a Stop or an error, skipped.json. A skipped.json that cannot be written is
+        no reason to lose the exit status of a Stop that is already on its way: it is said on stderr and the Stop goes on."""
+        ended = False
         try:
-            work()
+            self.rounds()
+            ended = True
         except Stop as stop:
             self.halt = stop.skip
             raise
@@ -483,17 +488,16 @@ class Driver:
             self.halt = SKIP_ERROR
             raise
         finally:
-            self.write_skipped()
-
-    def run_preflight(self):
-        self.guarded(self.preflight_all)
-
-    def run(self):
-        self.guarded(self.rounds)
+            try:
+                self.write_skipped()
+            except RunError as e:
+                if ended:           # the work is done and nothing else is on its way: this is the failure
+                    raise
+                print(f"run.py: {mask_secrets(str(e), self.secrets)}", file=sys.stderr, flush=True)
 
     # --- the preflight ----------------------------------------------------------------------------------------------------
 
-    def preflight_all(self):
+    def run_preflight(self):
         """One request per configuration; the amount into the ledger at once, the outcome into the preflight file after each one (what is
         done stays when the driver is stopped between two)."""
         path = self.plan.preflight_file
@@ -504,7 +508,7 @@ class Driver:
             ok, reason, cost = ask_litellm(self.plan.base_url, label, self.plan.configurations[label], self.plan.key, self.secrets)
             append_ledger(self.ledger, {"id": f"preflight-{label}-{stamp}", "kind": "preflight", "label": label, "cost_usd": cost})
             reason = None if ok else mask_secrets(reason, self.secrets)
-            entries[label] = self.verdicts[label] = {"ok": ok, "reason": reason}
+            entries[label] = {"ok": ok, "reason": reason}
             write_json_replacing(path, entries)
             self.say(f"{label} preflight: ok (${cost:.6f})" if ok else f"{label} preflight: afgewezen ({reason})")
         self.check_flag()
@@ -614,7 +618,7 @@ class Driver:
         return self.halt or SKIP_NOT_STARTED
 
     def write_skipped(self):
-        """Written again at the end of every call: a line for each expected run without a bench-result.json, from what is on disk."""
+        """Written again at the end of every call that runs: a line for each expected run without a bench-result.json, from what is on disk."""
         rows = [{"label": label, "run": n, "reason": self.skip_reason(label)}
                 for label in self.models for n in range(1, self.plan.runs + 1)
                 if not existing_results(self.out / label / f"r{n}", self.plan.case_id, label)]

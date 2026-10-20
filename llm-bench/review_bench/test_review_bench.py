@@ -711,6 +711,53 @@ class BudgetTest(DriverBase):
         self.assertEqual(self.drive([ALFA], runs=2, budget="100").returncode, 0)
         self.assertEqual(self.skipped(), [])
 
+    def test_a_rejected_label_keeps_its_own_reason_whatever_stopped_the_driver(self):
+        stops = {"the budget": (4, {"budget": "10"}, None, "budget bereikt"),
+                 "a second benchfout": (3, {}, {"labels": {f"{ALFA}/r1": {"status": "benchfout", "benchError": "harness: stuk"}}},
+                                        f"gestopt na tweede benchfout op {ALFA}")}
+        for what, (status, kw, config, stop_reason) in stops.items():
+            with self.subTest(what):
+                self.reset()
+                self.pass_preflight(rejected={BETA: "HTTP 400: geen endpoint"})
+                if status == 4:
+                    self.preload(9.10)
+                done = self.drive(CONFIGS, config=config, **kw)
+                self.assertEqual(done.returncode, status, done.stderr)
+                rows = self.skipped()
+                self.assertEqual([(row["label"], row["run"]) for row in rows if row["label"] == BETA], [(BETA, n) for n in (1, 2, 3)])
+                for row in rows:
+                    if row["label"] == BETA:
+                        self.assertEqual(row["reason"], "preflight afgewezen: HTTP 400: geen endpoint")
+                    else:
+                        self.assertEqual(row["reason"], stop_reason)
+
+    def test_a_label_that_is_not_probed_keeps_its_own_reason_when_the_budget_stops_the_driver(self):
+        self.preload(8.5)
+        config = {"labels": {BETA: {"status": "benchfout", "benchError": "CONFIGURATION_NOT_PROBED: geen probe", "cost": None}}, "default": {"cost": 0.6}}
+        done = self.drive([BETA, ALFA], runs=2, budget="10", config=config)      # alfa r1 takes the total to 9.1, alfa r2 would pass 10
+        self.assertEqual(done.returncode, 4, done.stderr)
+        self.assertEqual(self.ran(), [(BETA, 1), (ALFA, 1)])
+        self.assertEqual(self.skipped(), [{"label": BETA, "run": 2, "reason": "niet geprobed: geen probe"},
+                                          {"label": ALFA, "run": 2, "reason": "budget bereikt"}])
+
+    def test_a_skipped_json_that_cannot_be_written_does_not_replace_the_stop(self):
+        self.out.mkdir()
+        (self.out / "skipped.json").mkdir()             # a directory: write_text fails
+        self.preload(9.10)
+        done = self.drive(CONFIGS, budget="10")
+        self.assertEqual(done.returncode, 4, done.stderr)
+        self.assertIn("stopped (4)", done.stderr)
+        self.assertRegex(done.stderr, r"run\.py: cannot write skipped\.json under .*out")
+        self.assertEqual(self.calls(), [])
+
+    def test_a_skipped_json_that_cannot_be_written_after_a_finished_set_is_exit_2_and_says_so(self):
+        self.out.mkdir()
+        (self.out / "skipped.json").mkdir()
+        done = self.drive([ALFA], runs=1)
+        self.assertEqual(done.returncode, 2, done.stderr)
+        self.assertIn("cannot write skipped.json", done.stderr)
+        self.assertEqual(len(self.run_dirs(ALFA, 1)), 1)             # the work was done and is kept
+
     def test_resuming_comes_before_the_budget_check(self):
         self.assertEqual(self.drive([ALFA], runs=1).returncode, 0)
         self.preload(50)
@@ -982,16 +1029,16 @@ class PreflightTest(DriverBase):
         [beta] = [row for row in self.ledger_rows() if row["label"] == BETA]
         self.assertIsNone(beta["cost_usd"])
 
-    def test_skipped_json_after_the_preflight_alone_has_the_rejection_and_for_the_rest_not_started(self):
-        self.litellm.answer(BETA, (400, {"error": {"message": "no healthy endpoint"}}))
+    def test_a_preflight_writes_no_skipped_json_and_leaves_the_one_of_the_last_runs_alone(self):
         self.assertEqual(self.preflight().returncode, 0)
-        rows = self.skipped()
-        self.assertEqual([(row["label"], row["run"]) for row in rows], [(name, n) for name in CONFIGS for n in (1, 2, 3)])
-        for row in rows:
-            if row["label"] == BETA:
-                self.assertRegex(row["reason"], r"^preflight afgewezen: HTTP 400: .*no healthy endpoint")
-            else:
-                self.assertEqual(row["reason"], "niet gestart")
+        self.assertFalse((self.out / "skipped.json").exists())              # only a call that runs writes it
+        self.preload(9.10)
+        self.assertEqual(self.drive(CONFIGS, budget="10").returncode, 4)
+        before = (self.out / "skipped.json").read_bytes()
+        self.assertEqual(len(self.skipped()), 9)
+        self.litellm.answer(BETA, (400, {"error": {"message": "nu stuk"}}))
+        self.assertEqual(self.preflight([BETA]).returncode, 0)              # a new preflight of one configuration on the same --out
+        self.assertEqual((self.out / "skipped.json").read_bytes(), before)
 
     def test_a_rejected_configuration_does_not_run_and_has_three_lines_in_skipped_json(self):
         self.litellm.answer(BETA, (400, {"error": {"message": "no healthy endpoint"}}))
@@ -1153,7 +1200,7 @@ class PreflightTest(DriverBase):
         self.assertEqual([request["body"]["model"] for request in self.litellm.requests], [ALFA])
         self.assertEqual(sorted(self.preflight_file()), [ALFA])                 # what was done is kept
         self.assertEqual([row["label"] for row in self.ledger_rows()], [ALFA])
-        self.assertEqual({row["reason"] for row in self.skipped()}, {"gestopt (stopvlag)"})
+        self.assertFalse((self.out / "skipped.json").exists())
 
 
 class StopTest(DriverBase):
