@@ -1695,5 +1695,1061 @@ class StdlibOnlyTest(unittest.TestCase):
                         self.assertIn(top, sys.stdlib_module_names)
 
 
+
+# ---------------------------------------------------------------------------------------------------------------------
+# the scorer (M8, T-103): score.py makes the blind sheets, applies the decision rule and writes the report
+# ---------------------------------------------------------------------------------------------------------------------
+
+SCORE = HERE / "score.py"
+SCORE_FIXTURES = HERE / "fixtures" / "score"
+QWEN, SONNET, SOL = "qwen3.8-or-128k", "claude-sonnet-5.5-or", "gpt-6.1-sol-or"
+FLASH, GLM = "deepseek-v4-flash-or", "glm-5.3-or"
+OPENROUTER = {      # the eight configurations of spec 4.6 and the OpenRouter model behind each
+    "qwen3.8-or-128k": "qwen/qwen3.8-27b", "deepseek-v4-flash-or": "deepseek/deepseek-v4-flash",
+    "deepseek-v4-pro-or": "deepseek/deepseek-v4-pro", "glm-5.3-or": "z-ai/glm-5.3", "minimax-m3-or": "minimax/minimax-m3",
+    "gpt-6-luna-or": "openai/gpt-6-luna", "claude-sonnet-5.5-or": "anthropic/claude-sonnet-5.5", "gpt-6.1-sol-or": "openai/gpt-6.1-sol",
+}
+FAMILY_WORDS = ("claude", "anthropic", "sonnet", "gpt", "openai", "qwen", "deepseek", "glm", "z-ai", "minimax", "luna", "sol")
+BEOORDEELD = "bench-result-beoordeeld.json"
+FIXTURE_RUN_ID = "synth-case-cfg-alfa-00000001"       # the runId of trace.jsonl in the fixtures
+
+
+def load_score_module():
+    """score.py as a module of its own name: task_bench has a score.py too."""
+    spec = importlib.util.spec_from_file_location("review_bench_score", SCORE)
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+def fixture_json(name):
+    return json.loads((SCORE_FIXTURES / name).read_text(encoding="utf-8"))
+
+
+def result_for(label, run_name, template=BEOORDEELD, **over):
+    """A bench-result of the fixture template for this label and run directory; over replaces fields at the top level."""
+    result = fixture_json(template)
+    result.update(label=label, runId=run_name, configuration={**result["configuration"], "name": label})
+    result.update(over)
+    return result
+
+
+def in_words(word, text):
+    """Whether word is in text as a whole word, where a digit or a dash does not make it part of a longer one (Qwen3, GPT-6)."""
+    return re.search(rf"(?<![^\W\d_]){re.escape(word)}(?![^\W\d_])", text, re.IGNORECASE) is not None
+
+
+class ScoreBase(unittest.TestCase):
+    """score.py in this process; run_main captures what it prints. It holds no test."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.S = load_score_module()
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp()).resolve()
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.out = self.tmp / "out"
+        self.counter = 0
+
+    def put(self, label, n, template=BEOORDEELD, *, over=None, mtime=None, trace=None, out=None):
+        """A finished run in <out>/<label>/r<n>/ as the driver leaves it; trace: a fixture file for its trace.jsonl. Returns its directory."""
+        self.counter += 1
+        name = f"synth-case-{label}-{self.counter:08x}"
+        directory = Path(out or self.out) / label / f"r{n}" / name
+        directory.mkdir(parents=True)
+        path = directory / "bench-result.json"
+        path.write_text(json.dumps({**result_for(label, name, template), **(over or {})}, indent=2) + "\n", encoding="utf-8")
+        if trace:
+            shutil.copy(SCORE_FIXTURES / trace, directory / "trace.jsonl")
+        if mtime is not None:
+            os.utime(path, ns=(mtime, mtime))
+        return directory
+
+    def run_main(self, *argv):
+        """(exit status, stdout, stderr) of score.py main in this process."""
+        out, err = io.StringIO(), io.StringIO()
+        with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+            try:
+                status = self.S.main([str(a) for a in argv])
+            except SystemExit as stop:
+                status = stop.code
+        return status, out.getvalue(), err.getvalue()
+
+    def sheet_ids(self, out=None):
+        """{(label, n): sheet id} of the sheets-key.json in out."""
+        key = json.loads((Path(out or self.out) / "sheets-key.json").read_text(encoding="utf-8"))
+        return {(path.split("/")[0], int(path.split("/")[1][1:])): sheet for sheet, path in key.items()}
+
+    def write_scores(self, path, entries):
+        write_jsonl(path, entries)
+
+    def sheet_text(self, label, n, out=None):
+        out = Path(out or self.out)
+        return (out / "sheets" / f"{self.sheet_ids(out)[(label, n)]}.md").read_text(encoding="utf-8")
+
+
+def write_jsonl(path, entries):
+    Path(path).write_text("".join(json.dumps(entry) + "\n" for entry in entries), encoding="utf-8")
+
+
+def grade(sheet, f1="major", f2="nee", minors=(), extra=()):
+    return {"sheet": sheet, "f1": f1, "f2": f2, "minors": list(minors), "extra": list(extra)}
+
+
+def extra(key, voorstel="geldig"):
+    return {"key": key, "voorstel": voorstel, "reden": "Synthetische reden."}
+
+
+class DecisionRuleTest(ScoreBase):
+    """Spec 1 and AC11 as pure functions: run_voldoet, model_oordeel and oordelen."""
+
+    GOOD = {"f1": "major", "f2": "nee", "minors": [], "extra": []}
+
+    def run_record(self, score=None, decisions=None, **over):
+        return self.S.beoordeel_run(result_for("cfg-alfa", "synth-case-cfg-alfa-00000001", **over), score, decisions or {})
+
+    def test_a_run_that_meets_every_condition_complies(self):
+        self.assertTrue(self.S.run_voldoet(result_for("cfg-alfa", "r"), self.GOOD, {}))
+
+    def test_three_of_three_is_a_candidate_two_of_three_is_doubt_and_one_of_three_falls_away(self):
+        for runs, expected in ((3, "kandidaat"), (2, "twijfel"), (1, "valt af"), (0, "valt af")):
+            with self.subTest(complying=runs):
+                records = [self.run_record(self.GOOD if i < runs else {**self.GOOD, "f1": "minor"}) for i in range(3)]
+                self.assertEqual([r["voldoet"] for r in records], [i < runs for i in range(3)])
+                self.assertEqual(self.S.model_oordeel(records), expected)
+
+    def test_a_run_that_is_missing_does_not_comply(self):
+        missing = {"voldoet": False, "open": False}
+        good = self.run_record(self.GOOD)
+        self.assertEqual(self.S.model_oordeel([good, good, missing]), "twijfel")
+        self.assertEqual(self.S.model_oordeel([good, missing, missing]), "valt af")
+        self.assertEqual(self.S.model_oordeel([]), "valt af")
+
+    def test_outcome_failed_with_no_go_does_not_comply(self):
+        failed = result_for("cfg-alfa", "r")
+        failed["result"]["outcome"] = "failed"
+        self.assertEqual(failed["result"]["review"]["verdict"], "NO-GO")
+        self.assertEqual(failed["status"], "beoordeeld")            # a failed outcome stays beoordeeld: the rule has to see it
+        self.assertFalse(self.S.run_voldoet(failed, self.GOOD, {}))
+
+    def test_every_other_missing_condition_fails_the_run(self):
+        no_go_gone = result_for("cfg-alfa", "r")
+        no_go_gone["result"]["review"]["verdict"] = "GO"
+        cases = {
+            "status limiet, with an accepted result still on it": result_for("cfg-alfa", "r", status="limiet"),
+            "status resultaat_ongeldig": result_for("cfg-alfa", "r", status="resultaat_ongeldig"),
+            "status benchfout": result_for("cfg-alfa", "r", "bench-result-benchfout.json"),
+            "verdict GO": no_go_gone,
+            "no result": result_for("cfg-alfa", "r", result=None),
+        }
+        for name, result in cases.items():
+            with self.subTest(name):
+                self.assertFalse(self.S.run_voldoet(result, self.GOOD, {}))
+        for name, score in {"f1 minor": {**self.GOOD, "f1": "minor"}, "f1 nee": {**self.GOOD, "f1": "nee"}, "no score": None}.items():
+            with self.subTest(name):
+                self.assertFalse(self.S.run_voldoet(result_for("cfg-alfa", "r"), score, {}))
+
+    def test_an_extra_decided_invalid_fails_every_run_with_that_key(self):
+        decisions = {"x-verzonnen-api": "ongeldig", "x-echt": "geldig"}
+        with_key = {**self.GOOD, "extra": [extra("x-verzonnen-api", "geldig")]}        # the decision is JP's, not the proposal
+        other_key = {**self.GOOD, "extra": [extra("x-echt", "ongeldig")]}
+        both = {**self.GOOD, "extra": [extra("x-echt"), extra("x-verzonnen-api")]}
+        records = [self.run_record(score, decisions) for score in (with_key, with_key, other_key, both, self.GOOD)]
+        self.assertEqual([r["voldoet"] for r in records], [False, False, True, False, True])
+        self.assertEqual(self.S.model_oordeel(records[:2] + records[4:]), "valt af")        # the two with the key fail, one complies
+
+    def test_an_extra_without_a_decision_gives_open(self):
+        records = [self.run_record(self.GOOD), self.run_record(self.GOOD), self.run_record({**self.GOOD, "extra": [extra("x-nieuw")]})]
+        self.assertEqual([r["open"] for r in records], [False, False, True])
+        self.assertEqual(self.S.model_oordeel(records), "open")
+        records = [self.run_record({**self.GOOD, "extra": [extra("x-nieuw")]}, {"x-nieuw": "geldig"})] + records[:2]
+        self.assertEqual(self.S.model_oordeel(records), "kandidaat")          # decided: the run counts again
+
+    def test_a_judged_run_without_a_score_is_open_not_a_failure(self):
+        record = self.run_record(None)
+        self.assertEqual((record["voldoet"], record["open"]), (False, True))
+        self.assertEqual(self.S.model_oordeel([record]), "open")
+
+    def test_neither_control_a_candidate_gives_every_model_onbeslist_runtime(self):
+        good = {"voldoet": True, "open": False}
+        bad = {"voldoet": False, "open": False}
+        models = {SONNET: [good, good, bad], SOL: [bad, bad, bad], QWEN: [good, good, good], GLM: [bad, bad, bad]}
+        self.assertEqual(set(self.S.oordelen(models).values()), {"onbeslist: runtime"})
+        self.assertEqual(set(self.S.oordelen(models)), set(models))
+        # one control a candidate: every model keeps its own verdict
+        models[SOL] = [good, good, good]
+        self.assertEqual(self.S.oordelen(models), {SONNET: "twijfel", SOL: "kandidaat", QWEN: "kandidaat", GLM: "valt af"})
+        # a control that has no runs at all is no candidate either; an open control is none yet
+        self.assertEqual(set(self.S.oordelen({QWEN: [good, good, good]}).values()), {"onbeslist: runtime"})
+        self.assertEqual(set(self.S.oordelen({SONNET: [good, good, {"voldoet": False, "open": True}], QWEN: [good] * 3}).values()),
+                         {"onbeslist: runtime"})
+
+    def test_the_two_controls_are_the_two_of_the_spec(self):
+        self.assertEqual(tuple(self.S.CONTROLS), (SONNET, SOL))
+
+
+class MaskTest(ScoreBase):
+    def test_every_configuration_every_openrouter_model_and_every_family_word_is_masked(self):
+        for label, model in OPENROUTER.items():
+            for text in (label, model, label.upper(), f"Config {label}, model {model}."):
+                with self.subTest(text):
+                    masked = self.S.mask_identity(text)
+                    self.assertNotIn(label.lower(), masked.lower())
+                    self.assertNotIn(model.lower(), masked.lower())
+                    self.assertIn("[model]", masked)
+        for word in FAMILY_WORDS:
+            with self.subTest(word):
+                self.assertEqual(self.S.mask_identity(f"een {word.upper()} hier"), "een [model] hier")
+
+    def test_a_digit_or_a_dash_does_not_save_a_family_word_but_a_letter_does(self):
+        mask = self.S.mask_identity
+        self.assertEqual(mask("Qwen3 en GPT-6 en glm5"), "[model]3 en [model]-6 en [model]5")
+        self.assertEqual(mask("de oplossing en de console, absoluut en isolatie"), "de oplossing en de console, absoluut en isolatie")
+        self.assertEqual(mask("Claude review"), "[model] review")
+        self.assertEqual(mask("anthropic/claude-sonnet-5.5"), "[model]")
+
+    def test_the_longest_name_goes_first_so_nothing_of_it_is_left_behind(self):
+        self.assertEqual(self.S.mask_identity("gpt-6.1-sol-or en gpt-6.1-sol"), "[model] en [model]-6.1-[model]")
+        self.assertEqual(self.S.mask_identity("openai/gpt-6.1-sol"), "[model]")
+
+
+class SheetTest(ScoreBase):
+    def sheets(self, *flags):
+        status, stdout, stderr = self.run_main("sheets", self.out, *flags)
+        self.assertEqual(status, 0, stderr)
+        return stdout
+
+    def test_a_sheet_per_run_that_is_judged_and_the_key_apart(self):
+        self.put(QWEN, 1)
+        self.put(QWEN, 2, "bench-result-limiet.json")
+        self.put(QWEN, 3, "bench-result-benchfout.json")
+        self.put(SONNET, 1)
+        self.put(SONNET, 2, "bench-result-ongeldig.json")
+        self.sheets()
+        files = sorted(p.name for p in (self.out / "sheets").iterdir())
+        self.assertEqual(len(files), 2)
+        for name in files:
+            self.assertRegex(name, r"^[0-9a-f]{8}\.md$")
+        key = json.loads((self.out / "sheets-key.json").read_text(encoding="utf-8"))
+        self.assertEqual(sorted(f"{sheet}.md" for sheet in key), files)
+        self.assertEqual(sorted(path.split("/")[:2] for path in key.values()), sorted([[QWEN, "r1"], [SONNET, "r1"]]))
+        for path in key.values():           # a path under <out>: the run directories may be copied elsewhere
+            self.assertTrue((self.out / path / "bench-result.json").is_file(), path)
+
+    def test_a_sheet_holds_the_report_and_the_summary_and_no_more(self):
+        directory = self.put(QWEN, 1)
+        result = json.loads((directory / "bench-result.json").read_text(encoding="utf-8"))
+        self.sheets()
+        text = self.sheet_text(QWEN, 1)
+        self.assertIn(result["result"]["report_markdown"].strip(), text)
+        self.assertIn(result["result"]["summary"], text)
+        for secret in (QWEN, result["runId"], directory.name, str(self.out), str(self.tmp), "costUsd", "0.12", "91500", "NO-GO", "provider_reported"):
+            self.assertNotIn(secret, text)
+
+    def test_a_blind_sheet_has_no_configuration_name_no_label_and_no_model_name(self):
+        # every report below names its own configuration and model, in two cases; the sheets are made all in one go
+        for n, (label, model) in enumerate(OPENROUTER.items(), start=1):
+            text = f"Ik ben {model} ({label.upper()}). Gedraaid als {label}, via {model.upper()}."
+            self.put(label, 1, over={"result": {**fixture_json(BEOORDEELD)["result"], "report_markdown": f"# Rapport\n\n{text}\n", "summary": text}})
+        self.sheets()
+        ids = self.sheet_ids()
+        self.assertEqual(len(ids), 8)
+        for (label, _), sheet in ids.items():
+            text = (self.out / "sheets" / f"{sheet}.md").read_text(encoding="utf-8")
+            with self.subTest(label):
+                for name in (*OPENROUTER, *OPENROUTER.values(), *FAMILY_WORDS):
+                    self.assertFalse(in_words(name, text), f"{name} in the sheet of {label}")
+                self.assertIn("[model]", text)
+
+    def test_a_model_that_names_itself_stays_blind(self):
+        self.put(SONNET, 1, "bench-result-identity.json")
+        self.sheets()
+        text = self.sheet_text(SONNET, 1)
+        for word in FAMILY_WORDS:
+            self.assertFalse(in_words(word, text), word)
+        for name in (*OPENROUTER, *OPENROUTER.values()):
+            self.assertNotIn(name.lower(), text.lower())
+        self.assertIn("# [model] review", text)
+        self.assertIn("geen oplossing en geen console-melding", text)          # words that only contain a family word stay
+
+    def test_the_fields_to_fill_are_on_one_fixed_line_and_only_f1_asks_for_f1(self):
+        self.put(QWEN, 1)
+        self.sheets()
+        sheet = self.sheet_ids()[(QWEN, 1)]
+        lines = [l for l in self.sheet_text(QWEN, 1).splitlines() if l.startswith('{"sheet"')]
+        self.assertEqual(lines, ['{"sheet": "%s", "f1": "major|minor|nee", "f2": "major|minor|nee", "minors": ["M1".."M6"], '
+                                 '"extra": [{"key": "...", "voorstel": "geldig|ongeldig", "reden": "..."}]}' % sheet])
+        self.sheets("--only-f1")                  # the same sheet is written again, for f1 only
+        self.assertEqual(self.sheet_ids()[(QWEN, 1)], sheet)
+        text = self.sheet_text(QWEN, 1)
+        self.assertEqual([l for l in text.splitlines() if l.startswith('{"sheet"')], ['{"sheet": "%s", "f1": "major|minor|nee"}' % sheet])
+        for field in ("f2", "minors", '"extra"'):
+            self.assertNotIn(field, text.split("## ")[0])          # the instruction above the first heading asks for nothing else
+
+    def test_the_sheet_sends_the_scorer_to_the_rubric_by_its_path_in_the_repo(self):
+        self.put(QWEN, 1)
+        self.sheets()
+        self.assertIn("llm-bench/review_bench/cases/macsearch-idea263-spec-r5/rubric.md", self.sheet_text(QWEN, 1))
+        self.assertTrue((HERE.parent.parent / "llm-bench/review_bench/cases/macsearch-idea263-spec-r5/rubric.md").is_file())
+
+    def test_a_second_call_keeps_the_ids_and_adds_a_sheet_for_a_new_run(self):
+        self.put(QWEN, 1)
+        self.sheets()
+        before = self.sheet_ids()
+        self.put(SONNET, 1)
+        self.sheets()
+        after = self.sheet_ids()
+        self.assertEqual(after[(QWEN, 1)], before[(QWEN, 1)])
+        self.assertEqual(len(after), 2)
+        self.assertEqual(len(list((self.out / "sheets").iterdir())), 2)
+
+    def test_the_result_that_counts_is_the_one_of_the_selection_rule(self):
+        self.put(QWEN, 1, "bench-result-benchfout.json", mtime=2_000_000_000)          # newer, but a benchfout
+        kept = self.put(QWEN, 1, mtime=1_000_000_000)
+        self.sheets()
+        key = json.loads((self.out / "sheets-key.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(key.values()), [f"{QWEN}/r1/{kept.name}"])
+
+    def test_nothing_judged_makes_no_sheet_and_says_so(self):
+        self.put(QWEN, 1, "bench-result-benchfout.json")
+        stdout = self.sheets()
+        self.assertIn("geen beoordeelde runs", stdout)
+        self.assertFalse(list((self.out / "sheets").glob("*.md")) if (self.out / "sheets").exists() else [])
+
+
+class SelectionTest(ScoreBase):
+    def selected(self, label="cfg-alfa", n=1):
+        return self.S.collect(self.out)[(label, n)]
+
+    def test_a_result_with_a_model_status_beats_a_newer_benchfout(self):
+        for status_template in ("bench-result-limiet.json", "bench-result-ongeldig.json", BEOORDEELD):
+            with self.subTest(status_template):
+                shutil.rmtree(self.out, ignore_errors=True)
+                model = self.put("cfg-alfa", 1, status_template, mtime=1_000_000_000)
+                self.put("cfg-alfa", 1, "bench-result-benchfout.json", mtime=2_000_000_000)
+                self.assertEqual(self.selected().directory, model)
+
+    def test_otherwise_the_newest_by_mtime_and_a_tie_by_name(self):
+        old = self.put("cfg-alfa", 1, "bench-result-benchfout.json", mtime=1_000_000_000)
+        new = self.put("cfg-alfa", 1, "bench-result-not-probed.json", mtime=2_000_000_000)
+        self.assertEqual(self.selected().directory, new)
+        self.assertNotEqual(old, new)
+        shutil.rmtree(self.out)
+        first = self.put("cfg-alfa", 1, "bench-result-benchfout.json", mtime=1_500_000_000)
+        second = self.put("cfg-alfa", 1, "bench-result-not-probed.json", mtime=1_500_000_000)
+        self.assertEqual(self.selected().directory, max(first, second, key=lambda p: p.name))
+
+    def test_among_model_statuses_the_newest_wins_too(self):
+        self.put("cfg-alfa", 1, "bench-result-limiet.json", mtime=1_000_000_000)
+        newer = self.put("cfg-alfa", 1, BEOORDEELD, mtime=2_000_000_000)
+        self.assertEqual(self.selected().directory, newer)
+
+    def test_every_run_n_of_a_label_is_its_own_run(self):
+        self.put("cfg-alfa", 1)
+        self.put("cfg-alfa", 2, "bench-result-benchfout.json")
+        self.put("cfg-beta", 1)
+        self.assertEqual(sorted(self.S.collect(self.out)), [("cfg-alfa", 1), ("cfg-alfa", 2), ("cfg-beta", 1)])
+
+    def test_what_is_no_result_of_that_label_is_not_read(self):
+        self.put("cfg-alfa", 1)
+        stray = self.put("cfg-alfa", 2, over={"label": "cfg-beta"})                       # a result of another label
+        (self.out / "cfg-alfa" / "r3" / "leeg").mkdir(parents=True)                         # a run directory without a result
+        (self.out / "cfg-alfa" / "r4").mkdir()
+        (self.out / "cfg-alfa" / "r4" / "bench-result.json").write_text("{}", encoding="utf-8")          # a file where a run directory goes
+        (self.out / "cfg-alfa" / "r5").write_text("een bestand", encoding="utf-8")
+        (self.out / "cfg-alfa" / "rook").mkdir()
+        (self.out / "sheets").mkdir()
+        (self.out / "skipped.json").write_text("[]", encoding="utf-8")
+        self.assertEqual(sorted(self.S.collect(self.out)), [("cfg-alfa", 1)])
+        self.assertTrue(stray.is_dir())
+
+    def test_an_out_that_is_no_directory_is_an_error(self):
+        with self.assertRaises(self.S.ScoreError):
+            self.S.collect(self.tmp / "niet-er")
+
+
+class ScoresFileTest(ScoreBase):
+    KEY = {"aaaa0001": "cfg-alfa/r1/x", "aaaa0002": "cfg-alfa/r2/y", "aaaa0003": "cfg-alfa/r3/z"}
+
+    def lines(self, *entries, raw=()):
+        path = self.tmp / "scores.jsonl"
+        path.write_text("".join(json.dumps(e) + "\n" for e in entries) + "".join(r + "\n" for r in raw), encoding="utf-8")
+        return path
+
+    def test_the_fixture_is_read_as_it_is_written(self):
+        scores = self.S.load_scores(SCORE_FIXTURES / "scores.jsonl", self.KEY)
+        self.assertEqual(sorted(scores), ["aaaa0001", "aaaa0002", "aaaa0003"])
+        self.assertEqual(scores["aaaa0001"], {"f1": "major", "f2": "minor", "minors": ["M1", "M3"], "extra": []})
+        self.assertEqual(scores["aaaa0003"]["minors"], ["M2", "M6"])          # a finding counts once: M2 twice is M2
+        self.assertEqual([e["key"] for e in scores["aaaa0003"]["extra"]], ["x-verzonnen-api", "x-nog-niet-beslist"])
+
+    def test_a_smoke_file_has_f1_only_and_the_main_file_has_to_have_all_four(self):
+        scores = self.S.load_scores(SCORE_FIXTURES / "scores-only-f1.jsonl", self.KEY, only_f1=True)
+        self.assertEqual(scores, {"aaaa0001": {"f1": "major"}, "aaaa0002": {"f1": "nee"}})
+        with self.assertRaises(self.S.ScoreError) as raised:
+            self.S.load_scores(SCORE_FIXTURES / "scores-only-f1.jsonl", self.KEY)
+        self.assertIn("line 1", str(raised.exception))
+        self.assertIn("f2", str(raised.exception))
+
+    def test_a_line_that_cannot_be_used_is_refused_with_its_number_and_never_quoted(self):
+        bad = {
+            "a sheet that is not in the key": [grade("ffff9999")],
+            "the same sheet twice": [grade("aaaa0001"), grade("aaaa0001")],
+            "f1 outside the three": [grade("aaaa0001", f1="blocker")],
+            "f2 missing": [{"sheet": "aaaa0001", "f1": "major", "minors": [], "extra": []}],
+            "a minor outside M1-M6": [grade("aaaa0001", minors=["M7"])],
+            "minors that is no list": [{**grade("aaaa0001"), "minors": "M1"}],
+            "an extra without a proposal": [grade("aaaa0001", extra=[{"key": "x-a", "reden": "r"}])],
+            "an extra with a proposal of its own": [grade("aaaa0001", extra=[extra("x-a", "misschien")])],
+            "an extra without a key": [grade("aaaa0001", extra=[{"voorstel": "geldig", "reden": "r"}])],
+            "an extra that is no object": [grade("aaaa0001", extra=["x-a"])],
+        }
+        for name, entries in bad.items():
+            with self.subTest(name):
+                with self.assertRaises(self.S.ScoreError) as raised:
+                    self.S.load_scores(self.lines(*entries), self.KEY)
+                self.assertRegex(str(raised.exception), r"line [12]")
+        with self.assertRaises(self.S.ScoreError) as raised:
+            self.S.load_scores(self.lines(grade("aaaa0001"), raw=["dit is geen json geheim-0123456789"]), self.KEY)
+        self.assertIn("line 2", str(raised.exception))
+        self.assertNotIn("geheim", str(raised.exception))
+        with self.assertRaises(self.S.ScoreError):
+            self.S.load_scores(self.tmp / "niet-er.jsonl", self.KEY)
+
+    def test_blank_lines_are_skipped_and_an_empty_file_is_no_scores(self):
+        path = self.tmp / "scores.jsonl"
+        path.write_text("\n" + json.dumps(grade("aaaa0001")) + "\n\n", encoding="utf-8")
+        self.assertEqual(list(self.S.load_scores(path, self.KEY)), ["aaaa0001"])
+        path.write_text("", encoding="utf-8")
+        self.assertEqual(self.S.load_scores(path, self.KEY), {})
+
+    def test_decisions_are_geldig_or_ongeldig_per_key(self):
+        self.assertEqual(self.S.load_decisions(SCORE_FIXTURES / "decisions.json"), {"x-temp-path-race": "geldig", "x-verzonnen-api": "ongeldig"})
+        for text in ('["x"]', '{"x-a": "misschien"}', '{"x-a": true}', "geen json"):
+            with self.subTest(text):
+                path = self.tmp / "decisions.json"
+                path.write_text(text, encoding="utf-8")
+                with self.assertRaises(self.S.ScoreError):
+                    self.S.load_decisions(path)
+        with self.assertRaises(self.S.ScoreError):
+            self.S.load_decisions(self.tmp / "niet-er.json")
+
+
+class TraceTest(ScoreBase):
+    def count(self, trace="trace.jsonl", run_id=FIXTURE_RUN_ID):
+        return self.S.count_sources_doc(SCORE_FIXTURES / trace, run_id)
+
+    def test_three_read_file_calls_on_the_source_of_which_two_with_an_offset_give_3_and_2(self):
+        self.assertEqual(self.count(), (3, 2))
+
+    def test_the_path_is_normalised_so_the_same_file_in_another_spelling_counts(self):
+        # ./sources/doc, sources//doc, sources/../sources/doc, an absolute path in the root of this run, and arguments that are an object;
+        # not: another run's root, an absolute path without a root, another file in the root
+        self.assertEqual(self.count("trace-path-forms.jsonl"), (5, 3))
+
+    def test_the_root_in_an_absolute_path_is_that_of_the_run_in_question(self):
+        self.assertEqual(self.count("trace-path-forms.jsonl", "an-other-run"), (5, 2))
+        self.assertEqual(self.count("trace-path-forms.jsonl", "onbekende-run"), (4, 2))
+
+    def test_a_limit_without_an_offset_counts_as_limited_and_the_value_does_not_matter(self):
+        trace = self.tmp / "trace.jsonl"
+        calls = [{"path": "sources/doc", "limit": 5}, {"path": "sources/doc", "offset": None}, {"path": "sources/doc", "offset": 0}, {"path": "sources/doc"}]
+        trace.write_text("".join(json.dumps({"type": "tool_call", "name": "read_file", "arguments": json.dumps(c)}) + "\n" for c in calls), encoding="utf-8")
+        self.assertEqual(self.S.count_sources_doc(trace, "r"), (4, 3))
+
+    @unittest.skipUnless(hasattr(os, "mkfifo"), "needs mkfifo")
+    def test_a_trace_that_is_a_named_pipe_is_no_trace_and_does_not_hang(self):
+        pipe = self.tmp / "trace.jsonl"
+        os.mkfifo(pipe)
+        self.assertIsNone(self.S.count_sources_doc(pipe, "r"))
+
+    def test_no_trace_is_no_count_and_an_empty_trace_is_zero(self):
+        self.assertIsNone(self.S.count_sources_doc(self.tmp / "niet-er.jsonl", "r"))
+        (self.tmp / "leeg.jsonl").write_text("", encoding="utf-8")
+        self.assertEqual(self.S.count_sources_doc(self.tmp / "leeg.jsonl", "r"), (0, 0))
+
+
+class SmokeTest(ScoreBase):
+    """score.py smoke: the gate of P2. Both results have to exist, none is a benchfout, and the control found the known MAJOR."""
+
+    def smoke(self, qwen=BEOORDEELD, sonnet=BEOORDEELD, *, f1="major", sonnet_over=None, skipped=None, score=True):
+        """Run both smoke runs (None: the run is missing), score them, and call smoke. Returns (status, stdout, stderr)."""
+        if qwen:
+            self.put(QWEN, 1, qwen)
+        if sonnet:
+            self.put(SONNET, 1, sonnet, over=sonnet_over)
+        if skipped is not None:
+            (self.out / "skipped.json").parent.mkdir(parents=True, exist_ok=True)
+            (self.out / "skipped.json").write_text(json.dumps(skipped), encoding="utf-8")
+        self.out.mkdir(parents=True, exist_ok=True)
+        self.assertEqual(self.run_main("sheets", self.out, "--only-f1")[0], 0)
+        ids = self.sheet_ids() if (self.out / "sheets-key.json").exists() else {}
+        entries = [{"sheet": sheet, "f1": f1 if label == SONNET else "nee"} for (label, _), sheet in ids.items()] if score else []
+        self.write_scores(self.tmp / "scores.jsonl", entries)
+        return self.run_main("smoke", self.out, "--scores", self.tmp / "scores.jsonl")
+
+    def test_both_present_and_through(self):
+        status, stdout, stderr = self.smoke()
+        self.assertEqual((status, stderr), (0, ""))
+        self.assertIn("rookproef: door", stdout)
+        self.assertIn(f"{SONNET} r1: status=beoordeeld outcome=succeeded verdict=NO-GO f1=major", stdout)
+        self.assertIn(f"{QWEN} r1: status=beoordeeld outcome=succeeded verdict=NO-GO f1=nee", stdout)
+
+    def test_qwen_missing_after_a_rejected_preflight_is_a_stop(self):
+        status, stdout, _ = self.smoke(qwen=None, skipped=[{"label": QWEN, "run": 1, "reason": "preflight afgewezen: HTTP 400: nee"}])
+        self.assertEqual(status, 1)
+        self.assertIn("rookproef: stop", stdout)
+        self.assertNotIn("rookproef: door", stdout)
+        self.assertIn(f"{QWEN}: geen resultaat", stdout)
+        self.assertIn("preflight afgewezen", stdout)
+
+    def test_sonnet_missing_is_a_stop(self):
+        status, stdout, _ = self.smoke(sonnet=None)
+        self.assertEqual(status, 1)
+        self.assertIn("rookproef: stop", stdout)
+        self.assertIn(f"{SONNET}: geen resultaat", stdout)
+
+    def test_a_benchfout_of_either_is_a_stop(self):
+        for qwen, sonnet in (("bench-result-benchfout.json", BEOORDEELD), (BEOORDEELD, "bench-result-benchfout.json"),
+                             ("bench-result-not-probed.json", BEOORDEELD)):
+            with self.subTest(qwen=qwen, sonnet=sonnet):
+                shutil.rmtree(self.out, ignore_errors=True)
+                status, stdout, _ = self.smoke(qwen, sonnet)
+                self.assertEqual(status, 1)
+                self.assertIn("rookproef: stop", stdout)
+                self.assertIn("benchfout", stdout)
+
+    def test_a_limit_or_an_invalid_result_of_qwen_is_model_behaviour_and_goes_through(self):
+        for qwen in ("bench-result-limiet.json", "bench-result-ongeldig.json"):
+            with self.subTest(qwen):
+                shutil.rmtree(self.out, ignore_errors=True)
+                status, stdout, _ = self.smoke(qwen)
+                self.assertEqual(status, 0, stdout)
+                self.assertIn("rookproef: door", stdout)
+
+    def test_sonnet_has_to_be_judged_succeeded_no_go_and_f1_major(self):
+        no_go_gone = {"result": {**fixture_json(BEOORDEELD)["result"], "review": {**fixture_json(BEOORDEELD)["result"]["review"], "verdict": "GO"}}}
+        failed = {"result": {**fixture_json(BEOORDEELD)["result"], "outcome": "failed"}}
+        cases = {"f1 minor": dict(f1="minor"), "f1 nee": dict(f1="nee"), "verdict GO": dict(sonnet_over=no_go_gone),
+                 "outcome failed": dict(sonnet_over=failed), "status limiet": dict(sonnet="bench-result-limiet.json"),
+                 "status resultaat_ongeldig": dict(sonnet="bench-result-ongeldig.json"), "f1 not scored": dict(score=False)}
+        for name, kw in cases.items():
+            with self.subTest(name):
+                shutil.rmtree(self.out, ignore_errors=True)
+                status, stdout, _ = self.smoke(**kw)
+                self.assertEqual(status, 1, stdout)
+                self.assertIn("rookproef: stop", stdout)
+
+    def test_the_selection_rule_applies_a_model_status_beats_a_newer_benchfout(self):
+        self.put(SONNET, 1, "bench-result-benchfout.json", mtime=2_000_000_000)
+        self.put(SONNET, 1, mtime=1_000_000_000)
+        status, stdout, _ = self.smoke(sonnet=None)         # qwen is put by smoke
+        self.assertEqual(status, 0, stdout)
+
+    def test_a_scores_file_that_does_not_fit_the_key_is_an_error_not_a_stop(self):
+        self.put(QWEN, 1)
+        self.put(SONNET, 1)
+        self.run_main("sheets", self.out, "--only-f1")
+        self.write_scores(self.tmp / "scores.jsonl", [{"sheet": "ffff9999", "f1": "major"}])
+        status, stdout, stderr = self.run_main("smoke", self.out, "--scores", self.tmp / "scores.jsonl")
+        self.assertEqual(status, 2)
+        self.assertNotIn("rookproef", stdout)
+
+
+class ReportBase(ScoreBase):
+    """score.py report over a directory of runs of the driver's layout. It holds no test."""
+
+    DATE = "2026-10-20"
+
+    def setUp(self):
+        super().setUp()
+        self.scores = self.tmp / "scores.jsonl"
+        self.decisions = self.tmp / "decisions.json"
+        self.decisions.write_text("{}", encoding="utf-8")
+        self.ledger = self.tmp / "ledger.jsonl"
+        self.ledger.write_text("", encoding="utf-8")
+        self.preflight = self.tmp / "preflight.json"
+        self.preflight.write_text("{}", encoding="utf-8")
+        self.results = self.tmp / "results"
+
+    def preflight_ok(self, *labels, rejected=None):
+        entries = {label: {"ok": True, "reason": None} for label in labels}
+        entries.update({label: {"ok": False, "reason": reason} for label, reason in (rejected or {}).items()})
+        self.preflight.write_text(json.dumps(entries), encoding="utf-8")
+
+    def score_runs(self, grades):
+        """Make the sheets and write scores.jsonl: grades is {(label, n): grade fields}; a judged run that is not in it is left unscored."""
+        self.assertEqual(self.run_main("sheets", self.out)[0], 0)
+        ids = self.sheet_ids()
+        self.write_scores(self.scores, [grade(ids[run], **fields) for run, fields in grades.items()])
+
+    def report(self, models, *, runs=3, extra_args=(), date=None):
+        """(status, stdout, stderr, the text of the report or None)."""
+        status, stdout, stderr = self.run_main("report", self.out, "--scores", self.scores, "--decisions", self.decisions, "--ledger", self.ledger,
+                                               "--date", date or self.DATE, "--preflight", self.preflight, "--models", *models, "--runs", runs,
+                                               "--results-dir", self.results, *extra_args)
+        path = self.results / f"review-bench-{date or self.DATE}.md"
+        return status, stdout, stderr, path.read_text(encoding="utf-8") if path.exists() else None
+
+    @staticmethod
+    def section(text, heading):
+        """The lines under '## heading' up to the next '## '."""
+        lines = text.splitlines()
+        start = lines.index(f"## {heading}")
+        end = next((i for i in range(start + 1, len(lines)) if lines[i].startswith("## ")), len(lines))
+        return lines[start + 1:end]
+
+    @staticmethod
+    def rows(lines, label):
+        return [l for l in lines if l.startswith(f"| {label}")]
+
+    def cells(self, line):
+        return [c.strip() for c in line.strip().strip("|").split("|")]
+
+
+class ReportTest(ReportBase):
+    def three(self, label, *templates, **kw):
+        for n, template in enumerate(templates, start=1):
+            if template:
+                self.put(label, n, template, **kw)
+
+    def populate_comparison(self):
+        """sonnet 3/3, qwen 2/3, flash 1/3, as the grades below say; sol and glm are not run."""
+        self.three(SONNET, BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        self.three(QWEN, BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        self.three(FLASH, BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        self.score_runs({
+            (SONNET, 1): {}, (SONNET, 2): {}, (SONNET, 3): {},
+            (QWEN, 1): {}, (QWEN, 2): {}, (QWEN, 3): dict(f1="minor", f2="major"),
+            (FLASH, 1): {}, (FLASH, 2): dict(f1="nee"), (FLASH, 3): dict(f1="minor"),
+        })
+        self.preflight_ok(SONNET, QWEN, FLASH)
+
+    def test_the_report_gives_every_model_its_verdict_and_the_runs_that_comply(self):
+        self.populate_comparison()
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH])
+        self.assertEqual(status, 0, stderr)
+        table = self.section(text, "Oordeel per model")
+        sonnet, qwen, flash = (self.cells(self.rows(table, label)[0]) for label in (SONNET, QWEN, FLASH))
+        self.assertEqual((sonnet[1], sonnet[2]), ("kandidaat", "3/3"))
+        self.assertEqual((qwen[1], qwen[2]), ("twijfel", "2/3"))
+        self.assertEqual((flash[1], flash[2]), ("valt af", "1/3"))
+        self.assertEqual(qwen[4:6], ["major / major / minor", "nee / nee / major"])          # F1 and F2 per run
+        self.assertEqual(qwen[3], "NO-GO / NO-GO / NO-GO")
+
+    def test_neither_control_a_candidate_gives_every_row_onbeslist_runtime(self):
+        self.populate_comparison()
+        self.put(SOL, 1)
+        self.score_runs({(SONNET, 1): dict(f1="minor"), (SONNET, 2): {}, (SONNET, 3): {}, (QWEN, 1): {}, (QWEN, 2): {}, (QWEN, 3): {},
+                         (FLASH, 1): {}, (FLASH, 2): {}, (FLASH, 3): {}, (SOL, 1): {}})
+        self.preflight_ok(SONNET, QWEN, FLASH, SOL)
+        status, _, stderr, text = self.report([SONNET, SOL, QWEN, FLASH])
+        self.assertEqual(status, 0, stderr)
+        table = self.section(text, "Oordeel per model")
+        for label in (SONNET, SOL, QWEN, FLASH):
+            self.assertEqual(self.cells(self.rows(table, label)[0])[1], "onbeslist: runtime", label)
+        self.assertIn("onbeslist: runtime", "\n".join(self.section(text, "Grenzen en vervolg")))
+
+    def test_an_extra_without_a_decision_is_open_and_a_decision_closes_it(self):
+        self.populate_comparison()
+        ids = self.sheet_ids()
+        self.write_scores(self.scores, [grade(ids[(label, n)], **({"extra": [extra("x-temp-path-race")]} if (label, n) == (QWEN, 2) else {}))
+                                        for label in (SONNET, QWEN, FLASH) for n in (1, 2, 3)])
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH])
+        self.assertEqual(status, 0, stderr)
+        row = self.cells(self.rows(self.section(text, "Oordeel per model"), QWEN)[0])
+        self.assertEqual(row[1], "open")
+        self.assertIn("x-temp-path-race (open)", row[-1])
+        self.decisions.write_text(json.dumps({"x-temp-path-race": "ongeldig"}), encoding="utf-8")
+        _, _, _, text = self.report([SONNET, QWEN, FLASH])
+        row = self.cells(self.rows(self.section(text, "Oordeel per model"), QWEN)[0])
+        self.assertEqual((row[1], row[2]), ("twijfel", "2/3"))          # run 2 fails on the invalid extra, the other two comply
+        self.assertIn("x-temp-path-race (ongeldig)", row[-1])
+
+    def test_an_expected_run_that_never_ran_still_has_a_row_and_does_not_comply(self):
+        self.populate_comparison()
+        status, _, _, text = self.report([SONNET, QWEN, FLASH, GLM])
+        self.assertEqual(status, 0)
+        glm = self.cells(self.rows(self.section(text, "Oordeel per model"), GLM)[0])
+        self.assertEqual((glm[1], glm[2]), ("valt af", "0/3"))
+
+    def test_the_minors_are_the_mean_of_the_scored_runs_and_cost_is_mean_and_max_of_those_with_an_amount(self):
+        for n, cost in enumerate((0.10, 0.20, None), start=1):
+            usage = {k: v for k, v in fixture_json(BEOORDEELD)["usage"].items() if k != "costUsd"}
+            if cost is not None:
+                usage["costUsd"] = cost
+            self.put(QWEN, n, over={"usage": usage, "peakInputTokens": 50000 + n * 1000, "durationMs": 10000 * n, "turns": 10 * n})
+        self.score_runs({(QWEN, 1): dict(minors=["M1", "M2"]), (QWEN, 2): dict(minors=["M3"]), (QWEN, 3): dict(minors=[])})
+        self.preflight_ok(QWEN)
+        status, _, _, text = self.report([QWEN])
+        self.assertEqual(status, 0)
+        self.assertEqual(self.cells(self.rows(self.section(text, "Oordeel per model"), QWEN)[0])[6], "1,0")
+        b = self.cells(self.rows(self.section(text, "Kosten, tokens, context en tijd"), QWEN)[0])
+        self.assertEqual(b[1:3], ["$0,1500", "$0,2000"])           # a missing amount is no zero
+        self.assertIn("53000 / 131072", b[4])                       # peakInputTokens next to the window
+        self.assertEqual(b[5], "20,0 s")
+        self.assertEqual(b[6], "20,0")
+
+    def test_every_expected_run_that_is_not_judged_has_the_first_reason_that_fits(self):
+        self.three("cfg-a", "bench-result-benchfout.json")                                             # preflight rejected: wins over the benchfout
+        self.three("cfg-b", "bench-result-not-probed.json", over={"benchError": "CONFIGURATION_NOT_PROBED: geen aanvaarde probe voor cfg-b"})
+        # ... r1 is not probed from its benchError, r2 and r3 from skipped.json
+        self.three("cfg-c", "bench-result-benchfout.json", "bench-result-limiet.json", "bench-result-ongeldig.json")
+        self.three("cfg-d")                                                                             # no result: budget, stop, nothing
+        self.three("cfg-e", BEOORDEELD, BEOORDEELD, BEOORDEELD)
+        (self.out / "skipped.json").write_text(json.dumps([
+            {"label": "cfg-b", "run": 2, "reason": "niet geprobed: geen aanvaarde probe voor cfg-b"},
+            {"label": "cfg-b", "run": 3, "reason": "niet geprobed: geen aanvaarde probe voor cfg-b"},
+            {"label": "cfg-d", "run": 1, "reason": "budget bereikt"}, {"label": "cfg-d", "run": 2, "reason": "gestopt (stopvlag)"}]), encoding="utf-8")
+        self.preflight_ok("cfg-b", "cfg-c", "cfg-d", "cfg-e", rejected={"cfg-a": "HTTP 400: model niet beschikbaar"})
+        self.score_runs({("cfg-e", n): {} for n in (1, 2, 3)})
+        status, _, stderr, text = self.report(["cfg-a", "cfg-b", "cfg-c", "cfg-d", "cfg-e"])
+        self.assertEqual(status, 0, stderr)
+        lines = self.section(text, "Runs zonder oordeel")
+        reasons = {tuple(self.cells(l)[:2]): self.cells(l)[2] for l in lines if l.startswith("| cfg-")}
+        self.assertEqual(len(reasons), 12)
+        for n in (1, 2, 3):
+            self.assertEqual(reasons[("cfg-a", str(n))], "preflight afgewezen: HTTP 400: model niet beschikbaar")
+            self.assertTrue(reasons[("cfg-b", str(n))].startswith("niet geprobed: "), reasons[("cfg-b", str(n))])
+        self.assertIn("geen aanvaarde probe voor cfg-b", reasons[("cfg-b", "1")])
+        self.assertEqual(reasons[("cfg-c", "1")], "benchfout: MODEL_ERROR")
+        self.assertEqual(reasons[("cfg-c", "2")], "limiet: COST_LIMIT_EXCEEDED")
+        self.assertEqual(reasons[("cfg-c", "3")], "resultaat_ongeldig: REVIEW_RESULT_INVALID")
+        self.assertEqual([reasons[("cfg-d", str(n))] for n in (1, 2, 3)], ["budget bereikt", "gestopt (stopvlag)", "niet gestart"])
+        self.assertFalse([k for k in reasons if k[0] == "cfg-e"])
+        self.assertIn("3 van 15 verwachte runs beoordeeld", text)
+
+    def test_the_reason_from_skipped_json_is_used_when_the_preflight_file_has_no_word_about_it(self):
+        self.out.mkdir(parents=True)                                # no run left a directory
+        (self.out / "skipped.json").write_text(json.dumps([{"label": "cfg-a", "run": n, "reason": "preflight afgewezen: HTTP 429: te druk"}
+                                                           for n in (1, 2, 3)]), encoding="utf-8")
+        self.preflight_ok()
+        self.write_scores(self.scores, [])
+        status, _, stderr, text = self.report(["cfg-a"])
+        self.assertEqual(status, 0, stderr)
+        reasons = [self.cells(l)[2] for l in self.section(text, "Runs zonder oordeel") if l.startswith("| cfg-a")]
+        self.assertEqual(reasons, ["preflight afgewezen: HTTP 429: te druk"] * 3)
+
+    def test_a_result_with_a_model_status_is_not_called_a_rejected_preflight(self):
+        self.three("cfg-a", "bench-result-limiet.json")
+        self.preflight_ok(rejected={"cfg-a": "HTTP 400: later afgewezen"})
+        self.write_scores(self.scores, [])
+        _, _, _, text = self.report(["cfg-a"])
+        reasons = [self.cells(l)[2] for l in self.section(text, "Runs zonder oordeel") if l.startswith("| cfg-a")]
+        self.assertEqual(reasons[0], "limiet: COST_LIMIT_EXCEEDED")
+        self.assertEqual(reasons[1:], ["preflight afgewezen: HTTP 400: later afgewezen"] * 2)
+
+    def test_the_read_file_counts_of_each_run_come_from_its_trace(self):
+        self.put(QWEN, 1, trace="trace.jsonl")
+        self.put(QWEN, 2)                                       # no trace file at all
+        self.put(QWEN, 3, "bench-result-benchfout.json")
+        self.score_runs({(QWEN, 1): {}, (QWEN, 2): {}})
+        self.preflight_ok(QWEN)
+        _, _, _, text = self.report([QWEN])
+        rows = {self.cells(l)[1]: self.cells(l) for l in self.rows(self.section(text, "Per run"), QWEN)}
+        self.assertEqual(rows["1"][-2:], ["3", "2"])
+        self.assertEqual(rows["2"][-2:], ["-", "-"])
+        self.assertEqual(rows["3"][2], "benchfout")
+
+    def test_the_preflight_section_has_the_outcome_the_reason_and_the_amount_of_the_ledger(self):
+        self.three("cfg-alfa", BEOORDEELD)
+        self.score_runs({("cfg-alfa", 1): {}})
+        shutil.copy(SCORE_FIXTURES / "ledger.jsonl", self.ledger)
+        shutil.copy(SCORE_FIXTURES / "preflight.json", self.preflight)
+        status, _, stderr, text = self.report(["cfg-alfa", "cfg-beta", "cfg-gamma"], runs=1)
+        self.assertEqual(status, 0, stderr)
+        rows = {self.cells(l)[0]: self.cells(l) for l in self.section(text, "Preflight") if l.startswith("| cfg-")}
+        self.assertEqual(rows["cfg-alfa"][1:3], ["afgewezen", "HTTP 400: model niet beschikbaar"])
+        self.assertEqual(rows["cfg-alfa"][3], "onbekend")                       # the ledger holds null for it
+        self.assertEqual(rows["cfg-beta"][1:4], ["ok", "-", "$0,0021"])           # two preflights of beta: the last one is the amount
+        self.assertEqual(rows["cfg-gamma"][1], "geen preflight")
+
+    def test_the_ledger_is_a_list_of_rows_ids_that_repeat_do_not_merge_them(self):
+        self.three(QWEN, BEOORDEELD)
+        self.score_runs({(QWEN, 1): {}})
+        self.preflight_ok(QWEN)
+        shutil.copy(SCORE_FIXTURES / "ledger.jsonl", self.ledger)
+        _, _, _, text = self.report([QWEN], runs=1)
+        lines = self.section(text, "Grootboek")
+        rows = [l for l in lines if l.startswith("| ") and "synth-case" in l]
+        self.assertEqual(len(rows), 3)                                  # two of them share one id
+        self.assertEqual(sum("synth-case-cfg-beta-0a0b0c0d" in l for l in rows), 2)
+        total = "\n".join(lines)
+        self.assertIn("$0,4321", total)                                 # 0.01 + 0.0021 + 0.12 + 0.3, a missing amount as 0
+        self.assertIn("2 zonder bedrag", total)
+
+    def test_the_context_rows_name_the_two_production_runs(self):
+        self.populate_comparison()
+        _, _, _, text = self.report([SONNET, QWEN, FLASH])
+        context = "\n".join(self.section(text, "Context: productieruns"))
+        for expected in ("1a78c1b8", "Claude Code", "$0,39", "7146cbe9", "Codex CLI", "≈ $0,10"):
+            self.assertIn(expected, context)
+
+    def test_the_window_is_named_next_to_the_peak_and_the_report_says_what_it_does_not_cover(self):
+        self.populate_comparison()
+        _, _, _, text = self.report([SONNET, QWEN, FLASH])
+        self.assertIn("61000 / 131072", "\n".join(self.section(text, "Kosten, tokens, context en tijd")))
+        limits = "\n".join(self.section(text, "Grenzen en vervolg"))
+        self.assertIn("één case", limits)
+        self.assertIn("alleen een document", limits)
+
+    def test_the_report_goes_to_results_dir_under_the_name_of_the_date(self):
+        self.populate_comparison()
+        status, stdout, _, text = self.report([SONNET, QWEN, FLASH], date="2026-11-03")
+        self.assertEqual(status, 0)
+        self.assertTrue((self.results / "review-bench-2026-11-03.md").is_file())
+        self.assertIn(str(self.results / "review-bench-2026-11-03.md"), stdout)
+        self.assertTrue(text.startswith("# Review-bench 2026-11-03"))
+
+    def test_without_results_dir_the_report_goes_to_llm_bench_results(self):
+        self.assertEqual(self.S.DEFAULT_RESULTS_DIR, HERE.parent / "results")
+        ap = self.S.build_parser()
+        args = ap.parse_args(["report", str(self.out), "--scores", "s", "--decisions", "d", "--ledger", "l", "--date", "2026-10-20",
+                              "--preflight", "p", "--models", "a", "--runs", "3"])
+        self.assertEqual(Path(args.results_dir), HERE.parent / "results")
+
+    def test_the_smoke_flags_come_in_a_pair(self):
+        self.populate_comparison()
+        for extra_args in (("--smoke-dir", self.tmp / "rook"), ("--smoke-scores", self.tmp / "s.jsonl")):
+            with self.subTest(extra_args):
+                status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=extra_args)
+                self.assertEqual(status, 2)
+                self.assertIn("--smoke", stderr)
+        self.assertFalse(self.results.exists())
+
+    def test_the_smoke_section_has_the_gate_and_the_runs_of_the_smoke_dir(self):
+        self.populate_comparison()
+        smoke = self.tmp / "rook"
+        self.put(QWEN, 1, out=smoke)
+        self.put(SONNET, 1, out=smoke)
+        self.assertEqual(self.run_main("sheets", smoke, "--only-f1")[0], 0)
+        ids = self.sheet_ids(smoke)
+        self.write_scores(self.tmp / "rook-scores.jsonl", [{"sheet": ids[(QWEN, 1)], "f1": "nee"}, {"sheet": ids[(SONNET, 1)], "f1": "major"}])
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=("--smoke-dir", smoke, "--smoke-scores", self.tmp / "rook-scores.jsonl"))
+        self.assertEqual(status, 0, stderr)
+        lines = self.section(text, "Rookproef")
+        joined = "\n".join(lines)
+        self.assertIn("rookproef: door", joined)
+        self.assertEqual(self.cells(self.rows(lines, SONNET)[0])[1:], ["1", "beoordeeld", "succeeded", "NO-GO", "major"])
+        self.assertEqual(self.cells(self.rows(lines, QWEN)[0])[1:], ["1", "beoordeeld", "succeeded", "NO-GO", "nee"])
+        # without the smoke flags the section says it was not given
+        _, _, _, text = self.report([SONNET, QWEN, FLASH])
+        self.assertIn("niet meegegeven", "\n".join(self.section(text, "Rookproef")))
+
+    def test_a_smoke_that_stopped_is_in_the_report_as_a_stop(self):
+        self.populate_comparison()
+        smoke = self.tmp / "rook"
+        self.put(SONNET, 1, "bench-result-benchfout.json", out=smoke)
+        self.run_main("sheets", smoke, "--only-f1")
+        self.write_scores(self.tmp / "rook-scores.jsonl", [])
+        status, _, stderr, text = self.report([SONNET, QWEN, FLASH], extra_args=("--smoke-dir", smoke, "--smoke-scores", self.tmp / "rook-scores.jsonl"))
+        self.assertEqual(status, 0, stderr)               # the report is made; the gate is only told
+        self.assertIn("rookproef: stop", "\n".join(self.section(text, "Rookproef")))
+
+
+class ReportInputTest(ReportBase):
+    """What the report refuses: a verdict from incomplete or unreadable input would be a wrong one."""
+
+    def setUp(self):
+        super().setUp()
+        for n in (1, 2, 3):
+            self.put(QWEN, n)
+        self.preflight_ok(QWEN)
+
+    def refused(self, *, models=(QWEN,), runs=3, date=None, extra_args=()):
+        status, stdout, stderr, text = self.report(list(models), runs=runs, date=date, extra_args=extra_args)
+        self.assertEqual(status, 2, stdout)
+        self.assertIsNone(text)
+        return stderr
+
+    def test_a_judged_run_without_a_score_is_refused_and_the_message_names_sheets_only(self):
+        self.score_runs({(QWEN, 1): {}, (QWEN, 2): {}})
+        stderr = self.refused()
+        missing = self.sheet_ids()[(QWEN, 3)]
+        self.assertIn(missing, stderr)
+        self.assertNotIn(QWEN, stderr)                      # the message must not link a sheet to a configuration
+
+    def test_a_judged_run_without_a_sheet_is_refused_too(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.put(QWEN, 4)
+        stderr = self.refused(runs=4)
+        self.assertIn("geen blad", stderr)
+
+    def test_a_score_for_a_sheet_that_is_not_in_the_key_is_refused(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.write_scores(self.scores, [*[json.loads(l) for l in self.scores.read_text(encoding="utf-8").splitlines()], grade("ffff9999")])
+        self.assertIn("line 4", self.refused())
+
+    def test_a_missing_sheets_key_is_refused_with_the_way_out(self):
+        self.write_scores(self.scores, [grade("aaaa0001")])
+        self.assertIn("score.py sheets", self.refused())
+
+    def test_a_score_for_a_run_that_is_not_expected_is_ignored_with_a_warning(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.put(SONNET, 1)                                       # not in --models
+        self.run_main("sheets", self.out)
+        ids = self.sheet_ids()
+        self.write_scores(self.scores, [grade(ids[(QWEN, n)]) for n in (1, 2, 3)] + [grade(ids[(SONNET, 1)])])
+        status, _, stderr, text = self.report([QWEN])
+        self.assertEqual(status, 0, stderr)
+        self.assertIn("## Waarschuwingen", text)
+        self.assertIn("buiten --models", stderr)
+
+    def test_results_outside_models_and_runs_are_named_in_a_warning(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.put(QWEN, 4)                                         # beyond --runs
+        self.put("cfg-typo", 1)                                   # a label that --models does not name
+        status, _, stderr, text = self.report([QWEN])
+        self.assertEqual(status, 0, stderr)
+        self.assertIn(f"resultaten buiten --models en --runs genegeerd: cfg-typo r1, {QWEN} r4", stderr)
+        self.assertIn("cfg-typo r1", "\n".join(self.section(text, "Waarschuwingen")))
+
+    def test_the_arguments_of_the_call_are_checked(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.assertIn("--date", self.refused(date="20-10-2026"))
+        self.assertIn("--date", self.refused(date="2026-13-40"))
+        self.assertIn("more than once", self.refused(models=(QWEN, QWEN)))
+        self.assertFalse(self.results.exists())
+
+    def test_a_ledger_a_preflight_or_decisions_that_are_not_there_are_refused(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        for attribute, needle in (("ledger", "--ledger"), ("preflight", "--preflight"), ("decisions", "--decisions")):
+            with self.subTest(attribute):
+                original = getattr(self, attribute)
+                setattr(self, attribute, self.tmp / "niet-er")
+                try:
+                    self.assertIn(needle, self.refused())
+                finally:
+                    setattr(self, attribute, original)
+
+    def test_a_preflight_entry_that_is_no_object_with_ok_is_refused(self):
+        self.score_runs({(QWEN, n): {} for n in (1, 2, 3)})
+        self.preflight.write_text(json.dumps({QWEN: "ok"}), encoding="utf-8")
+        self.assertIn(QWEN, self.refused())
+
+
+class ScoreUsageTest(ScoreBase):
+    def test_no_subcommand_and_an_unknown_one_are_usage_errors(self):
+        self.assertEqual(self.run_main()[0], 2)
+        self.assertEqual(self.run_main("foo")[0], 2)
+
+    def test_a_directory_that_is_not_there_is_an_error_not_a_traceback(self):
+        for argv in (("sheets", self.tmp / "niet-er"), ("smoke", self.tmp / "niet-er", "--scores", self.tmp / "s.jsonl")):
+            with self.subTest(argv[0]):
+                status, _, stderr = self.run_main(*argv)
+                self.assertEqual(status, 2)
+                self.assertIn("score.py:", stderr)
+
+
+class StdlibOnlyScoreTest(unittest.TestCase):
+    @unittest.skipUnless(hasattr(sys, "stdlib_module_names"), "needs Python 3.10")
+    def test_score_imports_nothing_outside_the_standard_library(self):
+        tree = ast.parse(SCORE.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            modules = ([a.name for a in node.names] if isinstance(node, ast.Import)
+                       else [node.module] if isinstance(node, ast.ImportFrom) and node.level == 0 and node.module else [])
+            for module in modules:
+                with self.subTest(module=module):
+                    self.assertIn(module.split(".")[0], sys.stdlib_module_names)
+
+    def test_score_runs_as_a_script_and_is_executable(self):
+        self.assertTrue(os.access(SCORE, os.X_OK))
+        done = subprocess.run([sys.executable, str(SCORE), "--help"], capture_output=True, text=True, timeout=60)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        for word in ("sheets", "smoke", "report"):
+            self.assertIn(word, done.stdout)
+
+
+class EndToEndTest(DriverBase):
+    """P2, P3 and P4 of the plan, in its layout: the preflight in R, the smoke in R/rook, the main runs in R/runs, each with
+    --preflight-file R/preflight.json. Four configurations with --runs 3: one is rejected by the preflight, one gives CONFIGURATION_NOT_PROBED."""
+
+    REJECTED, UNPROBED = FLASH, GLM
+
+    def setUp(self):
+        super().setUp()
+        self.labels = [QWEN, SONNET, self.REJECTED, self.UNPROBED]
+        self.R = self.tmp / "R"
+        write_harness_json(self.config_file, self.litellm.base_url,
+                           {label: {"costMode": "hosted", "contextTokens": 131072} for label in self.labels})
+        self.litellm.answer(self.REJECTED, (400, {"error": {"message": "model niet beschikbaar"}}))
+
+    def drive_in(self, models, out, runs, *flags, config=None):
+        return self.drive(models, runs=runs, out=out, args=("--preflight-file", self.R / "preflight.json", *flags), config=config)
+
+    def score_py(self, *argv):
+        return subprocess.run([sys.executable, str(SCORE), *map(str, argv)], capture_output=True, text=True, cwd=self.tmp, timeout=120,
+                              env=clean_env())
+
+    def ids(self, out):
+        key = json.loads((Path(out) / "sheets-key.json").read_text(encoding="utf-8"))
+        return {(path.split("/")[0], int(path.split("/")[1][1:])): sheet for sheet, path in key.items()}
+
+    def test_the_whole_road_from_preflight_to_report(self):
+        R = self.R
+        # P2: the preflight in R, then the smoke in R/rook
+        done = self.drive(self.labels, out=R, ready=False, args=("--preflight", "--preflight-file", R / "preflight.json"))
+        self.assertEqual(done.returncode, 0, done.stderr)
+        fake = {"default": {"cost": 0.05, "duration_ms": 2000},
+                "labels": {self.UNPROBED: {"status": "benchfout", "benchError": "CONFIGURATION_NOT_PROBED: geen aanvaarde probe voor glm-5.3-or"}}}
+        done = self.drive_in([QWEN, SONNET], R / "rook", 1, config=fake)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        done = self.score_py("sheets", R / "rook", "--only-f1")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        smoke_ids = self.ids(R / "rook")
+        self.assertEqual(sorted(label for label, _ in smoke_ids), sorted([QWEN, SONNET]))
+        write_jsonl(R / "rook" / "scores.jsonl", [{"sheet": sheet, "f1": "major"} for sheet in smoke_ids.values()])
+        done = self.score_py("smoke", R / "rook", "--scores", R / "rook" / "scores.jsonl")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        self.assertIn("rookproef: door", done.stdout)
+        # P3: the main runs; the rejected configuration is skipped by the driver, the unprobed one is called once
+        done = self.drive_in(self.labels, R / "runs", 3, config=fake)
+        self.assertEqual(done.returncode, 0, done.stderr)
+        self.assertEqual(len(self.ran()), 2 + 3 + 3 + 1)                     # smoke 2, qwen 3, sonnet 3, the unprobed one once
+        trace = next((R / "runs" / QWEN / "r1").glob("synth-case-*/trace.jsonl"))
+        shutil.copy(SCORE_FIXTURES / "trace.jsonl", trace)
+        # P4: sheets, scores by hand, decisions, report
+        done = self.score_py("sheets", R / "runs")
+        self.assertEqual(done.returncode, 0, done.stderr)
+        ids = self.ids(R / "runs")
+        self.assertEqual(len(ids), 6)
+        grades = {(QWEN, 1): "major", (QWEN, 2): "major", (QWEN, 3): "minor", **{(SONNET, n): "major" for n in (1, 2, 3)}}
+        write_jsonl(R / "runs" / "scores.jsonl", [grade(ids[run], f1=f1) for run, f1 in grades.items()])
+        (R / "decisions.json").write_text("{}", encoding="utf-8")
+        done = self.score_py("report", R / "runs", "--scores", R / "runs" / "scores.jsonl", "--decisions", R / "decisions.json", "--ledger", self.ledger,
+                             "--date", "2026-10-20", "--preflight", R / "preflight.json", "--models", *self.labels, "--runs", 3,
+                             "--smoke-dir", R / "rook", "--smoke-scores", R / "rook" / "scores.jsonl", "--results-dir", R / "results")
+        self.assertEqual(done.returncode, 0, done.stdout + done.stderr)
+        text = (R / "results" / "review-bench-2026-10-20.md").read_text(encoding="utf-8")
+        reasons = ReportBase.section(text, "Runs zonder oordeel")
+        rejected = [l for l in reasons if l.startswith(f"| {self.REJECTED}")]
+        unprobed = [l for l in reasons if l.startswith(f"| {self.UNPROBED}")]
+        self.assertEqual(len(rejected), 3)
+        self.assertTrue(all("preflight afgewezen" in l and "model niet beschikbaar" in l for l in rejected), rejected)
+        self.assertEqual(len(unprobed), 3)
+        self.assertTrue(all("niet geprobed" in l for l in unprobed), unprobed)
+        self.assertFalse([l for l in reasons if "benchfout" in l or "niet gestart" in l])
+        self.assertIn("6 van 12 verwachte runs beoordeeld", text)
+        table = ReportBase.section(text, "Oordeel per model")
+        by_label = {l.split("|")[1].strip().split(" (")[0]: [c.strip() for c in l.strip().strip("|").split("|")] for l in table if l.startswith("| ")}
+        self.assertEqual(by_label[SONNET][1:3], ["kandidaat", "3/3"])
+        self.assertEqual(by_label[QWEN][1:3], ["twijfel", "2/3"])
+        self.assertEqual(by_label[self.REJECTED][1:3], ["valt af", "0/3"])
+        preflight = ReportBase.section(text, "Preflight")
+        self.assertTrue(any(l.startswith(f"| {self.REJECTED} | afgewezen") for l in preflight), preflight)
+        self.assertTrue(any(l.startswith(f"| {QWEN} | ok") for l in preflight), preflight)
+        smoke = "\n".join(ReportBase.section(text, "Rookproef"))
+        self.assertIn("rookproef: door", smoke)
+        self.assertIn(f"| {SONNET} | 1 | beoordeeld | succeeded | NO-GO | major |", smoke)
+        read_row = next(l for l in ReportBase.section(text, "Per run") if l.startswith(f"| {QWEN} | 1 |"))
+        self.assertTrue(read_row.rstrip().endswith("| 3 | 2 |"), read_row)
+        self.assertIn(f"| preflight | {self.REJECTED} |", "\n".join(ReportBase.section(text, "Grootboek")))
+        for sheet in ids.values():                                                        # the sheets of the main runs name no configuration
+            sheet_text = (R / "runs" / "sheets" / f"{sheet}.md").read_text(encoding="utf-8")
+            for label in self.labels:
+                self.assertNotIn(label, sheet_text)
+
+
 if __name__ == "__main__":
     unittest.main()

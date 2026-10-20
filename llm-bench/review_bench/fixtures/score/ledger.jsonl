@@ -1,0 +1,6 @@
+{"id": "preflight-cfg-alfa-20261020T100000Z", "kind": "preflight", "label": "cfg-alfa", "cost_usd": null}
+{"id": "preflight-cfg-beta-20261020T100000Z", "kind": "preflight", "label": "cfg-beta", "cost_usd": 0.01}
+{"id": "preflight-cfg-beta-20261020T100001Z", "kind": "preflight", "label": "cfg-beta", "cost_usd": 0.0021}
+{"id": "synth-case-cfg-beta-0a0b0c0d", "kind": "run", "label": "cfg-beta", "run": 1, "case": "synth-case", "cost_usd": 0.12}
+{"id": "synth-case-cfg-beta-0a0b0c0d", "kind": "run", "label": "cfg-beta", "run": 2, "case": "synth-case", "cost_usd": 0.3}
+{"id": "synth-case-cfg-beta-1e1f2a2b", "kind": "run", "label": "cfg-beta", "run": 3, "case": "synth-case", "cost_usd": null}

@@ -1,0 +1,27 @@
+[
+  {
+    "label": "cfg-alfa",
+    "run": 1,
+    "reason": "preflight afgewezen: HTTP 400: model niet beschikbaar"
+  },
+  {
+    "label": "cfg-beta",
+    "run": 2,
+    "reason": "niet geprobed: geen aanvaarde probe voor cfg-beta"
+  },
+  {
+    "label": "cfg-gamma",
+    "run": 3,
+    "reason": "budget bereikt"
+  },
+  {
+    "label": "cfg-delta",
+    "run": 1,
+    "reason": "gestopt na tweede benchfout op cfg-delta"
+  },
+  {
+    "label": "cfg-delta",
+    "run": 2,
+    "reason": "niet gestart"
+  }
+]
