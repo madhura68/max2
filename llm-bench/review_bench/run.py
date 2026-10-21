@@ -8,8 +8,9 @@ of the cost, a budget and the stop rules of spec 4.7. It follows task_bench/run.
   (name the harness by its full path: a ~ is not expanded inside the quotes)
 
 There is no models file: a model is a configuration of --config (harness.json), --models names them, and the name is the label of the
-run. A name that --config does not have is refused (2). The case is a directory (--case) of which the driver reads case.json for `id`
-and `maxCostUsd` (a decimal string, the soft ceiling of one run); the harness checks the rest.
+run. A name that --config does not have is refused (2). The case is a directory (--case) of which the driver reads case.json for `id`,
+`maxCostUsd` (a decimal string, the soft ceiling of one run), and `limits.maxOutputTokens` and `contextTokens` (positive integers, for
+the max_tokens of the preflight); the harness checks the rest.
 
 The key. --key-file is read once and stripped of white space. A value shorter than 8 characters, one that starts with
 `LITELLM_MASTER_KEY=` or one with a quote in it is refused (2): all three are mistakes of putting it in the file. The value goes into
@@ -17,7 +18,8 @@ the environment of the harness as LITELLM_MASTER_KEY and into the Authorization 
 `--api-key-env LITELLM_MASTER_KEY`, and nothing the driver writes or prints holds it (what it quotes is masked first).
 
 With --preflight (no run) the driver asks LiteLLM once for each configuration, POST <litellm.baseUrl>/chat/completions with
-model = the configuration, max_tokens 64000 (the real ceiling of the case), the reasoning_effort that harness.json says (if it says
+model = the configuration, max_tokens min(limits.maxOutputTokens, contextTokens - FIRST_PROMPT_TOKENS) of the case (what the harness
+asks on turn 1: 64000 for macsearch-idea263-spec-r5, 127874 for its M9 variants), the reasoning_effort that harness.json says (if it says
 one), one dummy tool `noop` and the instruction "Antwoord alleen: OK". A configuration is `ok` for HTTP 200 and a finite number in
 usage.cost of the body, the field the harness reads (src/model-client.ts parseUsage). The amount goes into the ledger as
 preflight-<label>-<ts>, null when unknown. The outcome goes to --preflight-file (default <out>/preflight.json) as
@@ -91,7 +93,7 @@ MIN_KEY_LENGTH = 8
 SEGMENT = re.compile(r"[A-Za-z0-9][A-Za-z0-9._-]{0,63}")      # one plain path segment: a label (BENCH_LABEL of the harness), a case id
 DECIMAL = re.compile(r"[0-9]+(\.[0-9]+)?")      # maxCostUsd of a case: a decimal string
 MASK, MIN_MASKED_LENGTH = "<redacted>", 8               # as in the harness (model-client.ts): a shorter value is a placeholder
-MAX_TOKENS = 64000            # the real ceiling of the case (spec 4.2)
+FIRST_PROMPT_TOKENS = 3198     # promptEstimate of turn 1 in all 28 M8 traces (release a68a746, this prompt, three tools; M9 plan 4.2)
 PREFLIGHT_TIMEOUT = 300                 # seconds: a reasoning model on high effort may think for a while
 PREFLIGHT_PROMPT = "Antwoord alleen: OK"
 SKIP_BUDGET, SKIP_FLAG, SKIP_ERROR, SKIP_NOT_STARTED = "budget bereikt", "gestopt (stopvlag)", "gestopt (fout)", "niet gestart"
@@ -203,8 +205,14 @@ def load_config(path):
     return base_url, configurations
 
 
+def positive_integer(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
 def load_case(case_dir):
-    """(the id, the ceiling of one run in dollars) of <case_dir>/case.json. The rest of a case is the harness's to judge."""
+    """(the id, the ceiling of one run in dollars, the max_tokens of the preflight) of <case_dir>/case.json. The max_tokens is what the
+    harness asks on turn 1: the output budget, within the room the first prompt leaves in contextTokens. The rest of a case is the
+    harness's to judge."""
     path = Path(case_dir) / "case.json"
     case = read_json_object(path)
     if case is None:
@@ -214,7 +222,15 @@ def load_case(case_dir):
     max_cost = case.get("maxCostUsd")
     if not (isinstance(max_cost, str) and DECIMAL.fullmatch(max_cost) and float(max_cost) > 0):
         raise RunError(f"{path}: maxCostUsd has to be a decimal string above zero, like \"1\"")
-    return case["id"], float(max_cost)
+    limits = case.get("limits")
+    max_output = limits.get("maxOutputTokens") if isinstance(limits, dict) else None
+    context = case.get("contextTokens")
+    if not (positive_integer(max_output) and positive_integer(context)):
+        raise RunError(f"{path}: limits.maxOutputTokens and contextTokens have to be positive integers")
+    max_tokens = min(max_output, context - FIRST_PROMPT_TOKENS)
+    if max_tokens <= 0:
+        raise RunError(f"{path}: contextTokens {context} leaves no room for output after a first prompt of {FIRST_PROMPT_TOKENS} tokens")
+    return case["id"], float(max_cost), max_tokens
 
 
 def load_preflight(path, labels):
@@ -375,10 +391,10 @@ def kind_of(error):
     return f"{name} ({type(inner).__name__})" if isinstance(inner, BaseException) else name
 
 
-def ask_litellm(base_url, configuration, settings, key, secrets):
+def ask_litellm(base_url, configuration, settings, key, secrets, max_tokens):
     """The preflight of one configuration: (ok, reason, cost). cost is the usage.cost of the answer, None when there is none; reason is
     None for ok. The request is the real one in everything that matters: max_tokens, the reasoning effort, a tool, an instruction."""
-    body = {"model": configuration, "max_tokens": MAX_TOKENS,
+    body = {"model": configuration, "max_tokens": max_tokens,
             "messages": [{"role": "user", "content": PREFLIGHT_PROMPT}],
             "tools": [{"type": "function", "function": {"name": "noop", "description": "Doet niets.",
                                                          "parameters": {"type": "object", "properties": {}}}}]}
@@ -443,7 +459,7 @@ Outcome = namedtuple("Outcome", "kind reason")
 
 # Everything setup found out. preflight is {label: {ok, reason}} for the runs, None for the preflight itself.
 Plan = namedtuple("Plan", "harness key out ledger budget models runs case_id case_dir max_cost config_path probe_dir base_url "
-                          "configurations preflight_file preflight")
+                          "configurations preflight_file preflight preflight_max_tokens")
 
 
 class Driver:
@@ -503,10 +519,12 @@ class Driver:
         done stays when the driver is stopped between two)."""
         path = self.plan.preflight_file
         entries = read_json_object(path) or {}
+        self.say(f"preflight max_tokens {self.plan.preflight_max_tokens}")
         for label in self.models:
             self.check_flag()
             stamp = utc_stamp()
-            ok, reason, cost = ask_litellm(self.plan.base_url, label, self.plan.configurations[label], self.plan.key, self.secrets)
+            ok, reason, cost = ask_litellm(self.plan.base_url, label, self.plan.configurations[label], self.plan.key, self.secrets,
+                                           self.plan.preflight_max_tokens)
             append_ledger(self.ledger, {"id": f"preflight-{label}-{stamp}", "kind": "preflight", "label": label, "cost_usd": cost})
             reason = None if ok else mask_secrets(reason, self.secrets)
             entries[label] = {"ok": ok, "reason": reason}
@@ -673,7 +691,7 @@ def setup(args):
             raise RunError(f"configuration {label!r} in --config must be one plain path segment (letters, digits, '.', '_' and '-')")
         if not isinstance(configurations[label], dict):
             raise RunError(f"configuration {label} in --config {args.config} must be an object")
-    case_id, max_cost = load_case(args.case)
+    case_id, max_cost, preflight_max_tokens = load_case(args.case)
     out, ledger = Path(args.out).resolve(), Path(args.ledger).resolve()
     read_ledger(ledger)
     preflight_file = Path(args.preflight_file).resolve() if args.preflight_file else out / "preflight.json"
@@ -684,7 +702,7 @@ def setup(args):
         raise RunError(f"cannot write under {out}: {e.strerror or type(e).__name__}") from None
     return Plan(Harness(command, key), key, out, ledger, args.budget, list(args.models), args.runs, case_id,
                 Path(args.case).resolve(), max_cost, Path(args.config).resolve(), Path(args.probe_dir).resolve(), base_url,
-                configurations, preflight_file, preflight)
+                configurations, preflight_file, preflight, preflight_max_tokens)
 
 
 def positive_amount(text):
