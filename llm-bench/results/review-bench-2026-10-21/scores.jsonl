@@ -1,0 +1,18 @@
+{"sheet": "24af032e", "f1": "major", "f2": "minor", "minors": ["M2", "M5"], "extra": []}
+{"sheet": "380e1d83", "f1": "major", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "47334b2c", "f1": "major", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "480cb44e", "f1": "nee", "f2": "nee", "minors": ["M2"], "extra": [{"key": "x-route-c-retry-temp-path", "voorstel": "ongeldig", "reden": "In route C is stap 2 het enige EEXIST-punt en valt die vóór de record-insert van stap 3 (doc:237-238); een record met temp_path bestaat pas na een geslaagde exclusieve aanmaak, waarna route C geen herpoging meer kent, dus temp_path kan nooit naar een vreemd bestand van een EEXIST wijzen."}]}
+{"sheet": "4c540d0b", "f1": "nee", "f2": "minor", "minors": ["M2"], "extra": []}
+{"sheet": "50629159", "f1": "major", "f2": "major", "minors": [], "extra": []}
+{"sheet": "53ccd3be", "f1": "nee", "f2": "minor", "minors": [], "extra": []}
+{"sheet": "59840aa8", "f1": "major", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "5a8f796b", "f1": "nee", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "827b6707", "f1": "major", "f2": "major", "minors": [], "extra": []}
+{"sheet": "9b6e18af", "f1": "minor", "f2": "nee", "minors": ["M4"], "extra": []}
+{"sheet": "9d17b478", "f1": "minor", "f2": "minor", "minors": ["M2", "M4"], "extra": []}
+{"sheet": "a274512f", "f1": "nee", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "c3198b36", "f1": "nee", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "ca1fe836", "f1": "major", "f2": "major", "minors": [], "extra": []}
+{"sheet": "d473af0f", "f1": "nee", "f2": "minor", "minors": ["M2", "M3", "M4"], "extra": []}
+{"sheet": "dd64b93a", "f1": "nee", "f2": "nee", "minors": [], "extra": []}
+{"sheet": "f3bfcbc3", "f1": "nee", "f2": "nee", "minors": ["M4"], "extra": []}
