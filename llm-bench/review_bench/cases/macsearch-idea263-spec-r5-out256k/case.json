@@ -1,0 +1,12 @@
+{
+  "id": "macsearch-idea263-spec-r5-out256k",
+  "prompt": { "file": "review.md", "sha256": "f56fe0a641ddb007e5216a2063b02460e60b9836c08cbc2229d8f8661fee4ead" },
+  "payload": { "file": "payload.json", "sha256": "5a52a843cbca3f20cf9a6026a7764450b29217980aba4c9b70219c675aff4f8f" },
+  "sources": [
+    { "key": "doc", "file": "sources/doc", "sha256": "7d5e35872c417a5656ef53794aff95675f3ac0716f6e3c46951d509f029fadaf" },
+    { "key": "__dispatch_input", "file": "sources/__dispatch_input", "sha256": "9f6580562a3d9847e49a82697782219f22ef949d4d1a4396040106b25aaef9e3" }
+  ],
+  "limits": { "maxTurns": 30, "maxOutputTokens": 256000, "maxWallSeconds": 7200, "maxToolErrors": 8 },
+  "contextTokens": 131072,
+  "maxCostUsd": "1"
+}

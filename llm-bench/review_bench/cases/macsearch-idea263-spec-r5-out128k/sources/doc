@@ -1,0 +1,309 @@
+---
+title: "IDEA-263 — MacSearch: specificatie"
+status: draft
+last_updated: 2026-10-16
+---
+
+# IDEA-263 — MacSearch: specificatie
+
+Revisie 5. Deze spec is zelfstandig: §1a bevat de bindende beslissingen. Historische context, die niet normatief is: GRILLS/idea-263-grill en het review-record `docs/reviews/2026-10-16-idea-263-spec-review-record.md`.
+
+## 1. Doel en scope
+MacSearch is een native macOS-app, alleen voor eigen gebruik. Je kiest een bronmap en voert keywords in. De app zoekt recursief naar foto's en video's waarvan de bestandsnaam die keywords bevat en toont ze in een slider. Daar vink je per bestand uit wat niet mee moet. Na OK worden de gekozen bestanden gekopieerd of verplaatst naar `<bestemming>/<keyword>/<YYYY-MM-DD>/`. Zoekacties en de verwerking per bestand worden bewaard in SQLite.
+
+**Buiten scope voor v1:**
+- zoeken in metadata of in mapnamen
+- audio en PDF
+- undo
+- bestandsbeheer zoals hernoemen of verwijderen in het rechterpaneel
+- App Store en sandbox
+- oudere macOS-versies
+- Spotlight
+
+## 1a. Bindende grill-beslissingen (JP, 2026-10-16)
+- **Matchen:**
+  - alleen op de bestandsnaam;
+  - keywords in de ingetypte volgorde;
+  - hoofdletters, scheidingstekens en accenten genegeerd;
+  - een prefix en tekst tussen de keywords zijn toegestaan.
+- **Bestanden:** alleen foto's en video's. Verborgen bestanden, pakketten en de bestemming worden overgeslagen.
+- **Bestemming:** `<bestemming>/<keyword zoals ingetypt>/<datum van de actie>/`.
+- **Verwerken:**
+  - kopiëren of verplaatsen per actie, standaard kopiëren;
+  - een identiek bestand wordt overgeslagen, anders wordt hernoemd met een suffix in Finder-stijl.
+- **Interface:**
+  - de slider is een preview waarin je per bestand kunt uitvinken;
+  - het rechterpaneel toont alleen bestanden, met Quick Look;
+  - een klik in de geschiedenis vult het formulier;
+  - geen undo in v1, wel een actielog per bestand.
+- **Platform:**
+  - alleen eigen gebruik, geen sandbox en geen App Store;
+  - alleen de huidige macOS;
+  - opslag via GRDB;
+  - resultaten worden gestreamd, zonder limiet;
+  - de duplicaatcheck vergelijkt eerst de grootte, daarna SHA-256.
+
+## 2. Platform en techniek
+- **Taal en UI:** Swift en SwiftUI; target is de huidige macOS-versie op de Mac van JP. Een Xcode-project met één app-target en één testtarget.
+- **Opslag:** SQLite via **GRDB** (Swift Package), met expliciete migraties. Het databasebestand staat in `~/Library/Application Support/MacSearch/macsearch.sqlite`.
+- **Distributie:** geen sandbox, lokaal gesigneerd. Mappaden worden als gewoon pad opgeslagen, zonder bookmarks.
+- **Tests:** Swift Testing of XCTest. De matcher, scanner, transfer en store zijn testbaar zonder UI.
+
+## 3. Componenten
+| Component | Verantwoordelijkheid |
+|---|---|
+| `KeywordMatcher` | Pure functie: `matches(fileName:keywords:) -> Bool` plus normalisatie. Geen I/O. |
+| `MediaScanner` | Doorloopt de bronmap recursief en levert matchende mediabestanden als `AsyncThrowingStream<FoundFile>`. Ondersteunt annuleren en voortgang. |
+| `FileTransfer` | Kopieert of verplaatst een lijst bestanden naar de doelmap, met afhandeling van conflicten en duplicaten. Levert per bestand een resultaat. |
+| `HistoryStore` | GRDB-laag: migraties, zoekacties opslaan, geschiedenis lezen, bestandsacties loggen. |
+| UI | `NavigationSplitView`: links het formulier en de geschiedenis, rechts het bestandsoverzicht. De slider is een sheet of view voor de resultaten. |
+
+## 4. Functionele eisen
+
+### 4.0 Opdrachtcontext en toestanden
+- **F0a.** Bij **Zoeken** wordt een onveranderlijke `SearchContext` vastgelegd. Die bevat:
+  - de bron;
+  - de keywords, zowel ruw als genormaliseerd;
+  - de `keyword-mapnaam` (F14);
+  - de bestemming (`dest_root`);
+  - de set uitgesloten mappen (F8).
+
+  Bron en bestemming zijn bij Zoeken allebei verplicht (F25). Mapgelijkheid en "ligt binnen" worden bepaald op bestandsidentiteit (`URLResourceKey.fileResourceIdentifierKey`), niet op een stringvergelijking van paden. Eerst worden symlinks opgelost (`resolvingSymlinksInPath()`); daarna volgen de identiteit en de keten van bovenliggende mappen. "A ligt binnen B" betekent dat B voorkomt in de keten van bovenliggende mappen van A. Scanresultaten, uitsluiting, doelpad en geschiedenis hangen altijd aan precies één context.
+- **F0b.** Toestanden en toegestane overgangen:
+  | Toestand | Formulier (bron/keywords/bestemming) | Modus-toggle | OK | Overgangen |
+  |---|---|---|---|---|
+  | `idle` | bewerkbaar | bewerkbaar | uit | Zoeken → `scanning` |
+  | `scanning` | alleen-lezen | bewerkbaar | uit | scan klaar → `reviewing`; Annuleren → `reviewing` met de vlag *onvolledig* |
+  | `reviewing` | bewerkbaar; een wijziging verwerpt de resultaten na bevestiging → `idle` | bewerkbaar | aan volgens F13 | OK → `processing`; Opnieuw zoeken → `scanning` met een nieuwe context |
+  | `processing` | alleen-lezen | alleen-lezen | uit | klaar, Stop of afbreken (F19b) → `done` |
+  | `done` | bewerkbaar → `idle` | bewerkbaar | uit | samenvatting gesloten → `idle` |
+
+  Overgangen bij fouten en geschiedenis:
+  - **Een fout van de scanner zelf**, dus niet een overgeslagen item (F10): → `reviewing` met de vlag *onvolledig* en een foutmelding.
+  - **Een mislukte `search_run`-insert bij OK (F19a):** → terug naar `reviewing`, de resultaten blijven staan en er volgt een foutmelding.
+  - **Een klik in de geschiedenis (F20):** werkt alleen in `idle` en `done`. In `reviewing` telt hij als formulierwijziging (bevestigen, dan `idle`). In `scanning` en `processing` is hij uitgeschakeld.
+- **F0c.** Een geannuleerde scan levert een *onvolledige* resultatenset op. Die is zichtbaar als banner in de slider. De gebruiker mag de gevonden bestanden toch verwerken; de run krijgt dan `scan_complete = 0`.
+- **F0d.** Modus en datum worden vastgelegd op het moment van OK, samen met de context in `search_run` (F19a). Stop tijdens `processing` maakt het lopende bestand eerst af, volgens NF4. Resterende bestanden worden niet verwerkt en de run krijgt de status `cancelled`.
+
+### 4.1 Matchen (`KeywordMatcher`)
+- **F1.** `norm(s)`: lowercase, diacritics folden (`folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)`), daarna alle tekens verwijderen die geen letter of cijfer zijn.
+- **F2.** De keywordinvoer wordt gesplitst op witruimte; lege delen vervallen. Elk keyword gaat door `norm`. Als er na normalisatie geen keywords over zijn, is zoeken niet mogelijk.
+- **F3.** Er wordt gematcht op de bestandsnaam zonder extensie (`deletingPathExtension`), genormaliseerd met `norm`.
+- **F4.** Er is een match als `k1…kn` in deze volgorde als niet-overlappende substrings voorkomen. Elk volgend keyword wordt gezocht na het einde van het vorige.
+- **F5.** De volgende testcases zijn verplicht, met invoer `janpeter visser`:
+  - match: `IMG_JanPeter_Visser.jpg`, `2024 janpeter-visser 01.heic`, `xyzJanpeterVisser.mov`, `Jan_Peter Visser.png`, `janpeter op strand met visser.jpg`, `JANPETER.VISSER.jpeg`
+  - geen match: `visser_janpeter.jpg`, `janpeter.jpg`, `visser.jpg`
+  - accenten: invoer `rené` matcht `Rene_2020.jpg`.
+  - niet-overlappend: invoer `janpeter janpeter` matcht `janpeter_janpeter.jpg`, maar niet `janpeter.jpg`.
+
+### 4.2 Scannen (`MediaScanner`)
+- **F6.** De scanner gebruikt `FileManager.enumerator(at:includingPropertiesForKeys:[.contentTypeKey, .isDirectoryKey, .fileResourceIdentifierKey], options:[.skipsHiddenFiles, .skipsPackageDescendants], errorHandler:)`.
+  - De `errorHandler` telt een fout als overgeslagen item en geeft `true` terug, zodat de scan doorgaat.
+  - Doorlopen gebeurt met `nextObject()` in een synchrone helper buiten de main actor, die het `AsyncThrowingStream` voedt. Een `for … in` over de enumerator is in een async-context niet beschikbaar.
+- **F7.** Een bestand is media als `contentType` conformeert aan `.image` of `.movie`.
+- **F8.** De uitsluiting wordt één keer bepaald, bij Zoeken (F0a).
+  - **`dest_root` ligt strikt binnen de bron:** heel `dest_root` wordt uitgesloten. De scanner roept `skipDescendants()` aan op de map waarvan de `fileResourceIdentifier` gelijk is aan die van `dest_root`.
+  - **`dest_root` is gelijk aan de bron:** dit wordt geblokkeerd (F27).
+  - **Alle andere gevallen:** er wordt niets uitgesloten. Daaronder valt ook een bron die binnen `dest_root` ligt; de gebruiker koos die bron zelf, en F27 waarschuwt.
+- **F9.** Resultaten worden gestreamd: de UI toont ze tijdens het zoeken, met een teller van het aantal gevonden en doorzochte bestanden. Annuleren stopt de scan direct. Er is geen limiet.
+- **F10.** Onleesbare mappen of bestanden worden overgeslagen en geteld. De scan breekt daarop niet af. Na afloop toont de app het aantal overgeslagen items.
+
+### 4.3 Resultaten en slider
+- **F11.** De slider toont één bestand groot, met vorige en volgende (pijltjestoetsen). Video's tonen een thumbnail (`QLThumbnailGenerator`); afspelen kan via Quick Look. Een filmstrip met een thumbnailcache komt in increment 2.
+- **F12.** Elk bestand heeft een vinkje, standaard aan. Er zijn de acties "alles aan" en "alles uit". De teller toont `geselecteerd / gevonden`.
+- **F13.** OK is alleen actief in de toestand `reviewing` (F0b), en dan pas als ten minste één bestand geselecteerd is en de bestemming geldig is (F26). Tijdens `scanning` is OK nooit actief.
+
+### 4.4 Verwerken (`FileTransfer`)
+- **F14.** Doelmap: `<bestemming>/<keyword-mapnaam>/<YYYY-MM-DD>/`, met de lokale datum van het moment van OK.
+  - `keyword-mapnaam` is de invoer zoals ingetypt. Leading en trailing witruimte en leading punten worden weggehaald, interne witruimte samengevoegd tot één spatie, en `/` en `:` worden vervangen door `-`.
+  - De datum gebruikt de Gregoriaanse kalender, de locale `en_US_POSIX` en de lokale tijdzone, in het formaat `yyyy-MM-dd`.
+  - Ontbrekende mappen worden aangemaakt **na** de `search_run`-insert (F19a) en vóór het eerste bestand. Mislukt dat, dan vindt er geen transfer plaats, krijgt de run de status `aborted` en volgt een foutmelding.
+- **F15.** De modus is een toggle: **kopiëren** (standaard) of **verplaatsen**.
+  - Het volume wordt bepaald door `volumeIdentifierKey` van het bronbestand te vergelijken met die van de (aangemaakte) doelmap.
+  - Per run wordt één keer bepaald of het doelvolume `RENAME_EXCL` ondersteunt (`getattrlist`, `VOL_CAP_INT_RENAME_EXCL`). Dat bepaalt de publicatieroute in NF4.
+  - Verplaatsen binnen hetzelfde volume met `RENAME_EXCL` gebeurt met `renamex_np(bron, doel, RENAME_EXCL)`, een atomaire rename zonder overschrijven.
+  - In alle andere gevallen is verplaatsen een kopie volgens NF4, gevolgd door een controle dat de grootte gelijk is aan die van de bron. Pas daarna wordt het bronbestand verwijderd. Wijkt de grootte af, dan wordt het eigen bestand verwijderd, blijft de bron staan en is het resultaat `failed`.
+  - Bij kopiëren blijven de wijzigings- en de aanmaakdatum van de bron behouden. Lukt dat niet, dan volgt een waarschuwing in `error` en gaat de transfer door.
+- **F16.** Conflict, als het doelbestand al bestaat:
+  - Verschilt de grootte, dan is de inhoud verschillend.
+  - Is de grootte gelijk, dan bepaalt een streaming SHA-256 (CryptoKit) of de inhoud gelijk is.
+  - Bij gelijke inhoud: overslaan (`skipped_identical`). In verplaatsmodus blijft het bronbestand dan staan.
+  - Bij verschillende inhoud: hernoemen met een suffix in Finder-stijl, `naam (2).ext`, `naam (3).ext`, … (`renamed`). De kandidaten worden op volgorde getoetst: `(2)`, `(3)`, …, tot en met de eerste vrije naam. Een bestaande kandidaat met identieke inhoud geeft `skipped_identical`. Anders wordt de eerste vrije naam gebruikt. Kandidaten voorbij de eerste vrije naam worden niet bekeken.
+- **F17.** Een fout bij één bestand stopt de batch niet. Elk resultaat is een van `copied`, `moved`, `renamed`, `skipped_identical` of `failed` (met foutmelding). Mislukt bij verplaatsen via een kopie (F15) alleen het verwijderen van de bron, dan wordt het resultaat `copied`, met die melding in `error`. De samenvatting toont dit als waarschuwing.
+- **F18.** Tijdens het verwerken zie je een voortgangsbalk. Na afloop volgt een samenvatting per resultaatsoort en de knop "Toon in Finder" voor de doelmap.
+
+### 4.5 Geschiedenis en opslag (`HistoryStore`)
+- **F19.** De database wordt geopend en gemigreerd bij het starten van de app. Lukt dat niet, omdat de database niet te openen, corrupt, vol of niet schrijfbaar is, dan:
+  - toont de app een blokkerende foutmelding met het pad;
+  - blijven Zoeken en OK uit.
+
+  Zonder actielog wordt er niets verplaatst of gekopieerd.
+- **F19a.** Bij OK, vóór de eerste transfer, wordt `search_run` ingevoegd met `status = 'running'`. Daarbij worden de context (F0a), modus, datum, `found_count`, `selected_count`, `scan_complete` en `skipped_count` vastgelegd. Mislukt die write, dan vindt er geen enkele transfer plaats en ziet de gebruiker een foutmelding.
+- **F19b.** Per bestand:
+  1. Vóór de transfer wordt een `file_action` ingevoegd met `result = 'pending'`, `dest_path` en, als er een tijdelijk bestand nodig is, `temp_path`. Dat `temp_path` is pas bekend nadat het eigen bestand exclusief is aangemaakt (NF4, route B stap 2–3 en route C stap 2–3). Bij `skipped_identical` vindt er geen transfer plaats. Bestaat er nog geen record, dan wordt er direct een record met dat resultaat ingevoegd. Bestaat er al een record (bij een herpoging, NF4), dan wordt dat bestaande record bijgewerkt.
+     - Mislukt deze insert, dan wordt **dit bestand niet** verwerkt en stopt de batch direct.
+  2. Na de transfer wordt dat record bijgewerkt naar het eindresultaat (F17).
+     - Mislukt deze update, dan is dit bestand al verwerkt. Het `pending`-record blijft staan en de batch stopt vóór het volgende bestand.
+  3. In beide gevallen probeert de app de run op `aborted` te zetten.
+     - Lukt ook dat niet, dan blijft de run op `running` staan en wordt hij bij de volgende start `interrupted` (F19c).
+     - Valt een mislukte write samen met Stop (F0d), dan wint `aborted`.
+     - De gebruiker ziet een foutmelding met het laatst verwerkte bestand.
+- **F19c.** Aan het einde van de batch krijgt de run de status `completed`, `cancelled` (F0d) of `aborted`, met `finished_at`.
+  - Bij het starten van de app worden runs die nog op `running` staan op `interrupted` gezet.
+  - Hun `pending`-acties blijven in de database staan. In v1 is er geen UI voor het actielog per bestand; het log is alleen in SQLite in te zien.
+  - In de geschiedenis wordt een run als onvolledig gemarkeerd als
+    - de status `interrupted`, `aborted` of `cancelled` is, of
+    - `scan_complete = 0` is, of
+    - `skipped_count > 0` is.
+- **F20.** De geschiedenislijst links toont de recente runs: datum, keywords, bron → bestemming en het aantal verwerkte bestanden. Een klik vult het formulier (bron, keywords, bestemming en modus) en start niets.
+- **F21.** Een run uit de geschiedenis waarvan de bron- of bestemmingsmap niet meer bestaat, wordt gemarkeerd. Het formulier wordt dan nog wel gevuld.
+
+### 4.6 Venster en rechterpaneel
+- **F22.** Links staan:
+  - bron, met een mapkiezer via `NSOpenPanel` (de map als drop-doel komt in increment 2);
+  - het keywordveld;
+  - bestemming, met een mapkiezer;
+  - de modus-toggle;
+  - de knop Zoeken;
+  - daaronder de geschiedenis.
+- **F23.** Rechts is een segment-keuze: **Bron**, **Bestemming** of **Resultaten**.
+  - Bron en Bestemming tonen de inhoud van de gekozen map als raster met thumbnails, en kunnen naar submappen navigeren met een breadcrumb.
+  - Resultaten opent de slider.
+- **F24.** De spatiebalk opent Quick Look op de selectie, en een dubbelklik opent het bestand in de standaardapp. Er zijn geen acties om te hernoemen of te verwijderen.
+
+### 4.7 Validatie
+- **F25.** Zoeken is pas mogelijk als de bron bestaat, de bestemming bestaat en schrijfbaar is, de bestemming niet gelijk is aan de bron (F27) en er minstens één keyword is. Een keyword-mapnaam van meer dan 255 bytes (UTF-8) blokkeert Zoeken met een melding.
+- **F26.** OK is pas mogelijk als de bestemming bestaat en schrijfbaar is.
+- **F27.** Zijn bron en bestemming dezelfde map (bestandsidentiteit, F0a), dan blokkeert de app Zoeken met de melding "Kies een andere bestemming of een submap". Ligt de een strikt binnen de ander, dan verschijnt een niet-blokkerende waarschuwing; de uitsluiting staat in F8.
+
+## 5. Datamodel (GRDB, migratie v1)
+```sql
+CREATE TABLE search_run (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  created_at    TEXT NOT NULL,            -- ISO-8601
+  source_path   TEXT NOT NULL,
+  keywords_raw  TEXT NOT NULL,            -- zoals ingetypt
+  dest_root     TEXT NOT NULL,
+  dest_folder   TEXT NOT NULL,            -- volledige doelmap <dest_root>/<keyword>/<datum>
+  mode          TEXT NOT NULL CHECK (mode IN ('copy','move')),
+  found_count   INTEGER NOT NULL,
+  selected_count INTEGER NOT NULL,
+  scan_complete INTEGER NOT NULL CHECK (scan_complete IN (0,1)),
+  skipped_count INTEGER NOT NULL DEFAULT 0, -- onleesbare items tijdens scan (F10)
+  status        TEXT NOT NULL CHECK (status IN ('running','completed','cancelled','aborted','interrupted')),
+  finished_at   TEXT                      -- NULL zolang running/interrupted
+);
+CREATE TABLE file_action (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  run_id        INTEGER NOT NULL REFERENCES search_run(id) ON DELETE CASCADE,
+  source_path   TEXT NOT NULL,
+  dest_path     TEXT,                     -- NULL bij failed vóór bepaling doel
+  temp_path     TEXT,                     -- eigen, nog niet complete bestand (NF4); NULL = niets op te ruimen
+  result        TEXT NOT NULL CHECK (result IN ('pending','copied','moved','renamed','skipped_identical','failed')),
+  error         TEXT
+);
+CREATE INDEX file_action_run ON file_action(run_id);
+CREATE INDEX search_run_created ON search_run(created_at DESC);
+```
+Zoekacties die niet met OK zijn afgerond, worden niet opgeslagen.
+
+## 6. Niet-functioneel
+- **NF1.** De UI blijft responsief tijdens scannen en verwerken: alle I/O draait buiten de main actor.
+- **NF3.** Bronbestanden worden nooit gewijzigd, met als enige uitzondering het verwijderen in verplaatsmodus. Dat gebeurt pas na een geslaagde en gecontroleerde verplaatsing (F15).
+- **NF4.** Een transfer mag nooit een bestaand bestand overschrijven of verwijderen dat niet van de app is. Op volumes met `RENAME_EXCL` staat er nooit een half geschreven bestand onder de definitieve naam. Op volumes zonder `RENAME_EXCL`, zoals exFAT of SMB, kan na een crash tijdelijk een half bestand van de app onder de definitieve naam staan. Dat wordt bij de volgende start opgeruimd (JP-besluit, 2026-10-16).
+
+  **Algemeen:**
+  - Een bestand is "van de app" als het in deze run exclusief is aangemaakt met `open(O_CREAT|O_EXCL|O_WRONLY)` en als `temp_path` is vastgelegd in het `pending`-record, vóór er bytes in worden geschreven.
+  - Per bestand is er één pogingenteller voor alle botsingen op "bestaat al": maximaal 3. Daarna is het resultaat `failed`, verdwijnt het eigen bestand en blijft de bron staan.
+  - Bij een herpoging wordt altijd het **bestaande** record bijgewerkt (`dest_path`, resultaat). Er wordt nooit een tweede record ingevoegd.
+
+  **Route A: verplaatsen binnen hetzelfde volume, mét `RENAME_EXCL`.**
+  1. Doelnaam bepalen (F16).
+  2. Het `pending`-record invoegen.
+  3. `renamex_np(bron, doel, RENAME_EXCL)`. Bij `EEXIST` volgt opnieuw F16 (zie de herpoging hieronder).
+  4. Het record bijwerken naar `moved`.
+
+  **Route B: kopiëren of verplaatsen tussen volumes, doelvolume mét `RENAME_EXCL`.**
+  1. Doelnaam bepalen (F16).
+  2. `.macsearch-<UUID>.tmp` in de doelmap exclusief aanmaken. Bestaat die naam al, dan volgt een nieuwe UUID; het bestaande bestand wordt nooit aangeraakt.
+  3. Het `pending`-record met `dest_path` en `temp_path` invoegen. Mislukt dat, dan verwijdert de app het eigen, lege bestand en stopt de batch (F19b).
+  4. Data en metadata kopiëren met `fcopyfile(src_fd, tmp_fd, …, COPYFILE_ALL)`. Daarna zet de app de wijzigings- en de aanmaakdatum van de bron expliciet op het tijdelijke bestand. Mislukt dat zetten, dan volgt een waarschuwing en gaat de transfer door. Bij verplaatsen volgt daarna de groottecontrole (F15).
+  5. `renamex_np(temp, doel, RENAME_EXCL)`. Bij `EEXIST` blijft het tijdelijke bestand staan en volgt de herpoging; de stappen 2–4 worden **niet** herhaald.
+  6. Bij verplaatsen wordt daarna de bron verwijderd (F17).
+  7. Het record bijwerken naar het eindresultaat.
+
+  **Route C: doelvolume zonder `RENAME_EXCL`, voor kopiëren en voor elk verplaatsen.**
+  1. Doelnaam bepalen (F16).
+  2. Het definitieve doelbestand zelf exclusief aanmaken met `open(O_CREAT|O_EXCL|O_WRONLY)`. Bij `EEXIST` volgt de herpoging; er is dan nog geen eigen bestand.
+  3. Het `pending`-record invoegen met `dest_path` gelijk aan `temp_path`, gelijk aan dit bestand. Mislukt dat, dan verwijdert de app het eigen, lege bestand en stopt de batch.
+  4. Kopiëren en datums zetten zoals in route B stap 4.
+  5. Het record bijwerken met `temp_path = NULL`: het bestand is nu compleet en wordt niet meer opgeruimd. Pas daarna wordt bij verplaatsen de bron verwijderd.
+  6. Het record bijwerken naar het eindresultaat.
+
+  **Herpoging na `EEXIST`:**
+  - Opnieuw F16 voor het nieuwe doel.
+  - **Identiek:** het eigen tijdelijke bestand wordt verwijderd (indien aanwezig) en het bestaande record wordt bijgewerkt naar `skipped_identical`.
+  - **Anders:** `dest_path` in het bestaande record wordt bijgewerkt en de app gaat verder bij route A stap 3, route B stap 5 of route C stap 2.
+
+  **Opruimen:**
+  - **Bij een fout:** de app verwijdert alleen het eigen bestand (`temp_path`) en de bron blijft staan.
+  - **Na een crash:** bij het starten van de app worden, voor runs die `interrupted` worden (F19c), alleen de bestanden verwijderd waarvan het pad nog als `temp_path` in hun `pending`-records staat, en alleen als ze nog bestaan. Andere bestanden worden nooit door de opruiming verwijderd.
+  - **Geaccepteerd restrisico:** een crash tussen het exclusief aanmaken en de record-insert laat een leeg bestand achter zonder record. Dat is in route B een verborgen bestand en in route C een leeg bestand onder de doelnaam.
+
+## 7. Acceptatiecriteria
+1. Alle testcases uit F5 slagen in unit-tests.
+2. `MediaScanner`-tests op een tijdelijke mappenboom met verborgen bestanden, een `.photoslibrary`-pakket, een `.txt` met een passende naam en een geneste bestemmingsmap. Alleen de juiste mediabestanden worden gevonden.
+3. `FileTransfer`-tests: kopiëren, verplaatsen, een identiek duplicaat (overgeslagen; bij verplaatsen blijft de bron staan), een naamconflict met andere inhoud (`(2)` en `(3)`), een bestaande `naam (2).ext` met identieke inhoud (`skipped_identical`, geen `(3)`), en een onleesbaar bestand (`failed`, batch loopt door).
+3a. Crashveiligheid van `FileTransfer` (NF4 en F15). Bestandsoperaties lopen via een injecteerbaar `FileOps`-protocol, met foutinjectie op elke stap. De UUID-bron is injecteerbaar als een reeks: eerst een botsende waarde, daarna een verse. De `RENAME_EXCL`-capaciteit van het volume is injecteerbaar, zodat route C ook op APFS testbaar is. De gevallen voor collision, publicatie, route C en metadata draaien op de **echte** `FileOps` in een tijdelijke map. Per geval wordt de doelinhoud gecontroleerd, het behoud van de bron en het gerapporteerde resultaat:
+   - **Kopie naar de tijdelijke naam breekt halverwege af:** er staat geen bestand onder de definitieve naam, het tijdelijke bestand is opgeruimd, de bron is intact en het resultaat is `failed`.
+   - **Publiceren mislukt met een andere fout dan `EEXIST`:** er staat geen bestand onder de definitieve naam, het tijdelijke bestand is opgeruimd, de bron is intact en het resultaat is `failed`.
+   - **Verwijderen van de bron mislukt na een geslaagde kopie tussen volumes:** het doelbestand staat compleet onder de definitieve naam en de bron bestaat nog. Het resultaat is `copied`, met in `error` de melding dat de bron niet verwijderd kon worden. De samenvatting toont dit als waarschuwing.
+   - **Kopie tussen volumes geeft OK terug, maar de grootte wijkt af:** er staat geen bestand onder de definitieve naam, de bron is intact en het resultaat is `failed`.
+   - **Collision op de tijdelijke naam:** de eerste UUID uit de reeks botst met een bestaand bestand. Dat vreemde bestand is byte-voor-byte ongewijzigd, er bestaat geen `pending`-record met dat pad, en de transfer gebruikt de tweede UUID.
+   - **Collision op de definitieve naam, andere inhoud:** tussen F16 en de publicatie (via een hook in `FileOps`) verschijnt een ander bestand onder de gekozen doelnaam. Dat bestand is byte-voor-byte ongewijzigd. Het resultaat is `renamed` onder een volgende vrije naam, er is precies één record en er is geen `pending`-record meer.
+   - **Collision op de definitieve naam, identieke inhoud:** hetzelfde, maar het verschenen bestand is identiek. Het resultaat is `skipped_identical`, er is precies één record en het tijdelijke bestand is weg.
+   - **Drie keer `EEXIST`:** het resultaat is `failed`, het eigen bestand is weg, de bron is intact en er is precies één record.
+   - **Collision bij verplaatsen binnen hetzelfde volume (route A):** het verschenen bestand is ongewijzigd, het resultaat is `moved` onder een volgende vrije naam en de bron is weg.
+   - **Route C (capaciteit uitgeschakeld), collision:** het verschenen bestand is ongewijzigd. Er wordt nooit een `rename` aangeroepen op een doelnaam die van een ander is.
+   - **Route C, crash na een halve kopie:** na de start is het eigen halve bestand onder de doelnaam weg, staat een vreemd bestand in dezelfde map er nog en is de bron intact.
+   - **Route C, crash na `temp_path = NULL` maar vóór het verwijderen van de bron:** na de start bestaat het complete doelbestand nog, net als de bron.
+   - **Mislukte `pending`-insert na de exclusieve aanmaak:** het eigen, lege tijdelijke bestand is weg, de bron is intact en er heeft geen transfer plaatsgevonden.
+   - **Metadata geslaagd:** na een kopie zijn de wijzigingsdatum en de aanmaakdatum van het doelbestand gelijk aan die van de bron.
+   - **Metadata mislukt** (geïnjecteerd): het bestand is gepubliceerd, het resultaat is `copied` en `error` bevat een waarschuwing.
+   - **Opruimen na een crash:** een `interrupted` run met een `pending`-record waarvan `temp_path` bestaat. Na de start is dat bestand weg. Een vreemd bestand `.macsearch-other.tmp` in dezelfde map is byte-voor-byte ongewijzigd.
+4. `HistoryStore`-tests:
+   - een run met acties wordt opgeslagen en teruggelezen, en de migratie draait op een lege database;
+   - foutinjectie (F19–F19c):
+     - mislukte `search_run`-insert → nul transfers;
+     - mislukte `pending`-insert bij het eerste bestand → nul transfers en de run staat op `aborted`;
+     - mislukte resultaat-update bij het eerste van drie bestanden → precies één transfer, het `pending`-record blijft staan, er zijn geen verdere transfers en de run staat op `aborted`;
+     - mislukte resultaat-update terwijl ook de write van `aborted` faalt → de run blijft op `running` en wordt `interrupted` na een herstart;
+     - Stop tijdens bestand 1 van 3 plus een mislukte resultaat-update van dat bestand → precies één transfer, het `pending`-record blijft staan, er is geen tweede transfer en de status is `aborted` (niet `cancelled`);
+     - een run met overgeslagen items (`skipped_count > 0`) wordt in de geschiedenis als onvolledig gemarkeerd;
+     - het aanmaken van de doelmap mislukt → nul transfers en de run staat op `aborted`;
+     - een database die niet te openen is → Zoeken en OK staan uit;
+     - een run die bij het starten op `running` staat → `interrupted`.
+4a. Opdrachtcontext (F0a–F0d en F8): unit-tests op het toestandsmodel en de uitsluitingsset.
+   - OK is uit tijdens `scanning`.
+   - Een geannuleerde scan geeft `scan_complete = 0`.
+   - Een wijziging van het formulier in `reviewing` verwerpt de resultaten.
+   - Bron gelijk aan de bestemming (ook via een andere schrijfwijze van het pad, bijv. een symlink of hoofdletters): Zoeken is geblokkeerd.
+   - Een bestemming die strikt binnen de bron ligt, met eerdere uitvoer van een **ander** keyword waarvan de bestandsnaam ook matcht: niets uit die bestemming wordt gevonden. Een matchend bestand elders in de bron wordt wel gevonden.
+   - Een zustermap met een prefix-naam (bron `/x/foto`, bestemming `/x/fotos`): er wordt niets uitgesloten.
+   - Een bestemming die een symlink is naar een map strikt binnen de bron: die map wordt uitgesloten.
+   - F0d: na OK verandert het wijzigen van de modus en het passeren van middernacht de doelmap en de modus van de lopende run niet. Stop na bestand 1 van 3 geeft precies één transfer, `cancelled`, en de bestanden 2 en 3 zijn onaangeroerd.
+   - Een mislukte `search_run`-insert bij OK geeft `reviewing` met de resultaten intact.
+5. Handmatige proef op de echte Mac: een map met echte foto's, zoeken op `janpeter visser`, twee bestanden uitvinken en kopiëren. De doelmap `<bestemming>/janpeter visser/<vandaag>/` bevat precies de geselecteerde bestanden, en de run staat in de geschiedenis. Een klik op die run vult het formulier.
+   - Neem een bron onder `~/Desktop` of `~/Documents`, zodat de TCC-toestemming wordt gevraagd en verleend. Een geweigerde toestemming is zichtbaar als `skipped_count > 0`, met de markering "onvolledig".
+6. De app bouwt zonder waarschuwingen in Release.
+7. Handmatige proef van verplaatsen tussen volumes: verplaats één bestand van de interne schijf naar een gekoppelde `.dmg` (`hdiutil create`/`attach`). Het doelbestand is compleet en de bron is weg. Er staan geen `.macsearch-*.tmp`-bestanden meer, en de run staat op `completed`. Herhaal dit met een exFAT-geformatteerde `.dmg`, die route C volgt: het resultaat is hetzelfde.
+
+## 8. Increments
+- **Increment 1 (kernflow):**
+  - Xcode-project en GRDB.
+  - `KeywordMatcher`, `MediaScanner`, `FileTransfer` en `HistoryStore` met tests.
+  - Opdrachtcontext en toestanden (F0a–F0d) en de uitsluitingsset (F8).
+  - Afhandeling van opslagfouten en onvolledige runs (F19–F19c).
+  - Linkerpaneel met formulier, slider met uitvinken, verwerken met samenvatting en geschiedenislijst die het formulier vult. De markering van onvolledige runs hoort hierbij.
+  - Afgerond met de handmatige proeven op de echte Mac (AC5 en AC7).
+- **Increment 2 (Finder-gevoel):** rechterpaneel met de weergaven Bron, Bestemming en Resultaten, navigatie met breadcrumb, Quick Look met de spatiebalk, drag-and-drop van mappen (F22), de filmstrip met thumbnailcache in de slider (F11) en de markering van ontbrekende mappen in de geschiedenis.

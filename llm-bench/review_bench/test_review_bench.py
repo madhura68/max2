@@ -276,6 +276,32 @@ class RealCaseTest(unittest.TestCase):
         self.assertEqual(sorted(case), sorted(["id", "prompt", "payload", "sources", "limits", "contextTokens", "maxCostUsd"]))
 
 
+VARIANTS = {"macsearch-idea263-spec-r5-out128k": (128000, 3600), "macsearch-idea263-spec-r5-out256k": (256000, 7200)}
+PINNED = ("review.md", "payload.json", "sources/doc", "sources/__dispatch_input")
+
+
+@unittest.skipUnless(REAL_CASE.is_dir(), "the frozen case is not in this checkout")
+class VariantCaseTest(unittest.TestCase):
+    """M9 (plan 4.1): each variant is the frozen case with another id and other limits, and nothing else."""
+
+    def test_each_variant_is_the_frozen_case_with_other_limits(self):
+        original = json.loads((REAL_CASE / "case.json").read_text())
+        rest = {key: value for key, value in original.items() if key not in ("id", "limits")}
+        for case_id, (max_output, wall) in VARIANTS.items():
+            variant = HERE / "cases" / case_id
+            with self.subTest(case_id):
+                self.assertEqual(check_case.check_case(variant), [])
+                for name in PINNED:
+                    self.assertEqual((variant / name).read_bytes(), (REAL_CASE / name).read_bytes(), name)
+                case = json.loads((variant / "case.json").read_text())
+                self.assertEqual(list(case), list(original))                    # the same keys, in the same order
+                self.assertEqual(case["id"], case_id)
+                self.assertEqual(case["limits"], {"maxTurns": 30, "maxOutputTokens": max_output, "maxWallSeconds": wall, "maxToolErrors": 8})
+                self.assertEqual({key: value for key, value in case.items() if key not in ("id", "limits")}, rest)
+                files = sorted(str(path.relative_to(variant)) for path in variant.rglob("*") if path.is_file())
+                self.assertEqual(files, sorted(["case.json", "SOURCE.md", *PINNED]))
+
+
 # ---------------------------------------------------------------------------------------------------------------------
 # the driver (M8, T-102): run.py against fake_review_bench.py and a fake LiteLLM
 # ---------------------------------------------------------------------------------------------------------------------
@@ -307,11 +333,13 @@ def clean_env(**extra):
     return env
 
 
-def make_driver_case(root, case_id=DRIVER_CASE_ID, max_cost="1"):
-    """A case dir for the driver: it reads `id` and `maxCostUsd` of case.json and hands the dir to the harness; the stand-in needs no more."""
+def make_driver_case(root, case_id=DRIVER_CASE_ID, max_cost="1", max_output=64000, context=131072):
+    """A case dir for the driver: it reads `id`, `maxCostUsd`, `limits.maxOutputTokens` and `contextTokens` of case.json (the defaults are
+    those of the frozen case) and hands the dir to the harness; the stand-in needs no more."""
     case_dir = Path(root) / "driver-case"
     case_dir.mkdir()
-    (case_dir / "case.json").write_text(json.dumps({"id": case_id, "maxCostUsd": max_cost}), encoding="utf-8")
+    case = {"id": case_id, "maxCostUsd": max_cost, "limits": {"maxOutputTokens": max_output}, "contextTokens": context}
+    (case_dir / "case.json").write_text(json.dumps(case), encoding="utf-8")
     return case_dir
 
 
@@ -672,7 +700,8 @@ class BudgetTest(DriverBase):
         self.assertEqual(self.ran(), [(ALFA, 1)])
 
     def test_the_ceiling_is_the_max_cost_of_the_case(self):
-        (self.case_dir / "case.json").write_text(json.dumps({"id": DRIVER_CASE_ID, "maxCostUsd": "2.50"}), encoding="utf-8")
+        case = {"id": DRIVER_CASE_ID, "maxCostUsd": "2.50", "limits": {"maxOutputTokens": 64000}, "contextTokens": 131072}
+        (self.case_dir / "case.json").write_text(json.dumps(case), encoding="utf-8")
         self.preload(7.40)
         self.assertEqual(self.drive([ALFA], runs=1, budget="10", config={"default": {"cost": 0}}).returncode, 0)
         self.reset()
@@ -1011,6 +1040,40 @@ class PreflightTest(DriverBase):
                 else:
                     self.assertEqual(body["reasoning_effort"], effort)
                 self.assertEqual(sorted(body), sorted(["model", "max_tokens", "messages", "tools", *(["reasoning_effort"] if effort else [])]))
+
+    def test_max_tokens_is_what_the_harness_asks_on_turn_one(self):
+        # M9 plan 4.2: min(limits.maxOutputTokens, contextTokens - 3198); both M9 variants give 127874, the frozen case 64000
+        for max_output, expected in ((128000, 127874), (256000, 127874), (64000, 64000), (100000, 100000)):
+            with self.subTest(max_output):
+                self.reset()
+                self.litellm.requests.clear()
+                shutil.rmtree(self.case_dir)
+                self.case_dir = make_driver_case(self.tmp, max_output=max_output)
+                done = self.preflight([ALFA])
+                self.assertEqual(done.returncode, 0, done.stderr)
+                [request] = self.litellm.requests
+                self.assertEqual(request["body"]["max_tokens"], expected)
+                self.assertEqual(done.stdout.count(f"preflight max_tokens {expected}"), 1)
+
+    def test_a_case_without_usable_limits_is_refused_before_any_request(self):
+        base = {"id": DRIVER_CASE_ID, "maxCostUsd": "1"}
+        for what, extra in (("no limits", {"contextTokens": 131072}),
+                            ("no maxOutputTokens", {"limits": {}, "contextTokens": 131072}),
+                            ("a maxOutputTokens that is a string", {"limits": {"maxOutputTokens": "128000"}, "contextTokens": 131072}),
+                            ("a maxOutputTokens that is a bool", {"limits": {"maxOutputTokens": True}, "contextTokens": 131072}),
+                            ("no contextTokens", {"limits": {"maxOutputTokens": 128000}}),
+                            ("a contextTokens of zero", {"limits": {"maxOutputTokens": 128000}, "contextTokens": 0}),
+                            ("a contextTokens that is a float", {"limits": {"maxOutputTokens": 128000}, "contextTokens": 131072.0}),
+                            ("no room after the first prompt", {"limits": {"maxOutputTokens": 128000}, "contextTokens": 3198})):
+            with self.subTest(what):
+                self.reset()
+                self.litellm.requests.clear()
+                (self.case_dir / "case.json").write_text(json.dumps({**base, **extra}), encoding="utf-8")
+                done = self.preflight([ALFA])
+                self.assertEqual(done.returncode, 2, done.stderr)
+                self.assertIn("case.json", done.stderr)
+                self.assertEqual(self.litellm.requests, [])
+                self.assert_nothing_started()
 
     def test_one_request_per_configuration_and_no_harness_call(self):
         self.assertEqual(self.preflight().returncode, 0)
