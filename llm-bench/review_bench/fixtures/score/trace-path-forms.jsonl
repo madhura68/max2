@@ -1,0 +1,8 @@
+{"ts": "2026-10-20T10:00:01.000Z", "type": "tool_call", "callId": "call-1", "name": "read_file", "arguments": "{\"path\": \"./sources/doc\"}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:02.000Z", "type": "tool_call", "callId": "call-2", "name": "read_file", "arguments": "{\"path\": \"/var/lib/agent-harness/runs/synth-case-cfg-alfa-00000001/root/sources/doc\", \"offset\": 9}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:03.000Z", "type": "tool_call", "callId": "call-3", "name": "read_file", "arguments": "{\"path\": \"sources//doc\", \"limit\": 20}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:04.000Z", "type": "tool_call", "callId": "call-4", "name": "read_file", "arguments": "{\"path\": \"sources/../sources/doc\"}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:05.000Z", "type": "tool_call", "callId": "call-5", "name": "read_file", "arguments": "{\"path\": \"/var/lib/agent-harness/runs/an-other-run/root/sources/doc\"}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:06.000Z", "type": "tool_call", "callId": "call-6", "name": "read_file", "arguments": "{\"path\": \"/sources/doc\"}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:07.000Z", "type": "tool_call", "callId": "call-7", "name": "read_file", "arguments": "{\"path\": \"/var/lib/agent-harness/runs/synth-case-cfg-alfa-00000001/root/sources/__dispatch_input\"}", "argumentsWasObject": false}
+{"ts": "2026-10-20T10:00:08.000Z", "type": "tool_call", "callId": "call-8", "name": "read_file", "arguments": {"path": "sources/doc", "offset": 3}, "argumentsWasObject": true}

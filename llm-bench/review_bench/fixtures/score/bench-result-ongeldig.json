@@ -1,0 +1,44 @@
+{
+  "caseId": "synth-case",
+  "label": "cfg-alfa",
+  "runId": "synth-case-cfg-alfa-00000001",
+  "configuration": {
+    "name": "cfg-alfa",
+    "costMode": "hosted",
+    "reasoningEffort": "high"
+  },
+  "contextTokens": 131072,
+  "status": "resultaat_ongeldig",
+  "runStatus": "failed",
+  "error": {
+    "code": "REVIEW_RESULT_INVALID",
+    "message": "het resultaat bleef ongeldig"
+  },
+  "result": null,
+  "validation": {
+    "attempts": 2,
+    "errors": [
+      "Het resultaat past niet in het schema."
+    ]
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 52000,
+    "outputTokens": 3100,
+    "costUsd": 0.12,
+    "turns": 12,
+    "toolCalls": 11,
+    "toolErrors": 0,
+    "cachedTokens": 0,
+    "reasoningTokens": 900
+  },
+  "peakInputTokens": 61000,
+  "turns": 12,
+  "toolCalls": 11,
+  "toolErrors": 0,
+  "providers": [
+    "Fake"
+  ],
+  "retries": [],
+  "durationMs": 91500
+}

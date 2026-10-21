@@ -1,0 +1,10 @@
+{
+  "cfg-alfa": {
+    "ok": false,
+    "reason": "HTTP 400: model niet beschikbaar"
+  },
+  "cfg-beta": {
+    "ok": true,
+    "reason": null
+  }
+}

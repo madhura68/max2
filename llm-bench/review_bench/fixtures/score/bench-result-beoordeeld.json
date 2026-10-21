@@ -1,0 +1,61 @@
+{
+  "caseId": "synth-case",
+  "label": "cfg-alfa",
+  "runId": "synth-case-cfg-alfa-00000001",
+  "configuration": {
+    "name": "cfg-alfa",
+    "costMode": "hosted",
+    "reasoningEffort": "high"
+  },
+  "contextTokens": 131072,
+  "status": "beoordeeld",
+  "runStatus": "completed",
+  "result": {
+    "version": 1,
+    "outcome": "succeeded",
+    "summary": "Synthetische review: een bevinding over een synthetische regel.",
+    "report_markdown": "# Synthetisch rapport\n\nEen bevinding over een synthetische regel.\n\n- MAJOR: de synthetische regel mist een controle.\n",
+    "checks": [],
+    "review": {
+      "verdict": "NO-GO",
+      "documents": {
+        "version": 1,
+        "items": [
+          {
+            "key": "doc",
+            "title": "Synthetisch document",
+            "product_id": "product-1",
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000",
+            "source": "product_doc",
+            "doc_id": "doc-1",
+            "revision_id": "rev-1"
+          }
+        ]
+      }
+    }
+  },
+  "validation": {
+    "attempts": 1,
+    "errors": []
+  },
+  "usage": {
+    "source": "provider_reported",
+    "inputTokens": 52000,
+    "outputTokens": 3100,
+    "costUsd": 0.12,
+    "turns": 12,
+    "toolCalls": 11,
+    "toolErrors": 0,
+    "cachedTokens": 0,
+    "reasoningTokens": 900
+  },
+  "peakInputTokens": 61000,
+  "turns": 12,
+  "toolCalls": 11,
+  "toolErrors": 0,
+  "providers": [
+    "Fake"
+  ],
+  "retries": [],
+  "durationMs": 91500
+}

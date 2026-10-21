@@ -1,0 +1,3 @@
+{"sheet": "aaaa0001", "f1": "major", "f2": "minor", "minors": ["M1", "M3"], "extra": []}
+{"sheet": "aaaa0002", "f1": "major", "f2": "nee", "minors": [], "extra": [{"key": "x-temp-path-race", "voorstel": "geldig", "reden": "Klopt tegen regel 120 van sources/doc."}]}
+{"sheet": "aaaa0003", "f1": "minor", "f2": "major", "minors": ["M2", "M2", "M6"], "extra": [{"key": "x-verzonnen-api", "voorstel": "ongeldig", "reden": "De genoemde API komt niet voor in sources/doc."}, {"key": "x-nog-niet-beslist", "voorstel": "geldig", "reden": "Klopt, maar JP heeft nog niet beslist."}]}
