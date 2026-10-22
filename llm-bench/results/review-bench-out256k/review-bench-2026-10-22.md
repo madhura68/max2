@@ -113,7 +113,7 @@ Volgens de regel van stap 2 (plan §4.3) gingen deepseek-v4-flash-or en deepseek
 | Tweede aanroep (pro, sol), op JP's besluit | 04:38:19–07:08:41 | 6/6 resultaten, 1 benchfout (herhaald), exit 0 |
 | Releasecontrole na de laatste run | 07:09:06 | ongewijzigd: readlink en link-mtime gelijk |
 
-Het tegoed was $32,04; het verbruik van het 128k-venster op het OpenRouter-dashboard ($1,16) klopte met het grootboek ($1,1607). Het budget was $10 (`min(10, 32,04 − 2)`). Het grootboek van dit venster komt uit op $1,1522 (12 regels: 3 preflights en 9 runs).
+Het tegoed was $32,04. Het verschil met het tegoed van vóór het 128k-venster ($33,20 − $32,04 = $1,16) klopte met het grootboek van dat venster ($1,1607). Het budget was $10 (`min(10, 32,04 − 2)`). Het grootboek van dit venster komt uit op $1,1522 (12 regels: 3 preflights en 9 runs).
 
 ### Controles
 
@@ -128,7 +128,7 @@ Er is geen `limiet`-run in dit venster. De drie runs van pro gebruikten 113 325,
 ### Afwijkingen van het plan
 
 - **De driver stopte na een tweede benchfout (exit 3).** deepseek-v4-flash-or r1 faalde twee keer op dezelfde manier: OpenRouter gaf een antwoord dat geen JSON was ("Unable to get json response"). Beide pogingen faalden bij turn 16, na ongeveer 168 000 output-tokens en 74 minuten. De mislukte requests vroegen `maxTokens` 87408 en 88213, met een input van 24 000 à 26 000 tokens, en faalden na 163 en 258 s. Dat is geen contextgrens en geen limietoorzaak (§4.2).
-- **JP besliste: door met pro en sol.** Een nieuwe aanroep met flash zou direct weer stoppen op zijn r1. Op JP's besluit van 2026-10-22 draaide de tweede aanroep alleen deepseek-v4-pro-or en gpt-6.1-sol-or. deepseek-v4-flash-or r2 en r3 zijn niet gedraaid ("gestopt na tweede benchfout op deepseek-v4-flash-or"); flash heeft bij 256k geen oordeel.
+- **JP besliste: door met pro en sol.** Een nieuwe aanroep met flash zou direct weer stoppen op zijn r1. Op JP's besluit van 2026-10-22 draaide de tweede aanroep alleen deepseek-v4-pro-or en gpt-6.1-sol-or. deepseek-v4-flash-or r2 en r3 zijn niet gedraaid ("gestopt na tweede benchfout op deepseek-v4-flash-or"). Flash valt bij 256k af volgens de regel (0/3), maar zonder één beoordeelde run: dat is een fout van de provider, geen resultaat van het model.
 - **Nog een benchfout, herhaald.** deepseek-v4-pro-or r1 faalde de eerste keer na 17 minuten met dezelfde fout (turn 6, `maxTokens` 116503, na 409 s). De herhaling werd beoordeeld.
 - **De provider.** Alle vier de benchfouten van M9, ook die van pro bij 128k, kwamen van gesprekken die OpenRouter naar de provider StreamLake stuurde. Flash liep bij 128k via Baidu, zonder fouten. De geslaagde runs van pro bij 256k liepen ook via StreamLake. De oorzaak bij StreamLake of OpenRouter is niet onderzocht; de provider is niet vastgezet, want dat zou een tweede variabele naast de output-limiet zijn.
 - **De kop van het rapport.** De kop noemt de basiscase `macsearch-idea263-spec-r5`, niet de variant. JP aanvaardde dat (plan §4.4). De datum van het rapport is 2026-10-22: het venster begon op 21 oktober om 23:34 en liep verder door op 22 oktober.
@@ -139,7 +139,7 @@ Er is geen `limiet`-run in dit venster. De drie runs van pro gebruikten 113 325,
 
 | Model | 64k (M8) | 128k | 256k |
 | --- | --- | --- | --- |
-| deepseek-v4-flash-or | valt af (0/3): 3× limiet (budget) | valt af (0/3): 2× GO zonder F1, 1× limiet (budget) | geen oordeel: r1 2× benchfout (StreamLake), r2 en r3 niet gedraaid |
+| deepseek-v4-flash-or | valt af (0/3): 3× limiet (budget) | valt af (0/3): 2× GO zonder F1, 1× limiet (budget) | valt af (0/3): geen beoordeelde run; r1 2× benchfout (StreamLake), r2 en r3 niet gedraaid |
 | deepseek-v4-pro-or | valt af (0/3): 1× GO zonder F1, 2× limiet | valt af (0/3): 2× limiet (budget), 1× ongeldige JSON | valt af (0/3): GO, GO, NO-GO; F1 in geen enkele run |
 | qwen3.8-or-128k | valt af (0/3): 1× limiet, 2× GO zonder F1 | valt af (0/3): 3× GO, F1 één keer als MINOR | niet gedraaid (geen `limiet`-run bij 128k) |
 | gpt-6.1-sol-or (controle) | kandidaat (3/3) | kandidaat (3/3) | kandidaat (3/3) |
